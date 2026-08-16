@@ -1,0 +1,40 @@
+# ── PlotEdge / .gitignore ──
+# Create this on GitHub at the repository ROOT, named exactly: .gitignore
+
+# Dependencies. Restored by `npm install`; committing them adds tens of
+# thousands of files to every diff and every clone.
+node_modules/
+
+# The Capacitor Android project. Regenerated from scratch by the workflow on
+# every build (`npx cap add android`), and the patch scripts in scripts/ rewrite
+# parts of it. A committed copy would go stale silently and start fighting them.
+android/
+www/
+
+# Python bytecode from the scripts/ patch tools. Harmless locally,
+# but it lands in diffs and is regenerated on every run.
+__pycache__/
+*.pyc
+
+# Build output
+*.apk
+*.aab
+*.idsig
+dist/
+build/
+
+# Local env / editor / OS noise
+.env
+.env.local
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.log
+npm-debug.log*
+
+# NOTE — signing/plotedge-release.keystore is deliberately NOT ignored.
+# It must stay in the repo, byte-identical between builds. If it is lost, no
+# future build can update an existing install: every user has to uninstall,
+# which deletes their captured data. See BUILD_APK.md.
