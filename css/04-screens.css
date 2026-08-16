@@ -1,0 +1,301 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — Screen-specific: digitizing aids, attribute table, PlotEtch
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first. */
+
+  /* ══════════════ DIGITIZING AIDS (vertex map) ══════════════ */
+  .digi-readout {
+    position:absolute; top:10px; left:10px; z-index:500; pointer-events:none;
+    padding:7px 11px; border-radius:11px;
+    background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.14);
+    box-shadow:0 3px 12px rgba(0,0,0,0.4);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .digi-readout { backdrop-filter:var(--glass-8); -webkit-backdrop-filter:var(--glass-8); }
+  }
+  /* Fixed light-on-dark regardless of theme: it sits on satellite imagery, which is dark and busy
+     in both themes, so following the light theme here would make it unreadable over trees. */
+  .digi-main { display:block; font-family:var(--font-display); font-size:17px; font-weight:700; color:#F8FAFC; line-height:1.15; letter-spacing:-0.01em; }
+  .digi-sub  { display:block; font-size:10.5px; color:rgba(248,250,252,0.72); margin-top:2px; }
+  .vertex-map-tools { display:flex; gap:7px; margin-top:8px; }
+  .digi-snap-btn {
+    display:flex; align-items:center; gap:5px; padding:6px 11px; border-radius:999px; cursor:pointer;
+    background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary);
+    font-size:11.5px; font-weight:700; font-family:var(--font);
+  }
+  .digi-snap-btn.on { background:var(--accent-primary); border-color:var(--accent-primary); color:var(--on-accent); }
+  .digi-snap-btn:active { transform:scale(0.97); }
+
+  /* ══════════════ ATTRIBUTE TABLE (Review) ══════════════
+     The one view where horizontal scrolling is correct rather than a layout failure: an attribute
+     table with a dozen columns cannot wrap without stopping being a table. The name column is
+     sticky so a row is still identifiable once scrolled right, and the header is sticky so column
+     meaning survives scrolling down a long capture. */
+  .review-viewmode { display:flex; gap:2px; padding:3px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--card-border); flex-shrink:0; }
+  .rv-btn { display:flex; align-items:center; justify-content:center; width:32px; height:28px; border:none; border-radius:999px; background:none; color:var(--text-tertiary); cursor:pointer; transition:background 0.15s, color 0.15s; }
+  .rv-btn.active { background:var(--accent-primary); color:var(--on-accent); }
+  .attr-table-wrap { border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); box-shadow:var(--card-shadow); overflow:hidden; margin-bottom:16px; }
+  .attr-table-bar { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--card-border); }
+  .attr-table-count { flex:1; font-size:11.5px; font-weight:700; color:var(--text-secondary); }
+  .attr-table-btn { display:flex; align-items:center; gap:5px; padding:6px 10px; border-radius:8px; border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--white); font-size:11.5px; font-weight:700; font-family:var(--font); cursor:pointer; }
+  .attr-table-btn:active { background:var(--accent-primary); color:var(--on-accent); }
+  /* Lit while a query is applied — the button doubles as the indicator that the table is not
+     showing everything. */
+  .attr-table-btn.on { background:var(--accent-primary); color:var(--on-accent); border-color:var(--accent-primary); }
+
+  /* ══ APPLIED QUERY BANNER ══ Always visible while filtering, because a silently narrowed
+     attribute table is indistinguishable from missing data. */
+  .attr-query-active { display:flex; align-items:center; gap:8px; padding:7px 10px;
+    background:rgba(var(--accent-rgb),0.12); border-bottom:1px solid var(--card-border); }
+  .attr-query-active code { flex:1; min-width:0; font-size:11px; color:var(--text-primary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .attr-query-active .aq-x { flex-shrink:0; width:22px; height:22px; border-radius:6px; border:none;
+    background:transparent; color:var(--text-secondary); font-size:13px; cursor:pointer; }
+
+  .attr-selection-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 10px;
+    border-bottom:1px solid var(--card-border); background:var(--surface-sunken); }
+  .attr-selection-bar > span { font-size:11.5px; font-weight:800; color:var(--text-primary); margin-right:auto; }
+
+  /* Selection checkbox column. Narrow and sticky-left so it stays reachable while the table is
+     scrolled sideways through a wide schema. */
+  .attr-table th.attr-sel-col, .attr-table td.attr-sel-col { width:34px; min-width:34px; padding:0 4px; text-align:center; }
+  .attr-sel-box { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+    border-radius:5px; border:1.5px solid var(--card-border); background:var(--bg-primary);
+    font-size:11px; font-weight:900; color:var(--on-accent); }
+  .attr-sel-box.on { background:var(--accent-primary); border-color:var(--accent-primary); }
+  .attr-table tr.picked { background:rgba(var(--accent-rgb),0.10); }
+
+  /* ══ QUERY SHEET ══ */
+  .aq-error { font-size:12px; color:var(--danger); background:rgba(var(--danger-rgb),0.12);
+    border-radius:8px; padding:8px 10px; margin-bottom:8px; line-height:1.45; }
+  .aq-preview { font-size:11.5px; color:var(--text-secondary); margin-bottom:10px; min-height:14px; }
+  .aq-section-label { font-size:10.5px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--text-secondary); margin:10px 0 6px; }
+  .aq-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .aq-chip, .aq-preset { padding:6px 10px; border-radius:999px; border:1px solid var(--card-border);
+    background:var(--surface-sunken); color:var(--text-primary); font-size:11.5px; font-weight:700;
+    font-family:var(--font); cursor:pointer; }
+  .aq-chip:active, .aq-preset:active { background:var(--accent-primary); color:var(--on-accent); }
+  .aq-preset { border-radius:8px; text-align:left; }
+  #attrQueryInput { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; line-height:1.5; }
+  .aq-help { margin:12px 0 4px; font-size:12px; color:var(--text-secondary); }
+  .aq-help summary { cursor:pointer; font-weight:700; color:var(--text-primary); }
+  .aq-help ul { margin:8px 0 0 16px; line-height:1.7; }
+  .aq-help code { font-size:11px; background:var(--surface-sunken); padding:1px 4px; border-radius:4px; }
+
+  .aq-stat { display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:8px 10px; border-bottom:1px solid var(--card-border); font-size:12.5px; color:var(--text-secondary); }
+  .aq-stat strong { color:var(--text-primary); font-weight:800; }
+  .aq-stat-row { width:100%; border:none; border-bottom:1px solid var(--card-border);
+    background:transparent; font-family:var(--font); text-align:left; cursor:pointer; }
+  .aq-stat-row:active { background:rgba(var(--accent-rgb),0.12); }
+  /* overscroll-behavior:contain stops the scroll chaining on to .modal-box (and the page behind
+     it) once this table hits its end — without it, flicking the last row drags the whole sheet. */
+  .attr-table-scroll { overflow:auto; overscroll-behavior:contain; max-height:62vh; -webkit-overflow-scrolling:touch; }
+  .attr-table { border-collapse:separate; border-spacing:0; font-size:12px; white-space:nowrap; min-width:100%; }
+  .attr-table th, .attr-table td { padding:9px 11px; border-bottom:1px solid var(--card-border); text-align:left; }
+  .attr-table th {
+    position:sticky; top:0; z-index:2; cursor:pointer; user-select:none;
+    background:var(--surface-sunken); color:var(--text-secondary);
+    font-size:10.5px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+  }
+  .attr-table th:active { color:var(--accent-primary); }
+  .attr-sort { margin-left:4px; opacity:0.35; font-size:9px; }
+  .attr-table th.sorted .attr-sort { opacity:1; color:var(--accent-primary); }
+  /* Sticky name column. z-index 3 on the corner cell so it stays above the sticky header row it
+     crosses; 1 on body cells so they clear ordinary cells but stay under the header. */
+  .attr-table th:first-child, .attr-table td:first-child {
+    position:sticky; left:0; background:var(--card-bg);
+    border-right:1px solid var(--card-border); font-weight:700; color:var(--white); z-index:1;
+    max-width:150px; overflow:hidden; text-overflow:ellipsis;
+  }
+  .attr-table th:first-child { background:var(--surface-sunken); z-index:3; }
+  .attr-table td { color:var(--text-secondary); }
+  .attr-table tbody tr { cursor:pointer; }
+  .attr-table tbody tr:active td { background:var(--surface-sunken); }
+  .attr-table tbody tr.selected td { background:rgba(var(--accent-rgb),0.14); }
+  .attr-table tbody tr.selected td:first-child { background:rgba(var(--accent-rgb),0.2); color:var(--white); box-shadow:inset 3px 0 0 var(--accent-primary); }
+  .attr-cell-empty { opacity:0.4; }
+  .attr-cell-num { font-family:var(--mono); }
+  .attr-flag { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .attr-flag.warn { background:var(--warn); }
+  .attr-flag.ok { background:var(--success); }
+  .attr-table-empty { padding:28px 16px; text-align:center; color:var(--text-secondary); font-size:13px; }
+  html[data-contrast="high"] .attr-table th { font-weight:900; }
+  html[data-density="compact"] .attr-table th,
+  html[data-density="compact"] .attr-table td { padding:7px 9px !important; }
+
+  /* ══════════════ PLOTETCH — ON-SCREEN DIGITIZING ══════════════
+     The counterpart to Collect: Collect captures where you physically *are* (GPS walks the
+     geometry), PlotEtch draws where something *is* on a map you're looking at. Both produce the
+     same feature shape, which is the point — a sketch traced off imagery can be pushed straight
+     into Collect to have its attributes filled in, and from there it's an ordinary feature that
+     exports through the same pipeline as a walked one.
+     The map is its own Leaflet instance rather than a third docking target for the shared review
+     map: that map is wired to savedFeatures and gets cleared/redrawn by renderReviewMap() on every
+     stats update, which would wipe an in-progress sketch mid-draw. Two instances cost a little
+     memory and buy complete isolation. */
+  /* ══ PLOTETCH LAYOUT — MAP FIRST ══
+     This screen used to be a 56vh map with six stacked button rows scrolling underneath it: mode
+     bar, readout, draw tools, sketch list, import/export, then three rows of analysis. On a
+     handset that put the map — the thing you are actually working in — into a little under half
+     the screen, and pushed Undo/Finish (needed on literally every vertex) below the fold on
+     shorter devices.
+     Every mobile GIS drawing tool resolves this the same way: the map takes the whole canvas, the
+     controls you need *while drawing* float on top of it in the thumb zone, and everything you
+     need *between* drawings (the sketch list, import/export, analysis) lives behind one sheet.
+     That is the layout below. #view-plotetch becomes a flex column so the map claims whatever is
+     left after the header and mode bar, with no fixed vh guess to get wrong on a tall or short
+     screen. */
+  #view-plotetch.active { display:flex; flex-direction:column; height:100dvh; overflow:hidden; }
+  #view-plotetch .subpage-header { flex-shrink:0; position:static; }
+  .pe-modebar { display:flex; gap:6px; padding:10px 12px; background:var(--card-bg); border-bottom:1px solid var(--card-border); flex-shrink:0; }
+  .pe-map-wrap { position:relative; flex:1; min-height:0; background:var(--card-bg); }
+  #plotetchMap { position:absolute; inset:0; height:auto; width:100%; background:var(--surface-sunken); z-index:0; }
+  .pe-map-empty {
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center; text-align:center;
+    padding:24px; font-size:12.5px; color:var(--text-secondary); background:var(--surface-sunken); z-index:400; pointer-events:none;
+  }
+
+  /* ── FLOATING READOUT ── the running length/area, over the map rather than in a bar below it, so
+       the number and the shape it describes are in the same glance. */
+  .pe-readout {
+    position:absolute; top:10px; left:10px; right:52px; z-index:410;
+    display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:12px;
+    background:rgba(10,14,22,0.72); color:#E8EEF7; border:1px solid rgba(255,255,255,0.10);
+    font-size:11.5px; font-variant-numeric:tabular-nums; pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,0.28);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    /* --glass-10, not a literal blur(): html.native-android neutralises every --glass-N token in
+       one place, and a hardcoded value here would silently reintroduce the Android WebView
+       compositor stall on this screen only. */
+    .pe-readout { backdrop-filter:var(--glass-10); -webkit-backdrop-filter:var(--glass-10); }
+  }
+  .pe-readout strong { color:#fff; font-weight:800; }
+  .pe-readout-spacer { margin-left:auto; }
+  #peSnapState { font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; opacity:0.75; }
+
+  /* ── FLOATING DRAW BAR ── Undo / Finish / Discard pinned to the bottom of the map. These are the
+       three actions taken between every pair of taps while digitising, so they get the thumb zone
+       and never scroll. */
+  .pe-drawbar {
+    position:absolute; left:10px; right:10px; bottom:10px; z-index:410;
+    display:flex; gap:7px;
+  }
+  .pe-drawbar .pe-tool { box-shadow:0 6px 18px rgba(0,0,0,0.30); }
+  /* ── MAP BUTTON STACK ── basemap / locate, stacked top-right clear of the readout. */
+  .pe-mapbtns { position:absolute; top:10px; right:10px; z-index:410; display:flex; flex-direction:column; gap:7px; }
+  .pe-mapbtn {
+    width:38px; height:38px; border-radius:11px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid rgba(255,255,255,0.12); background:rgba(10,14,22,0.72); color:#E8EEF7;
+    box-shadow:0 4px 14px rgba(0,0,0,0.28);
+  }
+  .pe-mapbtn:active { transform:scale(0.94); }
+  .pe-mapbtn.on { background:var(--accent-primary); border-color:transparent; color:var(--on-accent,#fff); }
+
+  /* ── SHEET HANDLE ── the single entry point to everything that is not drawing. Shows the sketch
+       count so the list does not have to be open to know whether there is anything in it. */
+  .pe-sheet-handle {
+    flex-shrink:0; display:flex; align-items:center; gap:10px; width:100%; cursor:pointer;
+    padding:12px 16px calc(12px + var(--sab));
+    border:none; border-top:1px solid var(--card-border); background:var(--card-bg);
+    font-family:var(--font); font-size:13px; font-weight:800; color:var(--text-primary);
+  }
+  .pe-sheet-handle:active { background:var(--surface-sunken); }
+  .pe-sheet-handle-count {
+    margin-left:auto; font-size:11px; font-weight:800; padding:3px 9px; border-radius:999px;
+    background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary);
+  }
+
+  .pe-toolrow { display:flex; gap:7px; flex-wrap:wrap; }
+  .pe-tool {
+    flex:1; min-width:78px; display:flex; align-items:center; justify-content:center; gap:5px;
+    padding:11px 8px; cursor:pointer; border:1px solid var(--card-border); border-radius:10px;
+    background:var(--card-bg); box-shadow:var(--card-shadow); font-family:var(--font);
+    font-size:11px; font-weight:800; color:var(--text-primary); transition:transform 0.12s ease, border-color 0.15s;
+  }
+  .pe-mode-btn {
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 4px; cursor:pointer;
+    border:1px solid var(--card-border); border-radius:10px; background:var(--surface-sunken); font-family:var(--font);
+    font-size:10.5px; font-weight:800; color:var(--text-secondary); transition:background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .pe-mode-btn.active { background:var(--accent-primary); border-color:transparent; color:var(--on-accent,#fff); }
+  .pe-mode-btn.active svg { color:var(--on-accent,#fff); }
+  .pe-mode-btn svg { color:var(--accent-primary); }
+
+  .pe-tool:active { transform:scale(0.97); border-color:var(--accent-primary); }
+  .pe-tool[disabled] { opacity:0.4; pointer-events:none; }
+  .pe-tool.primary { background:var(--accent-primary); border-color:transparent; color:var(--on-accent,#fff); }
+  .pe-tool.danger { color:var(--danger, #EF4444); }
+
+  /* Leaflet puts zoom top-left and attribution bottom-right by default, which is exactly where
+     the floating readout and the draw bar now sit. Insetting the control corners keeps both
+     usable instead of stacking them on top of each other. */
+  .pe-map-wrap .leaflet-top.leaflet-left { margin-top:46px; }
+  .pe-map-wrap .leaflet-bottom.leaflet-right { margin-bottom:52px; }
+  .pe-map-wrap .leaflet-control-attribution { font-size:9px; opacity:0.8; }
+  /* Rotate control (Leaflet-Rotate, added alongside touchRotate in js/15-plotetch.js) — bottom-left
+     is free here. closeOnZeroBearing keeps it hidden until the map is actually twisted off north. */
+  .pe-map-wrap .leaflet-control-rotate-toggle {
+    width:30px; height:30px;
+    border-radius:10px;
+    border:1px solid var(--card-border) !important;
+    background:var(--nav-bg);
+    backdrop-filter:var(--glass-12);
+    -webkit-backdrop-filter:var(--glass-12);
+    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+  }
+  .pe-section-label { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin:14px 0 8px; }
+
+  /* ── SKETCH LIST ── one row per finished shape. */
+  .pe-sketch {
+    display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:7px; cursor:pointer;
+    border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); box-shadow:var(--card-shadow);
+  }
+  .pe-sketch:active { background:var(--surface-sunken); }
+  .pe-sketch.sel { border-color:var(--accent-primary); box-shadow:0 0 0 2px rgba(var(--accent-rgb),0.18); }
+  .pe-sketch-chip { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .pe-sketch-body { flex:1; min-width:0; }
+  .pe-sketch-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pe-sketch-meta { font-size:11px; color:var(--text-secondary); margin-top:1px; font-variant-numeric:tabular-nums; }
+  .pe-sketch-x { flex-shrink:0; width:26px; height:26px; border-radius:7px; border:none; background:var(--surface-sunken); color:var(--text-tertiary); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .pe-empty { padding:16px; text-align:center; font-size:12px; color:var(--text-tertiary); border:1px dashed var(--card-border); border-radius:var(--rl); }
+
+  /* Analysis results read as console output — monospace so aligned figures compare down the column. */
+  .pe-result { margin-top:10px; padding:12px 13px; border:1px solid var(--card-border); border-radius:var(--rl); background:var(--surface-sunken); }
+  .pe-result-title { font-size:10px; font-weight:800; letter-spacing:0.09em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:7px; }
+  .pe-result-line { font-family:var(--font-mono, monospace); font-size:11.5px; color:var(--text-primary); padding:2px 0; font-variant-numeric:tabular-nums; }
+  .pe-result-note { font-size:10.5px; color:var(--text-tertiary); margin-top:8px; line-height:1.5; }
+
+  /* ══ LAYER MANAGER ROWS ══ */
+  .lm-row { display:flex; align-items:center; gap:11px; padding:11px 0; border-bottom:1px solid var(--card-border); }
+  .lm-row:last-of-type { border-bottom:none; }
+  .lm-swatch { width:14px; height:14px; border-radius:4px; flex-shrink:0; }
+  .lm-body { flex:1; min-width:0; }
+  .lm-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lm-meta { font-size:11px; color:var(--text-secondary); margin-top:1px; }
+
+  /* ══ FEATURE INSPECTOR ══ */
+  .fi-head { display:flex; align-items:flex-start; gap:11px; margin-bottom:14px; }
+  .fi-chip { width:12px; height:12px; border-radius:4px; flex-shrink:0; margin-top:5px; }
+  .fi-title { font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--white); line-height:1.25; }
+  .fi-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .fi-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-bottom:14px; }
+  .fi-stat { padding:9px 10px; border:1px solid var(--card-border); border-radius:10px; background:var(--surface-sunken); }
+  .fi-stat-lbl { font-size:9.5px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-tertiary); }
+  .fi-stat-val { font-size:13.5px; font-weight:800; color:var(--text-primary); margin-top:2px; font-variant-numeric:tabular-nums; }
+  .fi-attr { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--card-border); font-size:12.5px; }
+  .fi-attr:last-child { border-bottom:none; }
+  .fi-attr-k { color:var(--text-secondary); flex-shrink:0; max-width:45%; }
+  .fi-attr-v { color:var(--text-primary); font-weight:600; margin-left:auto; text-align:right; word-break:break-word; }
+
+  /* ══ HELP & ABOUT ══ */
+  .help-h { font-size:13px; font-weight:800; color:var(--white); margin:16px 0 6px; }
+  .help-h:first-child { margin-top:0; }
+  .help-p { font-size:12.5px; line-height:1.6; color:var(--text-secondary); margin-bottom:8px; }
+  .help-p code { font-family:var(--font-mono, monospace); font-size:11.5px; background:var(--surface-sunken); padding:1px 5px; border-radius:4px; }
+  .help-ver { font-size:11px; color:var(--text-tertiary); margin-top:16px; padding-top:12px; border-top:1px solid var(--card-border); font-variant-numeric:tabular-nums; }

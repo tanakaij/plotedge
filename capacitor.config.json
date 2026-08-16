@@ -1,0 +1,12 @@
+{
+  "appId": "com.plotedge.app",
+  "appName": "PlotEdge",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

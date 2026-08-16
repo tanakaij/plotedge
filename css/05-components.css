@@ -1,0 +1,2236 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — Dashboard cards, fields, buttons, modals, sheets, toasts
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first. */
+
+  /* ══════════════ DASHBOARD: KPI CARDS ══════════════
+     Two columns at any width. On a 320px handset each card is ~140px wide, which is enough for a
+     4-digit numeral at 40px plus the glyph; the numeral shrinks by one step below 360px rather
+     than the grid dropping to one column, because a single-column KPI stack scrolls the quick
+     actions off the screen entirely — the problem this redesign exists to fix. */
+  .kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+  .kpi-card {
+    position:relative; overflow:hidden; display:flex; flex-direction:column;
+    border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg);
+    padding:14px 14px 13px; min-height:118px; box-shadow:var(--card-shadow);
+    transition:transform 0.12s ease, border-color 0.15s ease;
+  }
+  /* These stay tappable (jump to Review) by design, but keep the flat/neutral metric-card look
+     at rest — no border-glow, no shadow-lift — so they still read as data first, button second.
+     Only the press-state gives a (subtle) hint that a tap does something. */
+  .kpi-card[role="button"] { cursor:pointer; }
+  .kpi-card[role="button"]:active { transform:scale(0.985); border-color:var(--accent-primary); }
+  .kpi-card[role="button"]:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; }
+  /* Soft accent wash from the top-left, matching the reference design's tinted cards. Sits behind
+     the content and is pointer-events:none so it can never intercept the card's own tap. */
+  .kpi-card::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(120% 100% at 0% 0%, rgba(var(--accent-rgb),0.14) 0%, transparent 62%);
+  }
+  .kpi-card > * { position:relative; }
+  .kpi-label {
+    display:flex; align-items:center; gap:5px;
+    font-size:10.5px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--text-secondary); line-height:1.3;
+  }
+  .kpi-label-icon { width:14px; height:14px; flex-shrink:0; color:var(--text-tertiary); margin-left:auto; }
+  .kpi-row { display:flex; align-items:center; justify-content:space-between; gap:6px; flex:1; margin:6px 0 2px; }
+  .kpi-value { font-family:var(--font-display); font-size:40px; font-weight:700; line-height:1; letter-spacing:-0.03em; color:var(--white); }
+  .kpi-value .tile-unit { font-size:20px; font-weight:700; margin-left:1px; color:var(--text-secondary); }
+  .kpi-art { width:46px; height:46px; flex-shrink:0; color:var(--accent-primary); opacity:0.9; }
+  .kpi-sub { font-size:11px; color:var(--text-secondary); line-height:1.35; margin-top:4px; }
+  @media (max-width:359px) {
+    .kpi-value { font-size:32px; }
+    .kpi-art { width:38px; height:38px; }
+  }
+  /* Accuracy signal bar. The gradient is fixed green→red and the marker slides along it, so the
+     colour under the marker is the reading — no need to recolour the track per state. */
+  .kpi-signal { position:relative; height:8px; margin-top:6px; }
+  .kpi-signal-track {
+    position:absolute; inset:0; border-radius:999px;
+    background:linear-gradient(90deg, var(--success) 0%, #84CC16 28%, var(--warn) 58%, #F97316 78%, var(--danger) 100%);
+    opacity:0.9;
+  }
+  .kpi-signal-marker {
+    position:absolute; top:50%; width:13px; height:13px; margin-left:-6.5px; border-radius:50%;
+    transform:translateY(-50%); background:var(--card-bg); border:3px solid var(--white);
+    box-shadow:0 1px 4px rgba(0,0,0,0.45); transition:left 0.35s ease;
+  }
+  .kpi-card[data-kpi="accuracy"].no-fix .kpi-signal { opacity:0.3; }
+  .kpi-card[data-kpi="accuracy"].no-fix .kpi-signal-marker { display:none; }
+  /* ── GPS Accuracy expand-in-place ── tapping the card reveals live fix diagnostics (source,
+       fix type, HDOP, satellites when an external NMEA receiver supplies them) plus a
+       best/average/worst breakdown across captured vertices, without leaving the dashboard.
+       Reuses the same max-height accordion technique as .dash-insights-body below. */
+  .acc-chevron { width:13px; height:13px; flex-shrink:0; color:var(--text-tertiary); margin-left:4px; transition:transform 0.2s ease; }
+  .kpi-card[data-kpi="accuracy"].expanded .acc-chevron { transform:rotate(180deg); }
+  .acc-detail { max-height:0; overflow:hidden; transition:max-height 0.25s ease; }
+  .kpi-card[data-kpi="accuracy"].expanded .acc-detail { max-height:260px; margin-top:10px; padding-top:10px; border-top:1px solid var(--card-border); }
+  .acc-detail-row { display:flex; justify-content:space-between; gap:8px; font-size:11.5px; padding:4px 0; color:var(--text-secondary); }
+  .acc-detail-row strong { color:var(--white); font-weight:700; }
+  .acc-detail-note { font-size:10.5px; color:var(--text-tertiary); line-height:1.4; margin-top:6px; }
+
+  /* ══════════════ DASHBOARD: QUICK ACTION TILES ══════════════
+     Cut down to a 2×2 grid of the four highest-frequency actions (Feature Types, Import, Export,
+     Zonal Stats) plus a "More…" row that opens the remaining utilities in a bottom-sheet drawer:
+       • "New Collect" is gone entirely. Collect is a Bottom Nav destination, so a tile pointing at
+         the same place was pure duplication — Collect now lives on the nav and nowhere else, which
+         is the same no-duplicate-destinations rule the rest of this section already followed.
+       • Nine tiles ran three full rows and pushed everything below them off the fold. Four is the
+         set a crew actually reaches for at the start of a session; the occasional field utilities
+         (Connect GPS, New Project, Backup All, Quick Notes) are one tap away in the drawer instead
+         of permanently occupying prime dashboard real estate.
+     Every tile now uses the one bordered white card surface Zonal Stats always had — the solid
+     accent-filled .qa-tile-primary variant is retired. With only four tiles left there is nothing
+     to triage between, so the fill was doing no work; a uniform set reads as one calm block rather
+     than four tiles shouting at equal volume. */
+  .dash-section-label { font-size:11.5px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin:4px 0 10px; }
+
+  /* ── QUICK ACTION GRID ── two columns of short horizontal rows. These were 76px-tall stacked
+       tiles (icon above label); at four-plus tiles that was two or three full rows of dashboard
+       height spent on navigation, pushing the map and KPIs off the fold. Laying the badge and
+       label on one line drops each tile to ~46px — a bit over half the height — for the same tap
+       target width, and makes the grid and the "More" row below it read as one family, since they
+       are now literally the same row shape. */
+  .qa-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+  .qa-tile {
+    position:relative; overflow:hidden; display:flex; flex-direction:row; align-items:center; gap:9px;
+    min-height:46px; padding:8px 10px; cursor:pointer; text-align:left;
+    border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg);
+    box-shadow:var(--card-shadow); font-family:var(--font);
+    transition:transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .qa-tile:active { transform:scale(0.97); border-color:var(--accent-primary); }
+  .qa-icon-badge {
+    width:26px; height:26px; border-radius:8px; flex-shrink:0;
+    background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center;
+  }
+  .qa-icon { position:relative; width:15px; height:15px; flex-shrink:0; color:var(--accent-primary); }
+  /* min-width:0 + ellipsis: the label now shares one line with the badge and the chevron, so a
+     long name like "Attribute Table" has to be able to truncate rather than wrap the row taller
+     and undo the height saving. */
+  .qa-text {
+    position:relative; flex:1; min-width:0; font-size:11.5px; font-weight:800; line-height:1.2;
+    color:var(--text-primary); letter-spacing:-0.01em;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* Chevron is inline at the end of the row now, not absolutely positioned in the corner. */
+  .qa-tile-chevron { flex-shrink:0; color:var(--text-tertiary); opacity:0.55; }
+
+  /* ── "MORE…" ROW ── sits under the 2×2 grid as a full-width row rather than a fifth tile, so the
+       grid stays a true 2×2 and the overflow control reads as a different kind of thing (a door to
+       more actions, not another action). Same bordered card surface, same border radius and shadow
+       as the tiles above it, so it belongs to the set without competing with it. */
+  .qa-more-btn {
+    display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box; margin-top:8px;
+    min-height:46px; padding:8px 10px; cursor:pointer; text-align:left;
+    border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg);
+    box-shadow:var(--card-shadow); font-family:var(--font);
+    transition:transform 0.12s ease, border-color 0.15s ease;
+  }
+  .qa-more-btn:active { transform:scale(0.985); border-color:var(--accent-primary); }
+  .qa-more-text { font-size:11.5px; font-weight:800; color:var(--text-primary); letter-spacing:-0.01em; }
+  /* Count sets the expectation of how much is behind the tap, so "More…" isn't a mystery door. */
+  .qa-more-count { margin-left:auto; font-size:11px; font-weight:700; color:var(--text-tertiary); font-variant-numeric:tabular-nums; }
+  .qa-more-chevron { flex-shrink:0; color:var(--text-tertiary); opacity:0.55; }
+
+  /* The drawer's own grid gets a little more headroom than the dashboard's — inside a sheet there
+     is no fold to protect, so the tiles can breathe. */
+  .qa-drawer-grid { margin-top:2px; }
+
+  /* ── COMPACT DASHBOARD TILE ──
+     The dashboard grid is now four across and stacks the icon over the label; the drawer keeps
+     the row shape above. Rationale for the split is in qaTileHtml() in js/16-geometry-math.js.
+     Two details that make the density read as deliberate rather than cramped:
+       · the label gets two lines (-webkit-line-clamp:2) instead of an ellipsis. At 4-across a
+         name like "Attribute Table" cannot fit one line at any readable size, and truncating to
+         "Attribute…" beside a generic grid icon leaves nothing to identify the tile by.
+       · min-height is fixed so a one-line and a two-line label produce the same box. A grid whose
+         rows are different heights is the specific thing that reads as clunky. */
+  .qa-grid:has(.qa-tile-compact) { grid-template-columns:repeat(4, 1fr); gap:7px; }
+  .qa-tile-compact {
+    flex-direction:column; align-items:center; justify-content:flex-start; text-align:center;
+    gap:6px; min-height:70px; padding:10px 4px 8px;
+  }
+  .qa-tile-compact .qa-icon-badge { width:30px; height:30px; border-radius:9px; }
+  .qa-tile-compact .qa-icon { width:16px; height:16px; }
+  .qa-tile-compact .qa-text {
+    flex:none; font-size:10px; font-weight:700; line-height:1.22; letter-spacing:-0.005em;
+    white-space:normal; text-overflow:clip;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  /* :has() is unsupported on Android WebView below 105, which is still in the field on cheap
+     tablets. Without this fallback those devices would render compact tiles two-up in a grid
+     built for four. The drawer is re-pinned to two columns inside the same block because the
+     unqualified .qa-grid rule above it would otherwise take the drawer to four as well. */
+  @supports not selector(:has(*)) {
+    .qa-grid { grid-template-columns:repeat(4, 1fr); gap:7px; }
+    .qa-drawer-grid { grid-template-columns:repeat(2, 1fr); gap:8px; }
+  }
+
+  /* ── DRAWER GROUPS ── headings turn a flat list of a dozen-plus actions into something
+       scannable. Deliberately quieter than .dash-section-label (no uppercase tracking, smaller,
+       tertiary): inside a sheet they are signposts between short runs of tiles, and at full
+       section-label weight five of them would compete with the tiles they label. */
+  .qa-group + .qa-group { margin-top:14px; }
+  .qa-group-label {
+    font-size:10.5px; font-weight:800; color:var(--text-tertiary);
+    letter-spacing:0.04em; margin:0 0 7px 2px;
+  }
+  .qa-drawer-empty, .pv-empty {
+    font-size:12.5px; color:var(--text-secondary); line-height:1.5;
+    padding:14px 2px; text-align:center;
+  }
+
+  /* ── DRAWER SEARCH ── shown only past QA_SEARCH_MIN overflow actions.
+     [type="text"] is here for SPECIFICITY, not matching precision — the markup is already
+     type="text". A bare `.qa-search-wrap input` is (0,1,1), exactly the same weight as the generic
+     `input[type="text"], input[type="number"], select, textarea { padding:13px 14px }` rule further
+     down this file. Equal specificity means source order decides, the generic rule is later, and it
+     won — collapsing the 34px left padding to 14px and dropping the placeholder straight underneath
+     the search icon. [type="text"] makes this (0,2,1), which wins outright wherever either rule
+     sits. This is the identical trap already documented on .pm-search in css/03-base.css:557; the
+     comment there is what this one is repeating, because the shape of the bug is worth recognising
+     on sight: an absolutely-positioned icon plus a padding that clears it is only safe if the
+     padding outranks every blanket input rule in the stylesheet. */
+  .qa-search-wrap { position:relative; margin:0 0 12px; }
+  .qa-search-wrap input[type="text"] {
+    width:100%; box-sizing:border-box; padding:10px 12px 10px 38px; margin:0;
+    font-family:var(--font); font-size:13px; font-weight:600;
+  }
+  /* Compact density's blanket shrink is !important, so the icon clearance has to be re-asserted at
+     the same weight or the placeholder slides back under the icon in that density only. */
+  html[data-density="compact"] .qa-search-wrap input[type="text"] { padding:8px 12px 8px 38px !important; }
+  .qa-search-icon {
+    position:absolute; left:13px; top:50%; transform:translateY(-50%);
+    width:15px; height:15px; color:var(--text-tertiary); pointer-events:none;
+  }
+
+  /* ── PLOTVAULT SOURCE ROWS ── */
+  .pv-row {
+    display:flex; align-items:center; gap:9px; padding:10px;
+    border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg);
+    margin-bottom:8px;
+  }
+  .pv-row-body { flex:1; min-width:0; }
+  .pv-row-name { font-size:12.5px; font-weight:800; color:var(--text-primary); letter-spacing:-0.01em; }
+  /* The URL is the only way to tell two sources on one bucket apart, and the distinguishing part
+     is the END of it (the file name), not the origin — so it truncates from the left. */
+  .pv-row-url {
+    font-size:10.5px; color:var(--text-tertiary); margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left;
+  }
+  .pv-row-btn {
+    flex-shrink:0; padding:7px 12px; border-radius:999px; cursor:pointer; font-family:var(--font);
+    font-size:11px; font-weight:800; border:1px solid var(--card-border);
+    background:var(--surface-sunken); color:var(--text-primary);
+  }
+  .pv-row-btn:active { filter:brightness(0.92); }
+  .pv-row-x {
+    flex-shrink:0; width:26px; height:26px; border:none; border-radius:999px; cursor:pointer;
+    background:transparent; color:var(--text-tertiary); font-size:17px; line-height:1;
+    font-family:var(--font);
+  }
+  .pv-status { font-size:11.5px; color:var(--text-secondary); min-height:16px; margin:2px 0 8px; }
+
+  @media (max-width:359px) {
+    .qa-grid:has(.qa-tile-compact) { gap:5px; }
+    .qa-tile-compact { min-height:64px; padding:8px 3px 7px; gap:5px; }
+    .qa-tile-compact .qa-icon-badge { width:27px; height:27px; }
+    .qa-tile-compact .qa-text { font-size:9.5px; }
+  }
+
+  @media (max-width:359px) {
+    .qa-grid { gap:6px; }
+    .qa-tile { min-height:42px; padding:7px 8px; gap:7px; }
+    .qa-text { font-size:10.5px; }
+    .qa-icon-badge { width:24px; height:24px; }
+    .qa-icon { width:14px; height:14px; }
+    .qa-more-btn { padding:10px; }
+    .qa-more-text { font-size:11px; }
+  }
+
+  /* ══════════════ DASHBOARD: SESSION INSIGHTS (collapsible) ══════════════ */
+  .dash-insights { border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); box-shadow:var(--card-shadow); margin-bottom:18px; overflow:hidden; }
+  .dash-insights-head {
+    display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box;
+    padding:14px 15px; background:none; border:none; cursor:pointer; text-align:left; font-family:var(--font);
+  }
+  .dash-insights-head:active { background:var(--surface-sunken); }
+  .dash-insights-headline { flex:1; min-width:0; }
+  .dash-insights-title { display:block; font-size:13.5px; font-weight:800; color:var(--white); }
+  .dash-insights-summary { display:block; font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .dash-insights-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform 0.2s ease; }
+  .dash-insights.open .dash-insights-chevron { transform:rotate(180deg); }
+  /* Collapsed via max-height rather than display:none so the transition can animate, and so the
+     sparkline SVG inside keeps real dimensions instead of laying out at 0×0 when it is drawn
+     while shut. */
+  .dash-insights-body { max-height:0; overflow:hidden; transition:max-height 0.28s ease; }
+  .dash-insights.open .dash-insights-body { max-height:1400px; }
+  .dash-insights-body > * { margin-left:15px; margin-right:15px; }
+  .dash-insights-body > *:last-child { margin-bottom:15px; }
+  @media (prefers-reduced-motion: reduce) {
+    .dash-insights-body, .dash-insights-chevron, .kpi-signal-marker { transition:none; }
+  }
+
+  /* ══ DASHBOARD HEALTH CARD ══
+     Replaces "four raw counts, no context" with a single glance answer: how much of today's work
+     is actually export-ready. The progress bar tracks % of captured features passing every
+     validation check (same computeValidationIssues used on Review/Export); the three rows below
+     give the "why" if it's not 100%. Sits above the tile-grid numbers, per the map-first / context-
+     first ordering — headline first, raw counts as backup detail underneath. */
+  .dash-health-card { border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); padding:16px; margin-bottom:14px; box-shadow:var(--card-shadow); }
+  .dash-health-top { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
+  .dash-health-title { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); }
+  .dash-health-pct { font-size:22px; font-weight:800; color:var(--white); }
+  .dash-health-rows { margin-top:14px; }
+  .dash-health-row { display:flex; align-items:center; gap:9px; padding:7px 0; font-size:12.5px; font-weight:600; color:var(--text-primary); }
+  .dash-health-dot { width:8px; height:8px; border-radius:999px; flex-shrink:0; }
+  .dash-health-dot.good { background:#2FB159; }
+  .dash-health-dot.warn { background:var(--warn); }
+  .dash-health-val { margin-left:auto; font-weight:800; }
+
+  /* ══ DASHBOARD WIDGETS (Recent Activity / Pace / Backup & Storage) ══
+     Same card shell as the health card above (surface bg, card-shadow, --rl radius) so the new
+     widgets read as part of the same family rather than a bolted-on section. */
+  .dash-widget-card { border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); padding:16px; margin-bottom:14px; box-shadow:var(--card-shadow); }
+  .dash-widget-card-tap { cursor:pointer; transition:background 0.15s, box-shadow 0.15s; }
+  .dash-widget-card-tap:active { background:var(--surface-sunken); box-shadow: inset 0 1px 3px rgba(0,0,0,0.4); }
+  .dash-widget-title { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); }
+
+  /* Recent Activity */
+  .dash-recent-list { margin-top:10px; display:flex; flex-direction:column; }
+  .dash-recent-row { display:flex; align-items:center; gap:11px; padding:9px 0; cursor:pointer; border-bottom:1px solid var(--card-border); }
+  .dash-recent-row:last-child { border-bottom:none; padding-bottom:0; }
+  .dash-recent-row:first-child { padding-top:0; }
+  .dash-recent-row:active { opacity:0.6; }
+  .dash-recent-chip { width:8px; height:8px; border-radius:999px; flex-shrink:0; }
+  .dash-recent-body { flex:1; min-width:0; }
+  .dash-recent-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dash-recent-meta { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
+  .dash-recent-time { font-size:11px; font-weight:700; color:var(--text-tertiary); flex-shrink:0; }
+
+  /* Pace + 7-day trend */
+  .dash-widget-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+  .dash-pace-value { font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--white); letter-spacing:-0.01em; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .dash-pace-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .dash-sparkline-wrap { flex-shrink:0; }
+  .dash-sparkline-bar { fill:var(--accent2); opacity:0.35; }
+  .dash-sparkline-bar.today { opacity:1; }
+
+  /* Backup & Storage */
+  .dash-export-line { font-size:12px; color:var(--text-secondary); margin-top:10px; }
+  .dash-export-line strong { color:var(--text-primary); }
+  .dash-export-line.warn strong { color:var(--warn); }
+
+  /* ══ CARDS ══
+     Elevation here can't lean only on drop-shadows: --bg-primary is literal #000000 in the dark theme,
+     and a black box-shadow composited over a pure-black page is mathematically indistinguishable
+     from the page itself (alpha-blending black onto black is still black), so it renders as
+     nothing. The outer shadow below still helps in the light theme (where the page isn't black),
+     but the inset highlight/shadow pair is what actually reads in dark mode — those composite
+     against the card's own lighter surface color (--card-bg, not --bg-primary), so they're visible
+     regardless of theme. */
+  .card {
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); padding:18px; margin-bottom:16px;
+    box-shadow: var(--card-shadow);
+  }
+  .vertex-editor-flash { animation: vertex-flash 0.9s ease; }
+  @keyframes vertex-flash { 0% { border-color:var(--accent-primary); box-shadow:0 0 0 3px rgba(var(--accent-rgb),0.22); } 100% { border-color:var(--card-border); box-shadow:0 0 0 0 rgba(var(--accent-rgb),0); } }
+  /* Section-header size: the spec asked for 14px, but these are uppercase at 0.12em tracking and
+     several carry a hint span AND a status badge AND a chevron on the same row — at 14px,
+     "2 · GPS & CAPTURE (once per feature)" wraps on a 360px viewport. 12px is the largest size
+     that holds one line across the existing headers while still being a clear step up from 10px. */
+  .card-title { font-size:12px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .card-title::after { content:''; flex:1; height:1px; background:var(--card-border); }
+
+  /* ══ COLLAPSIBLE CARDS (accordion) ══
+     Header row is the tap target; the chevron starts pointing down (section open) and rotates to
+     point right when collapsed — .card-collapse-body's max-height is a fixed cap rather than a
+     measured one, which keeps this pure-CSS (no JS resize-observer needed for a handful of short
+     settings cards) at the cost of the animation finishing slightly before the full transition
+     duration elapses for shorter cards; acceptable here since these cards are all fairly short. */
+  .card-collapsible .card-collapse-header { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent; }
+  .card-collapsible .card-collapse-header .card-title,
+  .card-collapsible .card-collapse-header .export-heading { flex:1; margin-bottom:0; }
+  .card-chevron { color:var(--text-tertiary); flex-shrink:0; transition:transform 0.22s cubic-bezier(0.17,0.84,0.44,1); }
+  .card-collapsible.collapsed .card-chevron { transform:rotate(-90deg); }
+  .card-collapse-body { margin-top:14px; max-height:1400px; opacity:1; overflow:hidden; transition:max-height 0.28s ease, opacity 0.2s ease, margin-top 0.28s ease; }
+  .card-collapsible.collapsed .card-collapse-body { max-height:0; opacity:0; margin-top:0; }
+
+  /* ══ FIELDS ══ */
+  .field { margin-bottom:14px; }
+  .field:last-child { margin-bottom:0; }
+  label { display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:6px; letter-spacing:0.02em; }
+  label .hint { font-weight:400; color:var(--text-tertiary); }
+  input[type="text"], input[type="number"], select, textarea {
+    width:100%; padding:13px 14px; border:1.5px solid var(--card-border); border-radius:12px;
+    font-size:16px; font-family:var(--font); background:var(--input-bg); color:var(--text-primary);
+    appearance:none; -webkit-appearance:none; transition:border-color 0.15s,box-shadow 0.15s;
+    /* Inset shadow is theme-aware: a heavy black inset that reads as "recessed" on dark slate
+       just looks like dirt on a white field, so the light theme gets a much softer one. */
+    box-shadow: var(--input-inset);
+  }
+  /* Remove the native up/down stepper arrows on number inputs (attribute fields, lat/lon entry,
+     vertex attrs). These are what makes the mouse scroll wheel bump the value up/down when it
+     passes over a focused number field mid-scroll — the glitchy jump on the Collect page. Hidden
+     here instead of just relying on appearance:none, since Chrome/Safari ignore that for the
+     spin buttons specifically and need their own pseudo-elements targeted. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  input[type="number"] { -moz-appearance: textfield; }
+  input::placeholder, textarea::placeholder { color:var(--text-tertiary); }
+  textarea { resize:none; height:68px; line-height:1.45; }
+  /* --border-focus, not --primary-accent: the focus ring has a different job from a button fill.
+     It has to be findable at arm's length in direct sun, so it always uses the brighter end of
+     the accent family, and the halo is thickened from 3px to 3.5px at a higher alpha for the
+     same reason. Every domain palette redefines both automatically. */
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--border-focus); box-shadow:inset 0 1px 4px rgba(0,0,0,0.45), 0 0 0 3.5px rgba(var(--accent-rgb),0.26); }
+  .select-wrap { position:relative; }
+  .select-wrap::after { content:'▾'; position:absolute; right:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary); pointer-events:none; }
+
+  /* CREW BADGE */
+  .crew-lead { background:rgba(var(--accent-rgb),0.16); color:var(--accent-hover); }
+  .crew-t1   { background:rgba(59,130,246,0.16); color:#8FBFFF; }
+  .crew-t2   { background:rgba(var(--success-rgb),0.16); color:var(--success-ink); }
+  .crew-all  { background:rgba(236,72,153,0.16); color:#F4A0C6; }
+
+  #attrFields .field { margin-bottom:12px; }
+  #attrFields .field:last-child { margin-bottom:0; }
+
+  /* GPS */
+  .gps-bar { display:flex; align-items:center; gap:12px; background:var(--surface-sunken); border:1.5px solid var(--card-border); border-radius:12px; padding:13px 14px; margin-bottom:12px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.35), inset 0 -1px 0 rgba(255,255,255,0.03); }
+
+  /* ══ EXTERNAL GPS (Bluetooth NMEA) ══
+     Web Bluetooth only — no Web Serial fallback (the desktop-only USB case is a much smaller slice
+     of "field GIS with a phone" than "external BLE receiver paired to a phone/tablet"), and only
+     Chrome/Edge on Android/desktop implement it at all; Safari/iOS has no Web Bluetooth support
+     full stop. The button below stays visible everywhere but explains itself on unsupported
+     browsers rather than disappearing, since "why isn't this here" is worse than "this doesn't
+     work here, here's why". See connectExternalGps() for the actual NMEA handling. */
+  .ext-gps-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .ext-gps-btn { display:flex; align-items:center; gap:6px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:999px; padding:6px 12px 6px 10px; font-size:11px; font-weight:700; color:var(--text-secondary); cursor:pointer; font-family:var(--font); }
+  .ext-gps-btn.connected { color:#2FB159; border-color:rgba(47,177,89,0.4); background:rgba(47,177,89,0.1); }
+  .ext-gps-status { font-size:11px; font-weight:700; color:var(--text-tertiary); background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:999px; padding:5px 11px; }
+  .ext-gps-status.fix-rtk { color:#2FB159; border-color:rgba(47,177,89,0.4); }
+  .ext-gps-status.fix-dgps { color:#8FBFFF; border-color:rgba(59,130,246,0.35); }
+  .ext-gps-status.fix-none { color:var(--danger); border-color:rgba(var(--danger-rgb),0.35); }
+  .gps-ring { width:36px; height:36px; border-radius:50%; border:3px solid #333; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:border-color 0.3s; }
+  .indoor-gps-banner { display:flex; align-items:center; gap:8px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.32); color:var(--accent-hover); font-size:12px; font-weight:600; border-radius:12px; padding:10px 12px; margin:10px 0; }
+  .indoor-gps-banner svg { flex-shrink:0; }
+  .indoor-gps-banner span { flex:1; }
+  .indoor-gps-banner button { background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:8px; padding:7px 10px; font-size:11.5px; font-weight:800; font-family:var(--font); cursor:pointer; flex-shrink:0; white-space:nowrap; }
+  .gps-ring.acquiring { border-color:var(--accent-primary); animation:spin-ring 1.4s linear infinite; }
+  .gps-ring.good      { border-color:var(--success); }
+  .gps-ring.poor      { border-color:var(--warn); }
+  .gps-ring.error     { border-color:var(--danger); }
+  @keyframes spin-ring {
+    0%  { border-top-color:var(--accent-primary); border-right-color:transparent; border-bottom-color:transparent; border-left-color:transparent; }
+    25% { border-right-color:var(--accent-primary); border-bottom-color:transparent; border-left-color:transparent; }
+    50% { border-bottom-color:var(--accent-primary); border-left-color:transparent; }
+    75% { border-left-color:var(--accent-primary); }
+    100%{ transform:rotate(360deg); border-color:var(--accent-primary); }
+  }
+  .gps-ring svg { flex-shrink:0; }
+  .gps-text { flex:1; }
+  .gps-text .gt-status { font-size:13px; font-weight:700; color:var(--white); }
+  .gps-text .gt-acc    { font-size:12px; color:var(--text-secondary); margin-top:2px; }
+  .gps-toggle { background:none; border:1.5px solid var(--card-border); border-radius:999px; padding:9px 15px; font-size:12px; font-weight:700; font-family:var(--font); color:var(--white); cursor:pointer; white-space:nowrap; transition:background 0.15s; }
+  .gps-toggle:active { background:var(--raised); }
+  .gps-toggle.active { background:var(--danger); color:var(--on-danger); border-color:var(--danger); }
+
+  .coords-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+  .gps-detail-toggle { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; background:none; border:none; padding:2px 0 12px; margin-top:-6px; font-family:var(--font); font-size:11.5px; font-weight:700; color:var(--text-tertiary); cursor:pointer; }
+  .gps-detail-toggle svg { transition:transform 0.15s; }
+  .gps-detail-toggle.open svg { transform:rotate(180deg); }
+  .coord-box { background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:12px; padding:10px 12px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.35), inset 0 -1px 0 rgba(255,255,255,0.03); }
+  .coord-box .cl { font-size:10px; color:var(--text-tertiary); font-weight:800; letter-spacing:0.08em; text-transform:uppercase; }
+  .coord-box .cv { font-family:var(--mono); font-size:13px; color:var(--white); margin-top:3px; font-weight:600; font-variant-numeric:tabular-nums; }
+
+  /* SITE FIELD — "use current location" affordance */
+  .site-field-wrap { position:relative; }
+  .site-field-wrap input { padding-right:44px; }
+  .locate-btn { position:absolute; right:6px; top:50%; transform:translateY(-50%); width:34px; height:34px; border-radius:8px; background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--accent-primary); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.15s; }
+  .locate-btn:active { background:var(--raised); }
+  .locate-btn.busy { color:var(--text-secondary); pointer-events:none; }
+  .locate-btn .locate-spin { animation:spin-ring 0.9s linear infinite; }
+  .locate-hint { font-size:11px; color:var(--text-tertiary); margin-top:6px; min-height:14px; }
+  .locate-hint.err { color:var(--warn); }
+
+  /* CAPTURE BTN */
+  .btn-capture { width:100%; padding:18px; background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:12px; font-size:16px; font-weight:800; font-family:var(--font); letter-spacing:0.01em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:filter 0.15s,transform 0.1s,box-shadow 0.15s; position:relative; overflow:hidden; box-shadow: var(--clay-shadow); }
+  .btn-capture:disabled { background:var(--surface-sunken); color:var(--text-tertiary); cursor:not-allowed; box-shadow:none; }
+  .btn-capture:not(:disabled):active { transform:scale(0.97); filter:brightness(0.92); box-shadow: var(--clay-shadow-active); }
+  .btn-capture .ripple { position:absolute; border-radius:50%; background:rgba(0,0,0,0.18); transform:scale(0); animation:ripple 0.5s linear; pointer-events:none; }
+  /* Badge on the Capture button itself showing whether the vertex just captured still needs
+     photos — visible mid-flow, before the user moves on to the next vertex. */
+  .capture-photo-badge { display:none; position:absolute; top:8px; right:10px; font-size:10px; font-weight:800; letter-spacing:0.02em; padding:3px 8px; border-radius:999px; background:rgba(0,0,0,0.16); color:inherit; }
+  .capture-photo-badge.show { display:inline-block; }
+  .capture-photo-badge.warn { background:var(--danger); color:#fff; }
+  .capture-hold-hint { text-align:center; font-size:10.5px; color:var(--text-tertiary); margin-top:8px; font-weight:600; }
+  /* Hold-to-average visual state — a slow pulse so it reads as "in progress, keep holding" rather
+     than a static color change that could be mistaken for an error state. */
+  .btn-capture.averaging { animation:capture-pulse 1s ease-in-out infinite; }
+  /* PERF: was `filter: brightness()`. Animating a filter re-runs the whole filter pipeline on
+     the element every frame, and this one runs during hold-to-average — exactly when the GPS
+     handler and the ring animation are already competing for the frame budget. opacity is
+     composited, so it costs nothing on the main thread and reads near-identically. */
+  @keyframes capture-pulse { 0%,100% { opacity:1; } 50% { opacity:0.82; } }
+  /* Tiny inline shape preview — pure SVG, no map tiles needed, just plots the captured vertices'
+     relative lat/lon so a mis-shaped line/polygon is obvious while still in the field rather than
+     only back at the office on the Review tab's full map. */
+  .shape-preview { display:none; width:100%; height:110px; margin-bottom:10px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:12px; }
+  .shape-preview.show { display:block; }
+  .shape-preview .sp-line { fill:none; stroke:var(--accent-primary); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  .shape-preview .sp-fill { fill:rgba(var(--accent-rgb),0.14); stroke:none; }
+  .shape-preview .sp-vertex { fill:var(--accent-primary); }
+  .shape-preview .sp-vertex.sp-open { fill:var(--accent-hover); stroke:var(--bg-primary); stroke-width:2; }
+  /* Capture-order labels. paint-order:stroke draws the halo behind the glyph rather than over it,
+     which is what keeps a number legible where it crosses the polygon fill or a stroke. */
+  .shape-preview .sp-idx { fill:var(--text-primary); stroke:var(--surface-sunken); stroke-width:2.6px;
+    paint-order:stroke; font-size:9px; font-weight:800; font-family:inherit; pointer-events:none; }
+  .shape-preview .sp-start { fill:none; stroke:var(--accent-primary); stroke-width:1.6; opacity:0.75; }
+  /* ══ VERTEX SATELLITE MAP ══ — a real, draggable-pin map layered on top of the abstract SVG
+     preview above. The SVG plot is instant and works fully offline (pure lat/lon math, no tiles),
+     so it stays as the always-on quick glance; this map is the tool for actually *fixing* a vertex
+     that landed in the wrong spot — see it against real satellite imagery, drag the pin to the
+     correct location, or tap the map to digitize a vertex that has no GPS fix at all (e.g. a
+     corner blocked by a building). Collapsed by default (a live tile map costs data/battery a
+     plain SVG doesn't), so it's opt-in per capture rather than always running. */
+  .vertex-map-toggle { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:9px 12px; margin-bottom:10px; border-radius:12px; border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--text-primary); font-size:12px; font-weight:700; cursor:pointer; transition:background 0.15s ease, border-color 0.15s ease; }
+  .vertex-map-toggle:active { background:var(--surface3, var(--surface-sunken)); }
+  .vertex-map-toggle.on { border-color:var(--accent-primary); color:var(--accent-primary); }
+  .vertex-map-toggle svg { flex-shrink:0; }
+  .vertex-map-wrap { display:none; margin-bottom:10px; border-radius:14px; overflow:hidden; border:1px solid var(--card-border); box-shadow:0 6px 20px rgba(0,0,0,0.22); }
+  .vertex-map-wrap.show { display:block; }
+  /* position:relative so the .digi-readout overlay anchors to the map, not the page. Leaflet
+     sets its own position on this element at init, but the readout is in the DOM before
+     that runs, so declaring it here avoids a first-paint jump. */
+  .vertex-map { position:relative; width:100%; height:230px; background:var(--surface-sunken); }
+  .vertex-map-hint { padding:8px 12px; font-size:10.5px; font-weight:600; color:var(--text-secondary); background:var(--surface-sunken); border-top:1px solid var(--card-border); text-align:center; }
+  /* Leaflet's default marker is a fussy multi-image sprite; a plain CSS pin matches the app's own
+     vector-icon language (see the GPS/pin glyphs used elsewhere) and re-colors with the theme for
+     free instead of shipping separate light/dark marker PNGs. */
+  .vmap-pin { width:26px; height:26px; border-radius:50% 50% 50% 0; background:var(--accent-primary); border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.4); transform:rotate(-45deg); cursor:grab; display:flex; align-items:center; justify-content:center; }
+  .vmap-pin span { transform:rotate(45deg); color:#fff; font-size:10px; font-weight:800; }
+  .vmap-pin.vmap-pin-open { background:var(--accent-hover); width:30px; height:30px; }
+  .vmap-pin:active { cursor:grabbing; }
+  /* Close-the-ring hint for polygon features, shown above Save/Finish once there's enough of a
+     ring forming to make "closing" a meaningful idea. */
+  .close-ring-hint { display:none; align-items:center; gap:8px; font-size:12px; font-weight:600; color:var(--text-secondary); background:var(--surface-sunken); border:1px dashed var(--card-border); border-radius:12px; padding:10px 12px; margin-bottom:10px; }
+  .close-ring-hint.show { display:flex; }
+  .close-ring-hint svg { flex-shrink:0; color:var(--accent-hover); }
+  @keyframes ripple { to { transform:scale(4); opacity:0; } }
+
+  /* GENERIC BTNS */
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; padding:13px 16px; border:none; border-radius:var(--rl); font-size:14px; font-weight:700; font-family:var(--font); cursor:pointer; transition:filter 0.15s,transform 0.1s,box-shadow 0.15s; box-shadow: var(--clay-shadow); }
+  .btn:active { transform:scale(0.98); filter:brightness(1.1); box-shadow: var(--clay-shadow-active); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
+  .btn-primary { background:var(--cta); color:var(--on-cta); }
+  .btn-save    { background:var(--cta); color:var(--on-cta); animation: cta-pulse 2.6s ease-in-out infinite; }
+  /* A gentle, low-amplitude glow that breathes in and out — a "this is tappable and important"
+     signifier without being distracting or looking like an error/alert state. The clay shadow is
+     re-declared at each keyframe stop (rather than left to the base .btn rule) because animating
+     box-shadow replaces the whole property value per frame — without repeating it here, the pulse
+     would blank out the clay effect for the entire 2.6s cycle instead of just adding a ring to it. */
+  @keyframes cta-pulse { 0%,100% { box-shadow: var(--clay-shadow), 0 0 0 0 rgba(var(--accent-rgb),0); } 50% { box-shadow: var(--clay-shadow), 0 0 0 7px rgba(var(--accent-rgb),0.12); } }
+  /* PERF: this pulse used to run on EVERY .btn-pill in the app, forever. box-shadow is a paint
+     property — it can't be composited onto the GPU the way transform/opacity can — so each
+     pulsing button forced a repaint of itself and its backdrop on every frame, permanently, on
+     every screen. The `will-change: box-shadow` made it worse rather than better: it can't
+     promote a paint-only property, it just pins extra memory per element.
+
+     A pulse is an attention cue, so it's worth keeping — but only on the one control that
+     actually wants attention (the save/commit action), not on all of them at once. Everything
+     else keeps the static clay shadow, which costs nothing after first paint. */
+  .btn-save { animation: cta-pulse 2.6s ease-in-out infinite; }
+  .btn-outline { background:var(--surface-sunken); color:var(--white); border:1.5px solid var(--card-border); }
+
+  /* POINTS LIST */
+  .points-list { margin-bottom:0; }
+  /* PERF: `will-change:transform` was on this rule, i.e. on every row in the list. Chrome's own
+     guidance is explicit that will-change must not be applied broadly — each element it touches
+     gets its own compositor layer held in memory whether or not it's animating. On a 200-vertex
+     survey that's 200 layers allocated up front, which is where the scroll stutter and the
+     occasional blank-tile flash came from. The swipe gesture only needs a layer while a row is
+     actually being dragged, so it's promoted on .swipe-armed instead (below) and released again
+     the moment the gesture ends.
+     content-visibility lets the browser skip layout and paint for rows scrolled out of view,
+     which is what keeps a long list cheap; contain-intrinsic-size stops the scrollbar jumping
+     by giving skipped rows a placeholder height. */
+  /* ══ NO CONTENT-VISIBILITY HERE ══
+     This row carried `content-visibility:auto; contain-intrinsic-size:auto 50px`. That tells the
+     browser it may skip rendering a row that is off-screen and stand in a 50px placeholder — and
+     on Android WebViews the placeholder is what you get for a frame or more after the row scrolls
+     back in, especially while the list is being rebuilt on every capture. The result is rows that
+     appear blank or wrong-height exactly while the crew is checking whether the vertex they just
+     captured is there: indistinguishable from a lost capture. A vertex list is one feature's
+     worth of rows, so there was no rendering cost worth paying for it. */
+  .point-item { display:flex; align-items:center; gap:10px; padding:11px 12px; border:1px solid var(--card-border); border-radius:12px; background:var(--surface-sunken); margin-bottom:6px; touch-action:pan-y; box-shadow: var(--card-shadow); }
+  .point-item.swipe-armed { will-change:transform; }
+  .point-item.swipe-armed { background:rgba(var(--danger-rgb),0.16); border-color:var(--danger); }
+  .pt-num { background:var(--raised); border:1px solid var(--card-border); color:var(--text-primary); border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; flex-shrink:0; }
+  .pt-coords { flex:1; min-width:0; font-family:var(--mono); font-size:12px; color:var(--text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pt-acc { font-size:11px; white-space:nowrap; padding:2px 8px; border-radius:999px; font-weight:700; }
+  .pt-acc.good { background:rgba(var(--success-rgb),0.16); color:var(--success); }
+  .pt-acc.ok   { background:rgba(var(--warn-rgb),0.16); color:var(--warn); }
+  .pt-acc.poor { background:rgba(var(--danger-rgb),0.16); color:var(--danger); }
+  .pt-del { background:none; border:none; color:var(--text-tertiary); font-size:20px; cursor:pointer; padding:2px 6px; line-height:1; transition:color 0.15s; }
+  .pt-del:active { color:var(--danger); }
+
+  .empty-box { text-align:center; color:var(--text-secondary); font-size:13px; padding:22px 16px; border:1.5px dashed var(--card-border); border-radius:12px; line-height:1.5; }
+  .empty-box strong { display:block; margin-bottom:4px; color:var(--white); font-size:14px; }
+
+  /* ══ BARCODE / QR SCAN ══ — text field with an attached scan button; opens a camera overlay
+     that uses the browser's built-in BarcodeDetector API (no library, no server call). Falls
+     back to manual typing on browsers without it (notably Safari/iOS as of this writing). */
+  .barcode-row { display:flex; gap:8px; align-items:stretch; }
+  .barcode-row input { flex:1; min-width:0; }
+  .barcode-scan-btn { flex-shrink:0; width:44px; background:var(--surface-sunken); border:1.5px solid var(--card-border); border-radius:10px; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .barcode-scan-btn:active { background:var(--raised); border-color:var(--accent-primary); color:var(--accent-primary); }
+  .barcode-scanner-overlay { position:fixed; inset:0; background:#000; z-index:900; display:none; flex-direction:column; }
+  .barcode-scanner-overlay.show { display:flex; }
+  .barcode-scanner-video { flex:1; width:100%; object-fit:cover; }
+  .barcode-scanner-frame { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; max-width:340px; aspect-ratio:1.6; border:2.5px solid var(--accent-primary); border-radius:14px; box-shadow:0 0 0 2000px rgba(0,0,0,0.45); pointer-events:none; }
+  /* The overlay itself stays inset:0 — the camera preview SHOULD run under the status bar, that's
+     the point of a full-bleed scanner. Only the chrome on top of it needs to clear the system UI,
+     otherwise the close button and the scan hint sit underneath the clock and battery once the app
+     is drawing edge-to-edge. Left/right insets matter here too: this is the one screen people use
+     in landscape, where the gesture bar and any camera cutout move to the sides. */
+  .barcode-scanner-bar { position:absolute; top:0; left:0; right:0; padding:calc(16px + var(--sat)) calc(16px + var(--sar)) 16px calc(16px + var(--sal)); display:flex; align-items:center; justify-content:space-between; z-index:2; }
+  .barcode-scanner-title { color:#fff; font-size:14px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.6); }
+  .barcode-scanner-close { background:rgba(0,0,0,0.5); border:none; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .barcode-scanner-hint { position:absolute; bottom:calc(24px + var(--sab)); left:0; right:0; text-align:center; color:rgba(255,255,255,0.85); font-size:12px; z-index:2; padding:0 20px; }
+
+  /* PHOTOS */
+  .photo-btn { width:100%; padding:14px; background:var(--surface-sunken); border:1.5px dashed var(--card-border); border-radius:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px; font-weight:700; font-family:var(--font); color:var(--text-secondary); transition:border-color 0.15s,background 0.15s; margin-bottom:10px; }
+  .photo-btn:active { border-color:var(--accent-primary); background:var(--raised); }
+  .photo-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:4px; }
+  /* ══ VERTEX EDITOR: SIDE-BY-SIDE LAYOUT (#9) ══
+     Attribute fields and photo capture stack vertically by default (narrow phones in portrait —
+     the common case in the field). On wider viewports (tablets, phones in landscape, desktop
+     preview) they sit side-by-side so a surveyor filling in fields can see the photo grid at the
+     same time, instead of scrolling past a tall attribute list to reach the capture button. */
+  .vtx-cols { display:flex; flex-direction:column; gap:0; }
+  .vtx-col-attrs, .vtx-col-photos { min-width:0; }
+  @media (min-width:640px) {
+    .vtx-cols { flex-direction:row; align-items:flex-start; gap:20px; }
+    .vtx-col-attrs { flex:1 1 55%; }
+    .vtx-col-photos { flex:1 1 45%; position:sticky; top:12px; }
+    .vtx-col-photos .photo-grid { grid-template-columns:repeat(2,1fr); }
+  }
+  .photo-thumb { position:relative; aspect-ratio:1; border-radius:8px; overflow:hidden; border:1px solid var(--card-border); background:#111; cursor:pointer; }
+  .photo-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .photo-thumb .ph-del { position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); color:white; border:none; border-radius:50%; width:22px; height:22px; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .photo-thumb .ph-num { position:absolute; bottom:4px; left:5px; background:rgba(0,0,0,0.6); color:white; font-size:10px; font-weight:700; padding:1px 5px; border-radius:8px; }
+  .photo-cell { display:flex; flex-direction:column; gap:4px; touch-action:pan-y; will-change:transform; }
+  .photo-cell.swipe-armed .photo-thumb { border-color:var(--danger); box-shadow:0 0 0 2px rgba(var(--danger-rgb),0.35); }
+  .photo-angle-input { width:100%; padding:6px 8px; font-size:11px; border:1px solid var(--card-border); border-radius:8px; background:var(--surface-sunken); color:var(--white); }
+  .photo-angle-input::placeholder { color:var(--text-tertiary); }
+
+  /* ══ VOICE NOTES ══ — mic button next to the Notes label, uses the browser's built-in free
+     speech-to-text (Web Speech API) rather than any paid transcription service. */
+  .notes-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
+  .voice-note-btn { display:flex; align-items:center; gap:5px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; color:var(--text-secondary); cursor:pointer; flex-shrink:0; }
+  .voice-note-btn:disabled { color:var(--text-tertiary); cursor:not-allowed; opacity:0.6; }
+  .voice-note-btn.recording { background:var(--danger); color:#fff; border-color:var(--danger); animation:voice-pulse 1.2s ease-in-out infinite; }
+  @keyframes voice-pulse { 0%,100% { opacity:1; } 50% { opacity:0.65; } }
+  .voice-note-status { font-size:11px; color:var(--text-tertiary); font-style:italic; margin-top:6px; display:flex; align-items:center; gap:8px; }
+
+  /* VOICE NOTE WAVEFORM — purely decorative (no live mic level, that needs a second getUserMedia
+     stream alongside SpeechRecognition), but each bar animates on its own offset/duration so the
+     group reads as "actively listening" rather than a static icon — the reassurance the field
+     tester asked for without adding a second microphone permission prompt. */
+  .voice-wave { display:none; align-items:center; gap:2px; height:14px; }
+  .voice-note-status.recording .voice-wave { display:flex; }
+  .voice-wave span { width:2.5px; border-radius:8px; background:var(--danger); animation:voice-wave-bounce 0.9s ease-in-out infinite; }
+  .voice-wave span:nth-child(1) { height:40%; animation-delay:-0.6s; }
+  .voice-wave span:nth-child(2) { height:70%; animation-delay:-0.3s; }
+  .voice-wave span:nth-child(3) { height:100%; animation-delay:-0.9s; }
+  .voice-wave span:nth-child(4) { height:55%; animation-delay:-0.15s; }
+  .voice-wave span:nth-child(5) { height:85%; animation-delay:-0.45s; }
+  @keyframes voice-wave-bounce { 0%,100% { transform:scaleY(0.35); } 50% { transform:scaleY(1); } }
+
+  /* ══ PHOTO LIGHTBOX ══ — fullscreen tap-to-view for any photo thumbnail, with swipe/arrow-key
+     navigation between the photos on the same vertex/feature. Built with plain CSS/JS, no library. */
+  /* Same visibility handling as .modal-overlay above, and for the same reasons — the lightbox's
+     close/share/delete controls were tab-reachable while it was shut. */
+  .lightbox { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.94); display:flex; flex-direction:column; opacity:0; visibility:hidden; pointer-events:none; transition:opacity 0.2s ease, visibility 0s linear 0.2s; }
+  .lightbox.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.2s ease, visibility 0s linear 0s; }
+  .lightbox-stage { flex:1; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; touch-action:none; }
+  .lightbox-stage img { max-width:92%; max-height:92%; object-fit:contain; border-radius:8px; user-select:none; -webkit-user-drag:none; }
+  .lb-close { position:absolute; top:calc(14px + var(--sat)); right:14px; width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:20px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; }
+  .lb-nav { position:absolute; top:50%; transform:translateY(-50%); width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; }
+  .lb-prev { left:10px; } .lb-next { right:10px; }
+  .lb-footer { padding:10px 16px calc(16px + var(--sab)); text-align:center; }
+  .lb-caption { color:#fff; font-size:13px; font-weight:600; min-height:16px; }
+  .lb-counter { color:var(--text-tertiary); font-size:11px; font-weight:700; margin-top:4px; }
+
+  .pt-edit { background:none; border:none; color:var(--text-tertiary); font-size:14px; cursor:pointer; padding:2px 4px; line-height:1; }
+  .pt-edit:active { color:var(--accent-hover); }
+  .pt-move-group { display:flex; flex-direction:column; gap:1px; flex-shrink:0; }
+  .pt-move { position:relative; background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:2px; line-height:0; }
+  /* .pt-move's ::before was clipped by overflow:hidden above; it gets a real 40x40 box in
+     css/03-base.css alongside .pt-edit/.pt-del instead. */
+  .pt-move:active:not(:disabled) { color:var(--accent-hover); }
+  .pt-move:disabled { opacity:0.25; cursor:default; }
+  .point-item.open { border-color:var(--accent-primary); background:rgba(var(--accent-rgb),0.08); }
+  .pt-photos-badge { font-size:10px; color:var(--text-tertiary); white-space:nowrap; }
+  .pt-role-badge { font-size:9.5px; font-weight:800; letter-spacing:0.05em; text-transform:uppercase; padding:2px 7px; border-radius:999px; white-space:nowrap; }
+  .pt-role-start { background:rgba(var(--success-rgb),0.16); color:var(--success); }
+  .pt-role-end { background:rgba(var(--accent2-rgb),0.18); color:var(--accent2); }
+
+  /* FEATURE CARDS (review) */
+  .feature-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; margin-bottom:10px; overflow:hidden; box-shadow: var(--card-shadow); }
+  .feature-card-header { display:flex; align-items:center; gap:10px; padding:12px 14px; background:var(--surface-sunken); border-bottom:1px solid var(--card-border); }
+  /* Quality score badge — same three checks as the review validation bar (accuracy/photos/required
+     fields), shown as an at-a-glance % right on the card so it doesn't need a separate screen. */
+  .feat-quality-badge { flex-shrink:0; font-size:10px; font-weight:800; letter-spacing:0.02em; padding:3px 7px; border-radius:999px; }
+  .layer-badge { font-size:10px; font-weight:800; letter-spacing:0.06em; padding:3px 9px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary); white-space:nowrap; flex-shrink:0; }
+  .feat-name { flex:1; font-weight:700; font-size:14px; color:var(--white); }
+  .feat-ref  { font-size:11px; color:var(--text-secondary); }
+  .feat-del  { background:none; border:none; color:var(--text-tertiary); font-size:22px; cursor:pointer; padding:0 4px; line-height:1; transition:color 0.15s; }
+  .feat-del:active { color:var(--danger); }
+  .feat-edit { background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:4px; line-height:1; display:flex; align-items:center; justify-content:center; border-radius:8px; flex-shrink:0; transition:color 0.15s; }
+  .feat-edit:active { color:var(--accent-primary); background:var(--raised); }
+  .feature-card-body { padding:10px 14px; }
+  .feat-pts-row { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:6px; }
+  .feat-pt-chip { font-family:var(--mono); font-size:11px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:8px; padding:3px 7px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+  .feat-attrs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+  .feat-attr-chip { font-size:11px; background:var(--chip-info-bg); border:1px solid var(--chip-info-border); border-radius:8px; padding:3px 7px; color:var(--chip-info-text); }
+  .feat-notes { font-size:12px; color:var(--text-secondary); font-style:italic; padding-top:6px; border-top:1px solid var(--card-border); margin-top:4px; }
+  .feat-photos { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .feat-photo-thumb { width:56px; height:56px; border-radius:8px; overflow:hidden; border:1px solid var(--card-border); flex-shrink:0; cursor:pointer; }
+  .feat-photo-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  @keyframes feat-flash { 0%,100% { box-shadow:none; } 30%,70% { box-shadow:0 0 0 2px var(--accent-primary); } }
+  .feature-card.flash { animation:feat-flash 1.6s ease; }
+
+  /* REVIEW MAP */
+  .review-map-wrap { border:1px solid var(--card-border); border-radius:var(--rl); overflow:hidden; margin-bottom:12px; background:var(--card-bg); box-shadow: var(--card-shadow); }
+  #reviewMap { height:260px; width:100%; background:var(--surface-sunken); position:relative; z-index:0; }
+  .review-map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; font-size:12px; color:var(--text-secondary); background:var(--surface-sunken); pointer-events:none; z-index:1; }
+  .review-map-conn { font-size:11px; color:var(--text-tertiary); padding:8px 12px; border-top:1px solid var(--card-border); line-height:1.5; }
+  .review-map-conn.offline { color:var(--warn); }
+  .map-legend { display:flex; flex-wrap:wrap; gap:6px 10px; padding:10px 12px; border-top:1px solid var(--card-border); }
+  .map-legend-chip { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); font-weight:500; letter-spacing:0.5px; }
+  .map-legend-swatch { width:10px; height:10px; border-radius:8px; flex-shrink:0; }
+  .map-basemap-toggle { position:absolute; top:10px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-basemap-toggle:active { filter:brightness(0.92); }
+  .map-raster-toggle { position:absolute; top:54px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-raster-toggle:active { filter:brightness(0.92); }
+  .map-raster-toggle.active { color:#fff; background:var(--accent-primary); border-color:transparent; }
+  /* Stacked down the right edge under Basemap (10px) and Raster (54px). Both share the raster
+     button's pill so the corner reads as one column of controls rather than four unrelated chips. */
+  .map-layer-toggle { position:absolute; top:98px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-goto-toggle { position:absolute; top:142px; right:10px; z-index:2; display:flex; align-items:center; justify-content:center; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-layer-toggle:active, .map-goto-toggle:active { filter:brightness(0.92); }
+  .map-raster-panel { position:absolute; bottom:10px; left:10px; right:10px; z-index:2; display:none; align-items:center; gap:8px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:14px; padding:8px 12px; font-size:12px; color:var(--text-primary); box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-raster-panel.show { display:flex; }
+  .map-raster-panel span.raster-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .map-raster-panel input[type=range] { width:70px; }
+  .map-raster-panel button { background:none; border:none; color:var(--text-primary); cursor:pointer; padding:4px; display:flex; align-items:center; opacity:0.75; }
+  .map-raster-panel button:active { opacity:1; }
+  /* Leaflet popups always render as a white card regardless of app theme (a Leaflet/basemap
+     convention, since the popup sits on top of map tiles rather than the app's own surfaces). */
+  .leaflet-popup-content { margin:11px 13px; }
+  /* Rounded to match the app's card language rather than Leaflet's default square-ish card —
+     the popup is the one piece of app UI that renders on the light map surface. */
+  .leaflet-popup-content-wrapper { border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,0.22); }
+  /* Colours here are deliberately literal rather than theme tokens: this content sits on
+     Leaflet's white popup card on top of map tiles, so it must stay legible in dark mode too —
+     var(--text-primary) would render white-on-white the moment the app theme flipped. */
+  .pe-popup { min-width:186px; max-width:250px; }
+  .pe-popup-type { font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:2px; }
+  .pe-popup-name { font-weight:700; font-size:14px; color:#17130D; line-height:1.25; }
+  .pe-popup-ref { font-weight:500; color:#666; font-size:12px; }
+  .pe-popup-meta { font-size:11px; font-weight:600; color:#6B7280; margin-top:2px; }
+  .pe-popup-coord { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:#374151; margin-top:5px; }
+  .pe-popup-attrs { margin-top:8px; border-top:1px solid #E5E7EB; padding-top:7px; }
+  .pe-popup-attr { display:flex; justify-content:space-between; gap:10px; font-size:11.5px; line-height:1.7; }
+  .pe-popup-attr-k { color:#6B7280; font-weight:600; flex-shrink:0; }
+  .pe-popup-attr-v { color:#17130D; font-weight:700; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pe-popup-attr-more { font-size:10.5px; color:#9CA3AF; font-weight:600; margin-top:3px; }
+  .pe-popup-photos { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+  .pe-popup-photos img { width:52px; height:52px; object-fit:cover; border-radius:8px; cursor:pointer; border:1px solid #E5E7EB; }
+  .pe-popup-photos img:active { opacity:0.75; }
+  .pe-popup-more { width:52px; height:52px; border-radius:8px; border:1px dashed #C7CBD1; background:#F3F4F6; color:#4B5563; font-size:12px; font-weight:800; font-family:var(--font); cursor:pointer; }
+  .pe-popup-hint { font-size:10.5px; color:#9CA3AF; font-weight:600; margin-top:8px; line-height:1.4; }
+  .pe-popup-btn { margin-top:8px; width:100%; padding:8px; border:none; border-radius:9px; font-weight:700; font-size:12px; font-family:var(--font); cursor:pointer; }
+  .pe-popup-btn-ghost { background:transparent; border:1px solid currentColor; margin-top:5px; }
+  /* Vertex handles sit on top of their own line/polygon, which Leaflet would otherwise let the
+     geometry's larger hit area swallow on a tap near the stroke. */
+  /* Arms the next capture to land after this vertex. Same 30px target as the
+     delete button beside it — pressed with the same gloved thumb. */
+  .pt-insert {
+    flex-shrink:0; width:26px; height:26px;
+    display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid var(--card-border); border-radius:7px;
+    color:var(--text-tertiary); cursor:pointer; padding:0;
+  }
+  .pt-insert.armed {
+    background:rgba(var(--accent-rgb),0.16);
+    border-color:var(--accent-primary); color:var(--accent-primary);
+  }
+  .point-item.insert-armed { border-color:var(--accent-primary); }
+  /* The banner exists because arming changes what the CAPTURE button does, and a
+     mode you cannot see from the capture button is a mode that catches people out. */
+  .insert-armed-banner {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:rgba(var(--accent-rgb),0.12); border:1px solid rgba(var(--accent-rgb),0.4);
+    border-radius:10px; padding:8px 10px; margin-bottom:8px;
+    font-size:11.5px; font-weight:700; color:var(--accent-primary);
+  }
+  .insert-armed-banner button {
+    flex-shrink:0; background:transparent; border:1px solid rgba(var(--accent-rgb),0.45);
+    border-radius:7px; color:var(--accent-primary);
+    font-family:var(--font); font-size:11px; font-weight:700; padding:4px 9px; cursor:pointer;
+  }
+
+  /* Course-up toggle, overlaid bottom-left of the preview map. Bottom-left is the
+     one free corner: zoom sits top-left, the live measurement readout overlays
+     top-left too, and the rotation compass is bottom-right. */
+  .course-up-toggle {
+    position:absolute; left:8px; bottom:8px; z-index:500;
+    display:flex; align-items:center; gap:5px;
+    min-height:30px; padding:0 9px;
+    background:var(--nav-bg); border:1px solid var(--card-border); border-radius:9px;
+    color:var(--text-secondary);
+    font-family:var(--font); font-size:11px; font-weight:700;
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+    backdrop-filter:var(--glass-8); -webkit-backdrop-filter:var(--glass-8);
+  }
+  .course-up-toggle.is-on { color:var(--accent-primary); border-color:rgba(var(--accent-rgb),0.45); }
+  /* The arrow points up only when the map is actually turned to travel; facing
+     north it lies flat, so the icon states the mode rather than just decorating it. */
+  .course-up-toggle svg { transition:transform 0.2s ease; }
+  .course-up-toggle:not(.is-on) svg { transform:rotate(90deg); opacity:0.65; }
+
+  .pe-vertex-marker { cursor:pointer; }
+  .pe-vertex-marker.has-photos { filter:drop-shadow(0 0 3px rgba(0,0,0,0.45)); }
+
+  /* ══ NO EASING ON A LIVE GESTURE ══
+     leaflet.css sets `.leaflet-zoom-anim .leaflet-zoom-animated { transition:
+     transform 0.25s }` so a programmatic zoom glides. An SVG renderer's
+     container is a .leaflet-zoom-animated element, so that transition also
+     catches any transform peSyncRotatedOverlays() (js/13b-map-rotate.js) writes
+     while the class happens to be on the pane — and the geometry then EASES
+     toward a position the tiles snapped to instantly. That is the lag, and this
+     class, added only for the duration of a real finger-on-glass gesture and
+     dropped again on settle, is what stops it.
+
+     Scoped to a gesture on purpose: Leaflet's own animated zoom is excluded
+     inside the sync, so its 250ms glide is untouched and still glides. */
+  .pe-no-anim .leaflet-zoom-animated,
+  .pe-no-anim .leaflet-marker-icon,
+  .pe-no-anim .leaflet-marker-shadow {
+    transition:none !important;
+  }
+
+  /* ══ ROTATION COMPASS ══
+     Baseline for the replacement control in js/13b-map-rotate.js, applying to every map. The
+     per-screen rules further down (.review-map-wrap, and .pe-map-wrap / .plot-atlas in
+     04-screens.css / 06-plotatlas.css) still size and skin the button for their own chrome; this
+     is what the needle inside it needs everywhere.
+
+     The plugin's own control painted a fixed dark-grey needle from a data-URI and wrote
+     backgroundColor inline as it changed state, which outranked every themed rule below and left
+     the button mismatched the first time it was touched. The replacement draws real SVG with
+     fill:currentColor and carries state as a class, so colour is the stylesheet's decision again. */
+  .leaflet-control-rotate-toggle {
+    display:flex; align-items:center; justify-content:center;
+    color:var(--text-primary);
+    /* The needle is grabbed and dragged, so the browser must not claim the gesture for panning
+       or text selection first — without this a horizontal drag scrolls the page on Android. */
+    touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+    cursor:grab;
+  }
+  .leaflet-control-rotate.is-turning .leaflet-control-rotate-toggle { cursor:grabbing; }
+  .leaflet-control-rotate-arrow { display:block; width:70%; height:70%; pointer-events:none; }
+  .leaflet-control-rotate-arrow svg { display:block; width:100%; height:100%; }
+  /* No CSS transition on the needle: it tracks a live drag and a live twist gesture, so easing it
+     would make the compass lag the map by exactly the amount this release set out to remove. */
+  .leaflet-control-rotate-arrow .pe-needle-n { color:var(--accent-primary); }
+
+  /* ══ PAUSED CAPTURES ══
+     The resume bar at the top of Collect (renderCaptureStack(), js/06a-capture-stack.js). Warn-
+     toned rather than accent-toned on purpose: every row is work that is NOT saved yet, and it
+     should read closer to the unsaved-changes banner than to a neutral list. */
+  .cap-stack-bar {
+    background:rgba(var(--warn-rgb),0.10); border:1px solid rgba(var(--warn-rgb),0.34);
+    border-radius:14px; padding:10px 11px; margin-bottom:12px;
+  }
+  /* The resting state is this header plus one button — see the comment on
+     renderCaptureStack(). It is a real <button> because it toggles disclosure,
+     and it spans the bar so the tap target is the whole line rather than the
+     14px chevron at the end of it. */
+  .cap-stack-head {
+    display:flex; align-items:center; gap:6px; width:100%;
+    background:transparent; border:none; padding:0; cursor:pointer;
+    font-family:var(--font); font-size:10px; font-weight:800;
+    letter-spacing:0.09em; text-transform:uppercase;
+    color:var(--warn); text-align:left; min-height:22px;
+  }
+  .cap-stack-head-icon { flex-shrink:0; }
+  .cap-stack-head-text { flex:1; min-width:0; }
+  .cap-stack-chev { flex-shrink:0; transition:transform 0.18s ease; }
+  .cap-stack-chev.open { transform:rotate(180deg); }
+  /* The 90% action, at full width so it is unmissable and thumb-sized. Naming the
+     capture inside the button is what makes it safe to tap without expanding
+     anything first. */
+  .cap-stack-quick {
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    width:100%; min-height:38px; margin-top:8px; padding:0 12px;
+    background:var(--accent-primary); color:var(--on-accent,#fff);
+    border:none; border-radius:10px;
+    font-family:var(--font); font-size:13px; font-weight:800; cursor:pointer;
+  }
+  .cap-stack-quick:active { transform:scale(0.99); }
+  .cap-stack-quick-more {
+    font-size:10.5px; font-weight:700; opacity:0.78;
+    padding:2px 6px; border-radius:99px; background:rgba(0,0,0,0.18);
+  }
+  .cap-stack-body { margin-top:9px; }
+  /* States what tapping Resume is about to DO while another capture is on screen.
+     A swap that parks your in-progress feature and a swap that deletes it look
+     identical at the moment of the tap, so the difference is spelled out before
+     it rather than reported in a toast after it. */
+  .cap-stack-note {
+    /* margin-top 0: it now sits inside .cap-stack-body, which owns the gap. */
+    font-size:11px; font-weight:600; line-height:1.45;
+    color:var(--text-secondary); margin:0 0 8px; padding:0 1px;
+  }
+  .cap-stack-note strong { color:var(--text-primary); font-weight:800; }
+  .cap-stack-row {
+    background:var(--card-bg); border:1px solid var(--card-border);
+    border-radius:11px; padding:8px 9px;
+  }
+  .cap-stack-row + .cap-stack-row { margin-top:6px; }
+  .cap-stack-row-head { display:flex; align-items:center; gap:9px; }
+  /* Actions on their own line: with a capture in progress there are three, and
+     three buttons plus a feature name on one row is where a 360dp phone starts
+     truncating the thing being chosen between. */
+  .cap-stack-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .cap-stack-glyph { flex-shrink:0; width:20px; text-align:center; font-size:14px; color:var(--accent-primary); }
+  .cap-stack-text { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .cap-stack-name {
+    font-size:13px; font-weight:700; color:var(--text-primary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .cap-stack-meta {
+    font-size:10.5px; font-weight:600; color:var(--text-tertiary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* 34px tall, not the 28px a row this size would suggest: these are pressed in the field with
+     the same gloved thumb as the capture button. */
+  .cap-stack-resume {
+    flex:1 1 auto; min-height:34px; padding:0 13px;
+    background:var(--accent-primary); color:var(--on-accent,#fff);
+    border:none; border-radius:9px;
+    font-family:var(--font); font-size:12px; font-weight:800; cursor:pointer;
+  }
+  .cap-stack-resume:active { transform:scale(0.97); }
+  /* Danger-toned and secondary, because unlike Resume this one really does throw
+     work away. Same 34px target — it is pressed with the same gloved thumb. */
+  .cap-stack-swapoff {
+    flex:1 1 auto; min-height:34px; padding:0 11px;
+    background:transparent; border:1.5px solid rgba(var(--danger-rgb),0.42);
+    border-radius:9px; color:var(--danger);
+    font-family:var(--font); font-size:12px; font-weight:700; cursor:pointer;
+  }
+  .cap-stack-swapoff:active { transform:scale(0.97); }
+  .cap-stack-drop {
+    flex-shrink:0; width:30px; height:34px;
+    background:transparent; border:1px solid var(--card-border); border-radius:9px;
+    color:var(--text-tertiary); font-size:13px; font-family:var(--font); cursor:pointer;
+  }
+  .cap-stack-drop:active { color:var(--danger); border-color:rgba(var(--danger-rgb),0.5); }
+
+  /* Deliberately quieter than Save and calmer than Clear — pausing is the reversible middle
+     option between them, and should not compete with the primary action above it. */
+  .btn-pause-capture {
+    width:100%; margin-bottom:8px; padding:12px;
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    background:var(--surface-sunken); border:1.5px solid rgba(var(--warn-rgb),0.42);
+    border-radius:12px; color:var(--warn);
+    font-family:var(--font); font-size:13px; font-weight:700; cursor:pointer;
+  }
+  .btn-pause-capture:active { transform:scale(0.99); }
+
+  /* STATS */
+  .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+  .stat-box { background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px 10px; text-align:center; box-shadow: var(--card-shadow); }
+  .stat-icon { width:24px; height:24px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin:0 auto 6px; }
+  .stat-box[data-stat="features"] { background:linear-gradient(160deg, rgba(var(--accent-rgb),0.12), var(--card-bg) 70%); border-color:rgba(var(--accent-rgb),0.3); }
+  .stat-box[data-stat="features"] .stat-icon { background:rgba(var(--accent-rgb),0.18); color:var(--accent-primary); }
+  .stat-box[data-stat="vertices"] { background:linear-gradient(160deg, rgba(var(--accent2-rgb),0.14), var(--card-bg) 70%); border-color:rgba(var(--accent2-rgb),0.32); }
+  .stat-box[data-stat="vertices"] .stat-icon { background:rgba(var(--accent2-rgb),0.2); color:var(--accent2); }
+  .stat-box[data-stat="layers"]   { background:linear-gradient(160deg, rgba(var(--success-rgb),0.12), var(--card-bg) 70%); border-color:rgba(var(--success-rgb),0.3); }
+  .stat-box[data-stat="layers"]   .stat-icon { background:rgba(var(--success-rgb),0.18); color:var(--success); }
+  .stat-box[data-stat="photos"]   { background:linear-gradient(160deg, rgba(168,85,247,0.12), var(--card-bg) 70%); border-color:rgba(168,85,247,0.3); }
+  .stat-box[data-stat="photos"]   .stat-icon { background:rgba(168,85,247,0.18); color:var(--violet); }
+  .stat-val { font-size:26px; font-weight:800; color:var(--white); line-height:1; font-variant-numeric:tabular-nums; }
+  .stat-lbl { font-size:10px; color:var(--text-secondary); margin-top:4px; letter-spacing:0.05em; text-transform:uppercase; }
+  .storage-meter-wrap { margin-top:14px; }
+  .storage-meter-track { height:6px; border-radius:8px; background:var(--surface-sunken); overflow:hidden; }
+  .storage-meter-fill { height:100%; background:var(--success); border-radius:8px; transition:width 0.3s, background 0.3s; position:relative; }
+  .storage-meter-label { font-size:11.5px; color:var(--text-secondary); margin-top:7px; }
+  .storage-meter-wrap.warn .storage-meter-fill { background:var(--warn); }
+  .storage-meter-wrap.warn .storage-meter-label { color:var(--warn); font-weight:700; }
+  .last-export-note { font-size:11.5px; color:var(--text-secondary); margin-top:10px; padding-top:10px; border-top:1px solid var(--card-border); }
+  .last-export-note strong { color:var(--text-tertiary); font-weight:700; }
+
+  /* REVIEW SEARCH / FILTER */
+  .review-filter-row { display:flex; gap:8px; margin-bottom:14px; }
+
+  /* ══ REVIEW VALIDATION BAR ══
+     A QA-style checklist above the feature list: at a glance, is this project actually ready to
+     export? All-clear collapses to a single quiet line; any issue expands to tappable pills (low
+     GPS accuracy / no photos / missing required fields) that filter the list below to just the
+     offending features — so "review" becomes "find and fix the problem" instead of "scroll
+     everything and eyeball it". */
+  .review-validation-bar { border:1px solid var(--card-border); border-radius:var(--rl); background:var(--card-bg); padding:12px 14px; margin-bottom:14px; box-shadow:var(--card-shadow); }
+  .review-validation-clear { display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; color:var(--success); }
+  .review-validation-title { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:9px; }
+  .review-validation-pills { display:flex; flex-wrap:wrap; gap:7px; }
+  .review-validation-pill { display:flex; align-items:center; gap:6px; background:var(--surface-sunken); border:1px solid var(--warn); color:var(--warn); font-size:12px; font-weight:700; padding:6px 11px; border-radius:999px; cursor:pointer; }
+  .review-validation-pill.danger { border-color:var(--danger); color:var(--danger); }
+  .review-validation-pill.active { background:currentColor; }
+  .review-validation-pill.active span { color:var(--bg-primary); }
+  .review-validation-pill span { color:inherit; }
+
+  /* ══ FULL-SCREEN MAP MODE ══
+     #reviewMap is normally a fixed 260px preview; toggling full-screen mode pins its wrapper over
+     the whole viewport instead. Re-uses the same Leaflet instance (map.invalidateSize() below)
+     rather than tearing it down and recreating it, so tile position/zoom survive the transition. */
+  .review-map-wrap.fullscreen { position:fixed; inset:0; z-index:200; margin:0; border-radius:0; border:none; height:100vh; height:100dvh; }
+  .review-map-wrap.fullscreen #reviewMap { height:100% !important; }
+  /* Leaflet puts its zoom control in the top-left by default, which is where
+     this button lives — they were drawing on top of each other. Same fix, and
+     the same reason, as the .pe-map-wrap rule in 04-screens.css: push Leaflet's
+     top-left stack down below the button rather than moving the button into a
+     corner that is already taken by the basemap/raster/layers column. */
+  .review-map-wrap .leaflet-top.leaflet-left { margin-top:46px; }
+  /* Rotate control (Leaflet-Rotate, added alongside touchRotate in js/14-map.js) — bottom-left is
+     the one corner this map doesn't already use (right edge is the basemap/raster/layers/goto
+     column, top-left is the fullscreen toggle above). closeOnZeroBearing keeps it out of the way
+     entirely until the map is actually twisted off north. */
+  .review-map-wrap .leaflet-control-rotate-toggle {
+    width:30px; height:30px;
+    border-radius:10px;
+    border:1px solid var(--card-border) !important;
+    background:var(--nav-bg);
+    backdrop-filter:var(--glass-12);
+    -webkit-backdrop-filter:var(--glass-12);
+    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+  }
+  .map-fullscreen-toggle { position:absolute; top:10px; left:10px; z-index:2; width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:12px; color:var(--text-primary); cursor:pointer; }
+  .review-map-wrap.fullscreen .map-fullscreen-toggle { top:calc(10px + var(--sat)); }
+  .review-search-input { flex:1.4; min-width:0; background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:11px 14px; font-size:13px; color:var(--text-primary); }
+  .review-search-input::placeholder { color:var(--text-tertiary); }
+  .review-type-filter { flex:1; min-width:0; }
+  .review-type-filter select { width:100%; background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:11px 28px 11px 14px; font-size:13px; color:var(--text-primary); appearance:none; -webkit-appearance:none; }
+
+  /* EXPORT */
+  .export-heading { font-size:11px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .export-heading::after { content:''; flex:1; height:1px; background:var(--card-border); }
+
+  /* ══ EXPORT READINESS CHECKLIST ══
+     Sits above Session Summary on the Export tab — same underlying checks as the Review
+     validation bar (computeValidationIssues), reframed as a pass/fail checklist so the last thing
+     you see before exporting is "is this actually ready", not just raw counts. Rows with an issue
+     are tappable and jump straight to the filtered Review list. */
+  .readiness-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--card-border); font-size:13px; font-weight:600; color:var(--text-primary); }
+  .readiness-row:last-child { border-bottom:none; }
+  .readiness-row.issue { cursor:pointer; }
+  .readiness-icon { width:20px; height:20px; border-radius:999px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .readiness-icon.pass { background:rgba(47,177,89,0.16); color:#2FB159; }
+  .readiness-icon.issue { background:rgba(var(--warn-rgb),0.16); color:var(--warn); }
+  .readiness-count { margin-left:auto; font-size:12px; font-weight:700; color:var(--text-tertiary); }
+  .btn-geo { background:var(--accent-primary); color:var(--on-accent); font-size:14px; font-weight:800; }
+  .btn-csv { background:var(--success); color:#04170A; font-size:14px; font-weight:800; }
+  .btn-photos { background:var(--accent2); color:var(--on-accent2); font-size:14px; font-weight:800; }
+  .btn-gpkg { background:#3E7CB1; color:#fff; font-size:14px; font-weight:800; }
+  .btn-fgb { background:#6E4A9E; color:#fff; font-size:14px; font-weight:800; }
+  .export-status { text-align:center; font-size:12px; color:var(--text-secondary); min-height:18px; padding:6px 0; }
+  .import-status { text-align:center; font-size:12px; color:var(--text-secondary); min-height:18px; padding:6px 0; }
+  .export-note { display:flex; gap:8px; align-items:flex-start; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:12px; padding:10px 12px; font-size:12px; color:var(--text-secondary); line-height:1.5; margin-top:12px; }
+  .export-note svg { flex-shrink:0; margin-top:1px; color:var(--text-tertiary); }
+  /* ══ WEB MAP (GitHub Pages) ══ — publish/manage card in Export. Reuses .card/.field/.btn/
+     .export-note conventions from the rest of the Export panel rather than inventing new ones. */
+  .btn.tone-danger { background:var(--danger); color:var(--on-danger); }
+  .webmap-status-badge { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; margin-bottom:10px; }
+  .webmap-status-badge::before { content:''; width:7px; height:7px; border-radius:50%; }
+  .webmap-status-badge.live { background:rgba(var(--success-rgb),0.15); color:var(--success); }
+  .webmap-status-badge.live::before { background:var(--success); }
+  .webmap-status-badge.offline { background:var(--surface-sunken); color:var(--text-secondary); border:1px solid var(--card-border); }
+  .webmap-status-badge.offline::before { background:var(--text-tertiary); }
+  .webmap-url-row { display:flex; align-items:center; gap:8px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:10px; padding:9px 12px; font-size:12.5px; margin:4px 0 12px; overflow:hidden; }
+  .webmap-url-row a { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary); text-decoration:none; font-weight:600; }
+  .webmap-url-row button { flex-shrink:0; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; display:flex; }
+  .webmap-url-row button:active { color:var(--text-primary); }
+  .webmap-steps { font-size:12.5px; color:var(--text-secondary); line-height:1.8; padding-left:18px; margin:2px 0 14px; }
+  .webmap-steps li { margin-bottom:2px; }
+  .webmap-steps code { font-size:11.5px; }
+  .webmap-btn-row { display:flex; gap:8px; margin-top:2px; }
+  .webmap-btn-row .btn { flex:1; margin-bottom:0; }
+  .webmap-meta-label { font-size:11.5px; color:var(--text-tertiary); margin-bottom:12px; }
+  .import-target-row { display:flex; gap:8px; margin-bottom:12px; }
+  .import-target-opt { flex:1; text-align:center; padding:9px 8px; border:1.5px solid var(--card-border); border-radius:12px; font-size:12.5px; font-weight:700; color:var(--text-secondary); cursor:pointer; }
+  .import-target-opt.sel { border-color:var(--accent-primary); color:var(--accent-primary); background:var(--surface-sunken); }
+  .import-layer-row { display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--card-border); border-radius:12px; margin-bottom:8px; }
+  .import-layer-row input[type=checkbox] { width:17px; height:17px; flex-shrink:0; }
+  .import-layer-body { flex:1; min-width:0; }
+  .import-layer-name { font-size:13px; font-weight:700; color:var(--white); }
+  .import-layer-meta { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
+  .import-layer-meta.warn { color:var(--danger,#C0392B); }
+  .postgis-fields { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
+  .postgis-fields .field-wide { grid-column:1 / -1; }
+  .cmd-block { background:#0B0E13; border:1px solid var(--card-border); border-radius:12px; padding:12px 14px; font-family:'SF Mono',Consolas,monospace; font-size:11.5px; line-height:1.6; color:#8FE388; white-space:pre-wrap; word-break:break-all; margin:10px 0; }
+  .btn-copy-cmd { background:var(--surface-sunken); color:var(--white); border:1.5px solid var(--card-border); font-size:13px; font-weight:700; padding:11px 16px; }
+  .ph-badges { position:absolute; bottom:4px; left:4px; display:flex; gap:3px; }
+  .ph-badge { font-size:11px; line-height:1; padding:2px 4px; border-radius:8px; background:rgba(0,0,0,0.62); }
+  .ph-heading { position:absolute; bottom:4px; right:4px; font-size:9px; font-weight:800; padding:2px 5px; border-radius:8px; background:rgba(0,0,0,0.62); color:#fff; }
+  /* AI-recognition label — shown once a photo comes back from the recognition endpoint (see
+     "AI photo recognition" export-tab settings + queuePhotoForRecognition). Sits top-left so it
+     never collides with the backup badges (bottom-left) or heading chip (bottom-right). */
+  .ph-ai-label { position:absolute; top:4px; left:4px; max-width:calc(100% - 8px); font-size:9px; font-weight:700; padding:2px 6px; border-radius:8px; background:rgba(0,0,0,0.62); color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .feat-photo-thumb { position:relative; }
+
+  /* PERSIST BANNER */
+  .persist-banner { display:flex; align-items:center; gap:10px; background:rgba(var(--success-rgb),0.1); border:1px solid rgba(var(--success-rgb),0.3); border-radius:12px; padding:10px 13px; font-size:12px; color:var(--success-ink); margin-bottom:14px; }
+  .persist-banner svg { flex-shrink:0; }
+  /* Shown at the top of the Collect tab while editing an existing saved feature, so it's always
+     clear the form isn't building a brand-new feature. */
+  .edit-mode-banner { display:flex; align-items:center; gap:10px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.35); border-radius:12px; padding:10px 13px; font-size:12px; color:var(--accent-primary); margin-bottom:14px; }
+
+  /* ══ NO-FEATURE-TYPES WARNING ══
+     Feature types are load-bearing, not optional — without one, Capture/Save stay disabled and
+     the type picker is unusable, so a crew that opens Collect with none defined needs to know
+     immediately, not after scrolling into card 1. Sits at the very top of the Collect panel
+     (above card 1), warn-colored (not accent/neutral) so it reads as blocking rather than
+     informational, with the fix one tap away. */
+  .no-ft-banner {
+    display:flex; align-items:flex-start; gap:11px;
+    background:rgba(var(--warn-rgb),0.12); border:1px solid rgba(var(--warn-rgb),0.4);
+    border-radius:var(--rl); padding:13px 14px; margin-bottom:14px; color:var(--warn-ink);
+  }
+  .no-ft-banner-icon { flex-shrink:0; margin-top:1px; }
+  .no-ft-banner-body { flex:1; }
+  .no-ft-banner-title { font-size:13px; font-weight:800; color:var(--warn-ink); }
+  .no-ft-banner-sub { font-size:12px; color:var(--text-secondary); margin-top:2px; line-height:1.4; }
+  .no-ft-banner-btn {
+    flex-shrink:0; align-self:center; padding:8px 13px; border-radius:10px; cursor:pointer;
+    font-size:12.5px; font-weight:800; font-family:var(--font); white-space:nowrap;
+    border:1px solid var(--warn); background:var(--warn); color:#1A1200;
+  }
+  .no-ft-banner-btn:active { transform:scale(0.97); }
+  .edit-mode-banner svg { flex-shrink:0; }
+  .edit-mode-banner strong { color:var(--white); }
+  .btn-cancel-edit { background:none; border:1.5px solid var(--card-border); color:var(--text-secondary); font-size:13px; font-weight:700; font-family:var(--font); width:100%; padding:12px; border-radius:12px; cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:6px; transition:background 0.15s; }
+  .btn-cancel-edit:active { background:var(--surface-sunken); }
+
+  /* CLEAR */
+  .btn-clear-all { background:var(--surface-sunken); border:1.5px solid rgba(var(--danger-rgb),0.4); color:var(--danger); font-size:13px; font-weight:700; font-family:var(--font); width:100%; padding:12px; border-radius:12px; cursor:pointer; margin-top:8px; display:flex; align-items:center; justify-content:center; gap:6px; transition:background 0.15s, box-shadow 0.15s, filter 0.15s, transform 0.1s; box-shadow: var(--clay-shadow); }
+  .btn-clear-all:active { background:rgba(var(--danger-rgb),0.12); box-shadow: var(--clay-shadow-active); filter:brightness(1.05); transform:scale(0.98); }
+
+  /* TOAST */
+  /* ══ TOASTS ══
+     Floating fixed overlay, horizontally centred and pinned 24px off the bottom edge. Because it
+     is position:fixed and lives at the end of <body> — outside every .view and .panel — it
+     consumes no layout height: showing a toast can't expand a page container, shift content, or
+     add scroll. It simply floats above the background gradient (z-index:100, above the docked
+     nav's 50). pointer-events are off until .show so a hidden toast can never swallow taps. */
+  .toast { position:fixed; bottom:calc(24px + var(--sab)); left:50%; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; background:var(--cta); color:var(--on-cta); padding:12px 20px; border-radius:999px; font-size:13px; font-weight:700; z-index:100; box-shadow:0 8px 30px rgba(0,0,0,0.5); transition:transform 0.22s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s; max-width:calc(100vw - 32px); white-space:normal; text-align:center; }
+  .toast.show { transform:translateX(-50%) translateY(0); opacity:1; pointer-events:auto; }
+  /* On main app screens the bottom nav is docked over that same 24px band, so lift the toast to
+     clear it. The toasts are DOM siblings that follow #view-app, so a plain sibling combinator
+     does this with no JS and no :has() dependency: when #view-app isn't the active view (Welcome,
+     New Project, Feature Types) the rule simply doesn't apply and the toast sits at 24px. */
+  #view-app.active ~ .toast { bottom: calc(var(--dock-h) + 24px); }
+  /* Same lift, keyed to the flag that actually decides whether the bar is on screen. The sibling
+     rule above only covers #view-app; the Project Manager screen shows the nav too, so without
+     this its toasts would sit underneath the bar. */
+  body[data-chrome="nav"] .toast { bottom: calc(var(--dock-h) + 24px); }
+  .undo-toast { display:flex; align-items:center; gap:14px; padding:10px 10px 10px 20px; }
+  .undo-toast-btn { background:none; border:none; color:var(--accent-hover); font-size:13px; font-weight:800; padding:6px 10px; cursor:pointer; flex-shrink:0; text-transform:uppercase; letter-spacing:0.04em; }
+  .undo-toast-btn:active { opacity:0.6; }
+
+  .acc-good { color:var(--success); font-weight:700; }
+  .acc-ok   { color:var(--warn); font-weight:700; }
+  .acc-poor { color:var(--danger); font-weight:700; }
+  .pt-acc.manual { color:var(--text-tertiary); font-weight:700; font-style:italic; }
+
+  /* ══ BOTTOM NAV ══ */
+  /* Floating pill nav — inset from every edge rather than flush to the bottom, so it reads as a
+     capsule floating above the content instead of a docked bar. Content keeps scrolling underneath
+     it (see .panel's padding-bottom below, which only clears space for the LAST item — everything
+     above that still passes behind the bar as the user scrolls); backdrop-filter blur is what keeps
+     whatever's behind it legible rather than a flat overlay. */
+  /* ══ DOCKED BOTTOM NAV ══
+     Was a floating pill (inset 16px, fully rounded, drop-shadowed, blurred). A floating bar reads
+     as consumer-app chrome and, more practically, wastes horizontal room and lets content show
+     through underneath it. Docked flush to the edge with a solid fill and a single hairline top
+     border is the instrument-panel convention and gives the tabs their full width back.
+     Safe area: the spec called for env(safe-area-inset-bottom) directly, but this file routes
+     every inset through --sab = max(env(...), var(--sb-*)) because Android WebView below v140
+     reports env() as 0 in edge-to-edge mode and plenty of field devices are still on it. Using
+     --sab keeps the spec's intent while not regressing those handsets. */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    z-index: 50;
+    /* ══ SCROLL-UNDER SURFACE ══
+       The bar is position:fixed, so page content has always physically passed behind it — but
+       with a fully opaque fill the content simply vanished at the bar's top edge, which reads as
+       the page ending rather than continuing underneath. A translucent fill plus a backdrop blur
+       keeps the tab labels legible while letting whatever is scrolling past show through, so the
+       bar reads as glass laid over a continuous page.
+       color-mix keeps this tied to the theme token instead of hard-coding one rgba per theme, so
+       light/dark/outdoor all stay correct. The plain var(--card-bg) declaration above it is the
+       fallback for engines without color-mix (older Android WebView), which get today's opaque
+       bar rather than an unreadable transparent one. The blur is only applied where it is
+       actually supported, for the same reason. */
+    background: var(--card-bg);
+    background: color-mix(in srgb, var(--card-bg) 82%, transparent);
+    border-top: 1px solid var(--card-border);
+    border-radius: 0;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    height: calc(var(--nav-h) + max(12px, var(--sab)));
+    padding: 0 4px max(12px, var(--sab));
+    gap: 2px;
+    overflow: visible;
+    box-shadow: 0 -1px 3px rgba(0,0,0,0.10);
+    /* ══ COLLECT DATA-ENTRY DOCK ══
+       Slides fully out of view (rather than display:none, which can't be animated) the moment
+       enterCollectDataEntry() adds .collect-nav-hidden to <body> — see that function and its
+       call sites (form focus, Capture Point tap) further down the file. transform (not
+       bottom/height) keeps this cheap: no layout thrash on a bar that may re-appear several
+       times a minute during a capture session. */
+    transform: translateY(0);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  body.collect-nav-hidden .bottom-nav { transform: translateY(100%); pointer-events: none; }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .bottom-nav {
+      backdrop-filter: var(--glass-16);
+      -webkit-backdrop-filter: var(--glass-16);
+    }
+  }
+  /* ══ ROUTE SCOPE ══
+     The nav used to live inside #view-app and so was hidden for free whenever that view wasn't
+     active. It has since been hoisted to <body> level, because the Project Manager screen
+     (#view-projectmgr) is a separate view that must also show the bar — a nav nested inside
+     #view-app could never appear on a sibling view.
+     With the descendant relationship gone, visibility is driven by a single flag on <body>,
+     written by setChromeVisible() on every screen swap. Defaulting to hidden (rather than shown)
+     is deliberate: if a future screen forgets to call the helper it silently gets no nav, which
+     is far less damaging than the Welcome/onboarding screen wrongly sprouting app chrome. */
+  .bottom-nav { display: none; }
+  body[data-chrome="nav"] .bottom-nav { display: flex; }
+  /* flex:1 1 0 + min-width:0 is what actually makes six tabs share the row equally and lets the
+     labels shrink rather than push each other off the edge; justify-content:space-around above is
+     the fallback distribution if a tab is ever hidden. */
+  .nav-btn { position:relative; flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:7px 2px; background:none; border:none; border-radius:0; color:var(--nav-inactive); cursor:pointer; transition:color 0.15s, background 0.15s; height:var(--nav-h); }
+  /* Active state is a 2px accent rule pinned to the tab's top edge, drawn as a pseudo-element so
+     it sits flush against the nav's own border-top rather than inset by the button's padding. */
+  .nav-btn.active { color:var(--accent-primary); }
+  .nav-btn.active::before {
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background:var(--accent-primary); border-radius:0 0 2px 2px;
+  }
+  /* Collect previously carried a standing accent pill (background/border) whether or not it was
+     the current tab, meant to mark importance rather than selection. That created a second
+     visual "active-looking" tab alongside the real active tab, which reads as ambiguous
+     navigation state. Removed so Collect is styled identically to every other inactive tab
+     (neutral --nav-inactive) and only lights up via .nav-btn.active like the rest of the bar. */
+  /* Labels: 10px with negative tracking. Six words including "Dashboard" only clear a 360px
+     handset at this size; nowrap + a hard clip keeps a long label from wrapping to two lines and
+     knocking that tab's icon out of vertical alignment with the other five. */
+  .nav-btn span { font-size:10px; font-weight:700; letter-spacing:-0.015em; line-height:1.1; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:clip; transition:font-weight 0.15s; }
+  .nav-btn.active span { font-weight:800; }
+  /* Active-state scale shift: the selected tab's icon grows ~20% and its stroke thickens (a
+     stand-in for a proper outline→filled glyph swap — these icons are single-path outlines, not
+     paired outline/filled icon sets, so a literal fill-swap would need redesigned artwork per
+     icon; the fill-wash + bolder stroke below gives the same "this one's active" reinforcement
+     without that). transform-origin stays centered so growth doesn't push the icon toward one
+     edge of its button; ease-out (quick start, gentle finish) matches responsive tap feedback
+     rather than a linear or ease-in curve, which would feel sluggish on the way in. */
+  .nav-btn svg { transform: scale(1); transform-origin: center; transition: transform 0.18s cubic-bezier(0.17,0.84,0.44,1), stroke-width 0.18s cubic-bezier(0.17,0.84,0.44,1); fill: none; }
+  .nav-btn.active svg { transform: scale(1.2); stroke-width: 2.9; fill: currentColor; fill-opacity: 0.16; }
+
+  /* ══ COLLECT ACTION DOCK ══
+     Was a lone circular Capture button that only faded in once the real Capture button had
+     scrolled off. That solved half the problem: you still had to scroll to the very bottom of a
+     five-card form to reach Save, and nothing on screen told you the fix quality or the vertex
+     count unless card 2 happened to be in view.
+     Every mobile GIS collector of note (QField, Field Maps, Fulcrum) keeps a persistent
+     digitising bar pinned to the thumb zone carrying exactly three things: current fix state,
+     the capture action, and the commit action. That is what this is. It is always present on
+     Collect, so no step of the form is ever more than one tap from being acted on, and the form
+     above it becomes something you scroll to *read* rather than to *reach*. */
+  :root { --collect-dock-h: calc(74px + max(12px, var(--sab))); }
+  .capture-fab {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px max(12px, var(--sab));
+    background: var(--card-bg);
+    background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+    border-top: 1px solid var(--card-border);
+    box-shadow: 0 -6px 22px rgba(0,0,0,0.22);
+    opacity: 0;
+    transform: translateY(100%);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.4,0,0.2,1);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .capture-fab { backdrop-filter: var(--glass-12); -webkit-backdrop-filter: var(--glass-12); }
+  }
+  .capture-fab.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  /* ── LIVE STATUS ── the two numbers that decide whether the next tap is worth making: how good
+     the current fix is, and how much geometry is already banked. Reading them here means card 2
+     no longer has to be on screen for the crew to know where they stand. */
+  .cd-status { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .cd-status-main {
+    font-size: 12.5px; font-weight: 800; color: var(--white);
+    font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cd-status-sub {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cd-dot { display:inline-block; width:7px; height:7px; border-radius:999px; background:var(--text-tertiary); margin-right:6px; vertical-align:middle; }
+  .cd-dot[data-fix="good"] { background:#10B981; box-shadow:0 0 6px rgba(16,185,129,0.7); }
+  .cd-dot[data-fix="fair"] { background:#F59E0B; }
+  .cd-dot[data-fix="poor"] { background:var(--danger,#EF4444); }
+  .cd-save {
+    flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+    height: 44px; padding: 0 16px; border-radius: 14px; cursor: pointer;
+    border: 1px solid var(--card-border); background: var(--surface-sunken);
+    color: var(--text-primary); font-family: var(--font); font-size: 13px; font-weight: 800;
+    transition: transform 0.1s ease, border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .cd-save:active { transform: scale(0.96); }
+  /* Save only lights up once there is geometry worth committing — an always-green Save on an
+     empty form is an invitation to tap it and get an error toast. */
+  .cd-save.ready { background: var(--accent-primary); border-color: transparent; color: var(--on-accent,#fff); }
+  .cd-save[disabled] { opacity: 0.4; pointer-events: none; }
+  .cd-capture-wrap { position: relative; flex-shrink: 0; }
+  /* .measure-ring (defined further below) also sets position:relative — same specificity, and it
+     comes later in the source, so it was silently winning the cascade and knocking this element out
+     of position:fixed entirely (the actual cause of the "cut off, wrong spot" bug). This compound
+     selector has higher specificity than either single-class rule, so position:fixed always wins
+     regardless of source order. */
+  .capture-fab.measure-ring { position: fixed; }
+  /* Icon-only circular button — the full-width bar was too heavy floating over content;
+     this keeps the same tap/hold behavior in a much smaller footprint. */
+  .capture-fab .btn-capture { width:54px; height:54px; margin:0; padding:0; border-radius:50%; gap:0; box-shadow: 0 8px 24px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.16); transition: box-shadow 0.12s, transform 0.1s; }
+  .capture-fab .btn-capture:active { box-shadow: var(--clay-shadow-active), 0 4px 14px rgba(0,0,0,0.28); transform: scale(0.94); }
+  .capture-fab-label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  .capture-fab .capture-photo-badge { top:-6px; right:-6px; font-size:9px; padding:2px 6px; }
+
+  /* ══ FEATURE TYPE SCHEMA BUILDER ══ */
+  .ft-list { display:flex; flex-direction:column; gap:1px; background:var(--card-border); border-radius:var(--rl); overflow:hidden; margin-bottom:18px; box-shadow: var(--card-shadow); }
+  .ft-row { background:var(--card-bg); padding:14px 16px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:background 0.15s; }
+  .ft-row:active { background:var(--surface-sunken); }
+  .ft-row-icon { width:36px; height:36px; border-radius:12px; background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--text-secondary); font-size:15px; font-weight:800; text-transform:uppercase; }
+  .ft-row-body { flex:1; min-width:0; }
+  .ft-row-name { font-size:14px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ft-row-meta { font-size:11px; color:var(--text-secondary); margin-top:2px; text-transform:capitalize; }
+  .ft-row-actions { display:flex; align-items:center; gap:2px; flex-shrink:0; }
+  .ft-icon-btn { background:none; border:none; color:var(--text-tertiary); padding:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; border-radius:8px; }
+  .ft-icon-btn:active { background:var(--raised); color:var(--white); }
+  .ft-icon-btn.danger:active { color:var(--danger); }
+
+  .geo-toggle { display:flex; gap:8px; }
+  .geo-opt { flex:1; padding:12px 8px; border:1.5px solid var(--card-border); border-radius:12px; background:var(--surface-sunken); color:var(--text-secondary); font-size:12px; font-weight:700; text-align:center; cursor:pointer; transition:border-color 0.15s,color 0.15s,background 0.15s; }
+  .geo-opt.sel { border-color:var(--accent-primary); color:var(--accent-hover); background:rgba(var(--accent-rgb),0.1); }
+  .ft-swatch-row { display:flex; flex-wrap:wrap; gap:10px; padding-top:2px; }
+  .ft-swatch { width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:transform 0.1s; flex-shrink:0; }
+  .ft-swatch:active { transform:scale(0.9); }
+  .ft-swatch.sel { transform:scale(1.08); box-shadow:0 0 0 2px var(--card-bg); }
+  .ft-swatch-auto { display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; border-style:solid; }
+
+  .field-row2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .req-toggle-row { display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+  .req-toggle-row label { margin:0; }
+
+  .toggle-switch { position:relative; width:44px; height:26px; flex-shrink:0; }
+  .toggle-switch input { opacity:0; width:0; height:0; }
+  .toggle-slider { position:absolute; cursor:pointer; inset:0; background:var(--surface-sunken); border:1.5px solid var(--card-border); border-radius:999px; transition:0.15s; }
+  .toggle-slider::before { content:''; position:absolute; width:18px; height:18px; left:2px; top:2px; background:var(--text-secondary); border-radius:50%; transition:0.15s; }
+  .toggle-switch input:checked + .toggle-slider { background:rgba(var(--accent-rgb),0.25); border-color:var(--accent-primary); }
+  .toggle-switch input:checked + .toggle-slider::before { transform:translateX(18px); background:var(--accent-primary); }
+
+  .bool-toggle { display:flex; gap:8px; }
+  .bool-opt { flex:1; padding:12px; border:1.5px solid var(--card-border); border-radius:12px; background:var(--surface-sunken); color:var(--text-secondary); font-size:13px; font-weight:700; text-align:center; cursor:pointer; transition:border-color 0.15s,color 0.15s,background 0.15s; }
+  .bool-opt.sel-yes { border-color:var(--success); color:var(--success); background:rgba(var(--success-rgb),0.1); }
+  .bool-opt.sel-no  { border-color:var(--danger); color:var(--danger); background:rgba(var(--danger-rgb),0.1); }
+
+  .chip-select { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip-opt { padding:11px 14px; min-height:18px; border:1.5px solid var(--card-border); border-radius:999px; background:var(--surface-sunken); color:var(--text-secondary); font-size:12px; font-weight:700; cursor:pointer; transition:border-color 0.15s,color 0.15s,background 0.15s; }
+  .chip-opt.sel { border-color:var(--accent-primary); color:var(--on-accent); background:var(--accent-primary); }
+
+  .opt-tag-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .opt-tag { display:flex; align-items:center; gap:6px; padding:5px 6px 5px 11px; border-radius:999px; background:var(--raised); border:1px solid var(--card-border); font-size:12px; color:var(--white); }
+  .opt-tag button { background:none; border:none; color:var(--text-tertiary); font-size:14px; cursor:pointer; padding:0 3px; line-height:1; }
+  .opt-tag button:active { color:var(--danger); }
+  .opt-add-row { display:flex; gap:8px; margin-top:8px; }
+  .opt-add-row input { flex:1; }
+  .opt-add-row button { flex-shrink:0; padding:0 16px; background:var(--card-bg); border:1.5px solid var(--card-border); border-radius:12px; color:var(--white); font-weight:800; font-size:18px; cursor:pointer; }
+  .opt-add-row button:active { background:var(--raised); }
+
+  .add-field-btn { width:100%; padding:14px; background:var(--surface-sunken); border:1.5px dashed var(--card-border); border-radius:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; font-weight:700; font-family:var(--font); color:var(--text-secondary); margin-bottom:14px; }
+  .add-field-btn:active { border-color:var(--accent-primary); background:var(--raised); }
+
+  .type-pill { display:inline-block; font-size:10px; font-weight:800; letter-spacing:0.04em; padding:3px 8px; border-radius:999px; background:rgba(59,130,246,0.16); color:#8FBFFF; text-transform:uppercase; }
+
+  /* ══ FEATURE TYPE PICKER ══ — a big-target modal list standing in for a native <select>,
+     matching the geo-opt pill pattern used in the Feature Type editor, but as full-width rows
+     since a project can have many feature types (pills work for a fixed 3-way point/line/polygon
+     choice; a scrolling list of rows works better once the option count is open-ended). */
+  .ft-picker-trigger { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; min-height:50px; border:1.5px solid var(--card-border); border-radius:var(--rl); background:var(--surface-sunken); color:var(--white); font-size:14px; font-weight:700; cursor:pointer; text-align:left; }
+  .ft-picker-trigger:active { background:var(--card-bg); }
+  .ft-picker-trigger:disabled { opacity:0.55; cursor:default; }
+  .ft-picker-trigger-glyph { color:var(--accent-hover); font-size:13px; flex-shrink:0; }
+  .ft-picker-trigger-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ft-picker-trigger-chevron { color:var(--text-secondary); font-size:11px; flex-shrink:0; }
+  .ft-picker-list { display:flex; flex-direction:column; gap:8px; max-height:min(60vh,420px); overflow-y:auto; overscroll-behavior:contain; margin-bottom:16px; }
+  .ft-picker-row { display:flex; align-items:center; gap:12px; padding:14px 14px; min-height:56px; border:1.5px solid var(--card-border); border-radius:var(--rl); background:var(--surface-sunken); cursor:pointer; transition:border-color 0.15s,background 0.15s; }
+  .ft-picker-row.sel { border-color:var(--accent-primary); background:rgba(var(--accent-rgb),0.1); }
+  .ft-picker-row-glyph { font-size:16px; color:var(--accent-hover); width:22px; text-align:center; flex-shrink:0; }
+  .ft-picker-row-text { flex:1; min-width:0; }
+  .ft-picker-row-name { font-size:14.5px; font-weight:700; color:var(--white); }
+  .ft-picker-row-meta { font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .ft-picker-row-check { color:var(--accent-hover); font-size:16px; flex-shrink:0; visibility:hidden; }
+  .ft-picker-row.sel .ft-picker-row-check { visibility:visible; }
+  .ft-picker-title { font-size:16px; font-weight:800; color:var(--white); margin-bottom:16px; }
+  /* ══ SETTINGS MODAL ══ — groups the things that used to live only as individual icon toggles
+     (units, map style) plus a genuinely new preference (default export format) into one place,
+     reachable from a gear icon next to the existing units/density/contrast/theme icons. The icon
+     toggles stay where they are for one-tap access; this is for "set it once and forget it". */
+  .settings-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-bottom:1px solid var(--card-border); }
+  .settings-row:last-of-type { border-bottom:none; }
+  .settings-row-label { font-size:14px; font-weight:700; color:var(--white); }
+  .settings-row-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; font-weight:500; }
+  .seg-control { display:flex; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:10px; padding:2px; flex-shrink:0; }
+  .seg-control button { border:none; background:transparent; color:var(--text-secondary); font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:8px; cursor:pointer; transition:background 0.15s, color 0.15s; white-space:nowrap; }
+  .seg-control button.active { background:var(--accent-primary); color:var(--on-accent); box-shadow:0 0 10px 0 rgba(var(--grad-tint2),0.4); }
+  .settings-select { background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--white); font-size:12.5px; font-weight:700; padding:8px 10px; border-radius:10px; flex-shrink:0; max-width:170px; }
+  .settings-gear { transition:transform 0.4s cubic-bezier(0.22,1,0.36,1); }
+  /* ══ DOMAIN PALETTE PICKER ══ stacks its control under its label instead of beside it, because
+     five colour previews cannot share a row with a description on a handset. */
+  .settings-row-stack { display:block; }
+  .domain-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(88px, 1fr)); gap:8px; margin-top:12px; }
+  .domain-swatch {
+    display:flex; flex-direction:column; align-items:center; gap:7px; padding:10px 6px; cursor:pointer;
+    border:1.5px solid var(--border-subtle); border-radius:12px; background:var(--surface-sunken);
+    font-family:var(--font); transition:border-color 0.15s, background 0.15s, transform 0.1s;
+  }
+  .domain-swatch:active { transform:scale(0.96); }
+  .domain-swatch.sel { border-color:var(--primary-accent); background:rgba(var(--accent-rgb),0.10); }
+  .ds-chips { display:flex; }
+  /* Overlapped discs rather than a row of squares: it reads as one palette at 88px wide, where
+     three separate chips just read as noise. */
+  .ds-chips i { width:15px; height:15px; border-radius:50%; border:1.5px solid var(--surface-card); margin-left:-5px; }
+  .ds-chips i:first-child { margin-left:0; }
+  .ds-name { font-size:10.5px; font-weight:800; color:var(--text-secondary); letter-spacing:-0.01em; }
+  .domain-swatch.sel .ds-name { color:var(--text-primary); }
+  .settings-gear:active svg { transform:rotate(45deg); }
+  .settings-gear svg { transition:transform 0.3s ease; }
+
+  /* ══ CONFIRM MODAL ══ */
+  /* KEYBOARD-SAFE SIZING: height (not inset:0's implicit 100%) is driven by --vvh, a JS-tracked
+     visual-viewport height (see the "KEYBOARD-AWARE VIEWPORT" script near the bottom of the page).
+     Without this, a fixed-position element is sized/positioned against the full *layout* viewport,
+     which on iOS Safari does NOT shrink when the keyboard opens — so a bottom-anchored sheet (and
+     the Cancel/Save buttons inside it) ends up positioned below the visible, keyboard-covered
+     area. Tying height to the actual visible viewport keeps the whole sheet (and its buttons)
+     on-screen the moment the keyboard appears. 100dvh is the fallback for browsers without the
+     VisualViewport API (dvh already accounts for mobile browser chrome, if not the keyboard). */
+  /* padding-top keeps a tall bottom sheet (long forms, the export list) from running its own
+     header up under the status bar when it hits max-height. .modal-box already handles the
+     bottom inset via its own padding, so only the top is needed here. */
+  /* KEYBOARD LAYOUT — WHY THE DIM AND THE SHEET ARE SIZED SEPARATELY
+     The overlay used to be `height:var(--vvh)`, i.e. the *whole* overlay shrank to the visible
+     viewport when the keyboard opened. That fixed the buttons-behind-the-keyboard problem but
+     created a worse-looking one: the dark backdrop stopped at the keyboard's top edge, so the
+     live app screen stayed fully lit in the strip between the sheet and the keyboard, and any
+     scroll offset the browser applied on focus (visualViewport.offsetTop) slid the whole overlay
+     out of register with what was actually on screen. That is the "awkward view with the screen
+     below the modal".
+     Split responsibilities instead:
+       · the overlay stays FULL screen (100dvh) so the dim always covers everything, keyboard
+         included, and `top:var(--vvot)` re-registers it with the visual viewport when the browser
+         scrolls the page on focus;
+       · `padding-bottom:var(--kbh)` (keyboard height) is what lifts the sheet, and because
+         box-sizing is border-box the child's max-height:100% resolves to the visible strip only.
+     ANDROID — CORRECTED. This block used to claim "--kbh stays ~0 on Android because adjustResize
+     means 100dvh already excludes the keyboard". That was never true for the packaged APK. The
+     manifest does set windowSoftInputMode="adjustResize", but MainActivity also calls
+     setDecorFitsSystemWindows(false) for edge-to-edge, which opts the window out of automatic
+     inset consumption — so on API 30+ the WebView is NOT resized, 100dvh stays the full screen,
+     and --kbh resolves to the FULL keyboard height (~320px), not ~0.
+     That is fine, and is now the intended behaviour on both platforms: padding-bottom:var(--kbh)
+     lifts the sheet, and the value is fed by the real ime() inset via --kbh-native
+     (scripts/patch-android-ui.py -> js/01-theme-and-settings.js) rather than inferred from
+     visualViewport timing. Same rules, both platforms, still no branching — but the Android
+     number is now large and correct instead of small and assumed. */
+  /* ══ WHY visibility, NOT JUST opacity ══
+     These overlays were hidden with opacity:0 + pointer-events:none alone, which hides them from
+     the eye but not from the browser. Two concrete consequences:
+       · All ~17 closed sheets stayed in the tab order — 92 focusable controls (19 of them in
+         Settings alone) sat between the visible screen's controls, so tabbing wandered through
+         invisible dialogs.
+       · An opacity:0 element still paints. Every closed overlay kept a full-screen
+         backdrop-filter compositing layer alive permanently, and the cost of promoting them all
+         is paid on the frame a sheet opens — which is the stutter you see on open.
+     visibility:hidden fixes both: it removes the subtree from hit-testing, the a11y tree and the
+     tab order, and lets the compositor skip it entirely.
+     The transition is what keeps the CLOSE animation intact: visibility is delayed by the length
+     of the opacity fade on the way out (so the sheet stays visible while it fades), and applied
+     immediately on the way in (so it is visible before the fade starts). Without that delay the
+     sheet would vanish instantly instead of fading. */
+  /* ══ SHEET TRANSITION — ONE TIMELINE, TWO LAYERS ══
+     REWRITTEN to fix content bleed / animation desync. What was wrong before:
+
+       1. The fade lived on .modal-overlay's own `opacity`, and opacity on a parent applies to the
+          WHOLE subtree as one composited group. So for the entire 180ms of both the open and the
+          close, the sheet's card background AND its text/buttons were partially transparent
+          together — which is exactly the reported symptom: modal text legible on top of the
+          dashboard, grid icons "floating semi-transparently" over the UI on the way out. The card
+          never hid what was behind it because the card itself was see-through.
+       2. The two layers ran on different clocks: backdrop 0.18s linear, sheet 0.2s on a springy
+          cubic-bezier(0.34,1.56,0.64,1). The sheet was therefore still travelling (and, on the
+          spring, still overshooting) 20ms after the backdrop had finished, and `visibility` flipped
+          to hidden at 0.18s — cutting the last frames of the exit off mid-slide.
+
+     The fix is to stop animating the container and animate the two layers independently, on ONE
+     shared duration:
+       · the backdrop is now a ::before pseudo-element, so its opacity is the only thing that fades
+         — the sheet is no longer inside the fading group and stays fully opaque throughout;
+       · the sheet moves on transform only, which is compositor-driven and never makes it
+         translucent, so nothing can bleed through it at any point in the travel;
+       · both use --sheet-t, and `visibility` is delayed by exactly --sheet-t on the way out, so the
+         container outlives the slower of the two children instead of truncating it.
+     The spring is gone on exit (an overshoot on the way out reads as a bounce against a backdrop
+     that is already leaving); entrance keeps a gentle ease-out with no overshoot past the rest
+     position, which is what removes the "lands, then settles" second frame. */
+  .modal-overlay {
+    --sheet-t: 0.22s;
+    --sheet-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    position:fixed; inset:0; top:var(--vvot, 0px); height:100dvh;
+    padding-top:var(--sat); padding-bottom:var(--kbh, 0px); box-sizing:border-box;
+    background:transparent;
+    z-index:200; display:flex; align-items:flex-end; justify-content:center;
+    visibility:hidden; pointer-events:none;
+    /* ── TOP AND BOTTOM ON ONE CLOCK ──
+       `padding-bottom` (the keyboard's height) was transitioned but `top` (--vvot, the visual
+       viewport's scroll offset) was not. Both change on the same keyboard event, so the sheet's
+       bottom edge eased over 140ms while its top edge teleported — the container's height was
+       therefore changing at two different rates for the whole animation, which reads as the sheet
+       snapping rather than following the keyboard. Same property list, same duration, same easing:
+       the box now translates as one piece. 0.22s matches --sheet-t so a resize and an
+       open/close can never disagree about how long they take. */
+    transition:visibility 0s linear var(--sheet-t),
+               padding-bottom var(--sheet-t) var(--sheet-ease),
+               top var(--sheet-t) var(--sheet-ease);
+  }
+  /* The backdrop proper. Separate layer = the sheet above it is never dragged into its fade. */
+  .modal-overlay::before {
+    content:''; position:absolute; inset:0; z-index:0;
+    background:var(--modal-backdrop);
+    opacity:0; transition:opacity var(--sheet-t) var(--sheet-ease);
+  }
+  .modal-overlay.show {
+    visibility:visible; pointer-events:auto;
+    transition:visibility 0s linear 0s,
+               padding-bottom var(--sheet-t) var(--sheet-ease),
+               top var(--sheet-t) var(--sheet-ease);
+  }
+  .modal-overlay.show::before { opacity:1; }
+  /* ══ DON'T EASE WHAT THE PLATFORM IS ALREADY ANIMATING ══
+     Android delivers the IME inset as a stream of intermediate values across its ~250ms slide.
+     Transitioning padding-bottom/top against that stream means every frame retargets a
+     220ms ease that never gets to finish — two animations, one value, two clocks. The result is
+     the stutter and the grey band appearing between the sheet and the keyboard.
+     html.kb-animating is set by MainActivity's WindowInsetsAnimationCompat callback (API 30+)
+     for exactly the duration of the platform animation. During that window the overlay tracks
+     --kbh instantly, so the sheet rides the keyboard frame-for-frame; when it clears, CSS easing
+     resumes for orientation changes and any other geometry shift.
+     Scoped to the keyboard properties only — the sheet's own transform and the backdrop fade are
+     untouched, so open/close animations still run normally if a sheet is opened while typing. */
+     Split across the two states on purpose: `visibility` keeps its per-state delay (--sheet-t on
+     the way out, 0s on the way in). Collapsing both into one rule would zero that delay and cut
+     the last frames off a sheet that is dismissed while the keyboard is still collapsing — the
+     exact ghosting the original comment above went to some trouble to eliminate. */
+  html.kb-animating .modal-overlay {
+    transition:visibility 0s linear var(--sheet-t),
+               padding-bottom 0s linear 0s,
+               top 0s linear 0s;
+  }
+  html.kb-animating .modal-overlay.show {
+    transition:visibility 0s linear 0s,
+               padding-bottom 0s linear 0s,
+               top 0s linear 0s;
+  }
+  #confirmModalOk.tone-danger { background:var(--danger); color:var(--on-danger); }
+  #confirmModalOk.tone-default { background:var(--accent-primary); color:var(--on-accent); }
+  /* position:relative + z-index lifts the sheet out of the backdrop pseudo-element's stacking
+     order. will-change:transform promotes it once, up front, instead of on the frame it starts
+     moving — that promotion cost on the first frame was the other half of the "stutter on open". */
+  .modal-box {
+    position:relative; z-index:1;
+    width:100%; max-width:420px; max-height:100%; overflow-y:auto; overscroll-behavior:contain;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:24px 24px 0 0;
+    padding:22px 20px calc(20px + var(--sab-sheet, var(--sab)));
+    transform:translate3d(0, 100%, 0); will-change:transform;
+    transition:transform var(--sheet-t) var(--sheet-ease);
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -18px 24px -18px rgba(0,0,0,0.4);
+  }
+  /* With the keyboard up, the gesture-bar inset is sitting *behind* the keyboard — reserving it
+     just floats the sheet on a dead strip of blank card. Collapse it for as long as the keyboard
+     is open; --sab-sheet falls back to the real inset the moment it closes. */
+  html.kb-open { --sab-sheet: 0px; }
+  /* A sheet whose fields are the point (coordinate entry, field editor, rename) should never
+     open at less than a comfortable height and then jump as the keyboard animates in. */
+  html.kb-open .modal-box { border-radius:20px 20px 0 0; }
+  .modal-overlay.show .modal-box { transform:translate3d(0, 0, 0); }
+  @media (min-width:480px){
+    .modal-overlay { align-items:center; }
+    /* Centred dialogs can't slide off the bottom edge, so they scale instead. Opacity is allowed
+       HERE and only here: a centred dialog has no edge to travel from, and it is the sheet's own
+       opacity (not an ancestor's), so it still composites as one layer with its own background —
+       the card and its content fade together as a single unit, never separately. */
+    .modal-box { border-radius:24px; transform:translate3d(0, 8px, 0) scale(0.96); opacity:0; transition:transform var(--sheet-t) var(--sheet-ease), opacity var(--sheet-t) var(--sheet-ease); }
+    .modal-overlay.show .modal-box { transform:translate3d(0, 0, 0) scale(1); opacity:1; }
+  }
+  /* ── ALWAYS-REACHABLE CLOSE ──
+     Tap-outside only works when there IS an outside; a full-height sheet covers the whole overlay.
+     This X is sticky to the top of the scroll box, so it stays on screen through any amount of
+     content and gives every sheet a guaranteed exit that doesn't depend on scrolling to the end. */
+  .modal-x {
+    position:sticky; top:0; float:right; margin:-8px -6px 0 0; z-index:3;
+    width:30px; height:30px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    border:none; border-radius:999px; background:var(--surface-sunken); color:var(--text-secondary);
+    cursor:pointer; font-family:var(--font);
+  }
+  .modal-x:active { filter:brightness(0.9); }
+  .modal-msg { font-size:15px; line-height:1.5; color:var(--white); margin-bottom:20px; font-weight:600; }
+
+  /* ══ SHEET HEADINGS — THE ONE PLACE THEY ARE DEFINED ══
+     .modal-title and .modal-sub were being used by the Analytics and PlotMind sheets but had NO
+     rule in any stylesheet — that is the whole reason those two screens' headings rendered at
+     browser-default weight 400 while every other screen looked bold. They are defined here, once,
+     on the same ramp as .pm-title (screen H1) and .subpage-header h2 (subpage H2), so the three
+     read as one hierarchy instead of three unrelated sizes:
+         screen H1  24px / 800   ·   subpage H2  20px / 800   ·   sheet H2  19px / 800
+     margin-right clears the sticky .modal-x, which floats right into the same line box. */
+  .modal-title {
+    font-family:var(--font-display); font-size:19px; font-weight:800; letter-spacing:-0.012em;
+    line-height:1.25; color:var(--white); margin:0 34px 6px 0;
+  }
+  .modal-sub {
+    font-size:12.5px; line-height:1.55; color:var(--text-secondary);
+    margin:0 0 16px; font-weight:500;
+  }
+  /* A sheet that leads with .modal-title does not also need the light-catch gradient starting
+     behind the text — it muddies the one element that has to read first. */
+  .modal-box:has(> .modal-title)::before { height:44px; }
+
+  /* ══ ONBOARDING (first launch only) ══
+     A 5-step "here's the workflow" walkthrough shown once, right after the splash screen, gated by
+     the same plotedge_visited flag the splash uses. Deliberately not a feature tour glued to real
+     UI elements (no coach-mark arrows pointing at buttons) — those break the moment a layout
+     changes. Just states the mental model up front: Project → Feature → Capture → Review → Export.
+     Every subsequent launch skips straight past this, same as the splash. */
+  /* padding was a flat 20px. That's fine in a browser tab, but once the app draws edge-to-edge a
+     tall onboarding card on a short screen can push its top row under the clock and its buttons
+     under the gesture bar. Adding the insets to the flex container's padding keeps the card
+     centred in the *usable* area rather than the physical screen. */
+  .onboard-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; display:flex; align-items:center; justify-content:center; padding:calc(20px + var(--sat)) calc(20px + var(--sar)) calc(20px + var(--sab)) calc(20px + var(--sal)); opacity:0; visibility:hidden; pointer-events:none; transition:opacity 0.2s, visibility 0s linear 0.2s; }
+  .onboard-overlay.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.2s, visibility 0s linear 0s; }
+  .onboard-box { width:100%; max-width:360px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); padding:26px 22px 20px; box-shadow:var(--card-shadow); text-align:center; }
+  .onboard-icon { width:56px; height:56px; border-radius:16px; background:rgba(var(--accent-rgb),0.12); border:1px solid rgba(var(--accent-rgb),0.3); color:var(--accent-primary); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
+  .onboard-step-lbl { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:6px; }
+  .onboard-title { font-size:17px; font-weight:800; color:var(--white); margin-bottom:8px; }
+  .onboard-sub { font-size:13px; color:var(--text-secondary); line-height:1.55; margin-bottom:20px; }
+  .onboard-dots { display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:18px; }
+  .onboard-dot { width:6px; height:6px; border-radius:999px; background:var(--card-border); transition:background 0.15s,width 0.15s; }
+  .onboard-dot.active { background:var(--accent-primary); width:16px; }
+  .onboard-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .onboard-skip { background:none; border:none; color:var(--text-tertiary); font-size:13px; font-weight:700; font-family:var(--font); padding:10px 6px; cursor:pointer; }
+  .onboard-next { background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:12px; padding:12px 22px; font-size:14px; font-weight:800; font-family:var(--font); cursor:pointer; flex-shrink:0; }
+  /* ══ STICKY ACTION ROW ══
+     Sheets that overflow the viewport (Help & About, Customise quick actions) used to push their
+     Close/Done buttons hundreds of pixels below the fold, so the primary action was invisible
+     until the user guessed to scroll — the sheet read as having no way out. Pinning the row to
+     the bottom of the scroll box keeps the decision on screen for the whole sheet, which is the
+     behaviour every native bottom sheet already has.
+     The negative margins pull the row out to the sheet's edges so its background spans the full
+     width, and re-add the padding .modal-box would otherwise have supplied. */
+  .modal-actions {
+    display:flex; gap:10px;
+    position:sticky; z-index:2;
+    bottom:calc(-1 * (20px + var(--sab-sheet, var(--sab))));
+    margin:14px -20px calc(-1 * (20px + var(--sab-sheet, var(--sab))));
+    padding:12px 20px calc(12px + var(--sab-sheet, var(--sab)));
+    background:var(--card-bg);
+    border-top:1px solid var(--card-border);
+  }
+  /* Short sheets don't scroll, so the divider there would just be a line under the content for no
+     reason. `position:sticky` only ever detaches on a scrolling ancestor, so keying the divider
+     off actual overflow keeps small sheets looking exactly as they did before. */
+  .modal-box:not(.is-scrollable) .modal-actions {
+    border-top:none; background:transparent; padding-top:0; margin-top:14px;
+  }
+  .modal-actions .btn { margin:0; }
+
+  /* ══ SCHEMA EDITOR — COMPACT SUMMARY ROWS ══
+     The field editor used to inline every control for every field, so a ten-field schema was a
+     wall of ~2,500px of inputs and defining field 10 meant scrolling past nine you weren't
+     touching. Each field is now a single fixed-height summary row and the controls live in a
+     bottom sheet, so the list length grows by ~52px per field instead of ~250px and the screen
+     stays readable no matter how big the schema gets. */
+  .sec-head {
+    display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;
+  }
+  .sec-head-title {
+    font-size:11px; font-weight:800; letter-spacing:0.09em; text-transform:uppercase;
+    color:var(--text-tertiary);
+  }
+  .sec-head-btn {
+    display:inline-flex; align-items:center; gap:5px; flex-shrink:0;
+    padding:7px 12px; border-radius:999px; cursor:pointer;
+    border:1px solid var(--accent-primary); background:transparent; color:var(--accent-primary);
+    font-family:var(--font); font-size:12.5px; font-weight:700;
+  }
+  .sec-head-btn:active { transform:scale(0.97); background:rgba(var(--accent-rgb),0.12); }
+
+  .sum-row {
+    display:flex; align-items:center; gap:10px;
+    padding:9px 10px; margin-bottom:8px; border-radius:12px;
+    background:var(--surface-sunken); border:1px solid var(--card-border);
+    cursor:pointer; touch-action:pan-y;
+  }
+  .sum-row:active { border-color:var(--accent-primary); }
+  .sum-row.dragging { opacity:0.5; border-style:dashed; }
+  .sum-row.drop-target { border-color:var(--accent-primary); border-style:dashed; }
+  /* The handle is the only drag surface. Making the whole row draggable would swallow the tap
+     that opens the sheet, and on touch there's no hover to disambiguate the two. */
+  .sum-drag {
+    flex-shrink:0; width:26px; height:30px; display:flex; align-items:center; justify-content:center;
+    color:var(--text-tertiary); cursor:grab; touch-action:none; border-radius:7px;
+  }
+  .sum-drag:active { cursor:grabbing; background:var(--card-bg); color:var(--text-primary); }
+  .sum-body { flex:1; min-width:0; }
+  .sum-label {
+    font-size:14px; font-weight:700; color:var(--white); line-height:1.3;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .sum-label.is-empty { color:var(--text-tertiary); font-style:italic; font-weight:600; }
+  .sum-meta {
+    display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+    font-size:11.5px; color:var(--text-secondary); margin-top:2px;
+  }
+  .sum-dot { opacity:0.5; }
+  .sum-pill {
+    padding:1px 6px; border-radius:999px; font-size:10px; font-weight:800; letter-spacing:0.03em;
+  }
+  .sum-pill.req { background:rgba(245,158,11,0.16); color:var(--warn-ink); }
+  .sum-pill.vtx { background:rgba(var(--accent-rgb),0.15); color:var(--accent-hover); }
+  .sum-edit {
+    flex-shrink:0; width:32px; height:32px; border-radius:9px; border:none;
+    background:none; color:var(--text-tertiary); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sum-edit:active { background:var(--card-bg); color:var(--accent-primary); }
+
+  /* ══ SHEET HEADER (Cancel / title / Done) ══
+     Used by sheets that edit a draft rather than firing a single action, so committing and
+     discarding are both explicit — closing such a sheet by tapping the backdrop silently keeps
+     half-typed edits, which is the one place a bottom sheet needs a real header. */
+  /* ══ WHY THIS IS STICKY ══
+     This header was in normal flow inside .modal-box, which is `overflow-y:auto`. The moment the
+     keyboard opens, max-height:100% resolves against the visible strip, the box becomes
+     scrollable, and the focus-scroll runs — carrying Cancel / title / Done up and out of the
+     sheet. On the way back (keyboard closing, or Done pressed) the box grows again while the
+     scroll offset is still the keyboard-era one, so the header re-enters from above and lands
+     across the first form rows for a frame or two. That is the "header detaches, shifts down and
+     renders over the form fields" symptom exactly — the sheet's action bar was scrolling content
+     all along; it only ever LOOKED pinned because short sheets never scrolled.
+     position:sticky pins it to the top of the scrollport for real, under any scroll offset,
+     keyboard state or viewport resize.
+     The margin/padding swap is geometry-neutral: the box supplies 22px of top padding, so pulling
+     the header up by 22 and re-adding 18 inside it leaves the text on the same baseline it had at
+     -4/0, while giving the sticky bar its own opaque strip to cover content passing underneath.
+     z-index:4 clears .modal-actions (2) and .modal-x (3). */
+  .sheet-head {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    position:sticky; top:0; z-index:4;
+    background:var(--card-bg);
+    margin:-22px -20px 14px; padding:18px 20px 12px;
+    border-bottom:1px solid var(--card-border);
+  }
+  .sheet-head-title { font-size:15px; font-weight:800; color:var(--white); }
+  .sheet-head-btn {
+    background:none; border:none; padding:6px 2px; cursor:pointer;
+    font-family:var(--font); font-size:14.5px; font-weight:700; color:var(--text-secondary);
+  }
+  .sheet-head-btn.primary { color:var(--accent-primary); }
+  .sheet-head-btn:active { opacity:0.6; }
+  .sheet-head-btn[disabled] { opacity:0.35; cursor:default; }
+
+  /* Scope options that don't apply to the chosen geometry stay visible but inert — hiding them
+     outright makes the control silently change shape between geometry types, which reads as a
+     rendering glitch rather than a rule. */
+  .geo-opt.is-disabled { opacity:0.38; cursor:not-allowed; }
+
+  /* ══ STICKY PRIMARY ACTION ══
+     Save sat at the natural end of the page, so on a long schema it was several screens below
+     the fold and the form looked unsaveable until you scrolled. */
+  .sticky-save {
+    position:sticky; bottom:0; z-index:5;
+    margin:16px -16px calc(-1 * var(--sab));
+    padding:12px 16px calc(12px + var(--sab));
+    background:linear-gradient(180deg, transparent, var(--bg) 26%);
+  }
+  .sticky-save .btn { margin:0; }
+
+  /* ══ COLLECT — ATTRIBUTE SUMMARY ══
+     Same problem as the schema editor, one step further downstream: step 3 rendered every input
+     for the whole schema inline, so a 12-field feature type buried the Save button under a screen
+     and a half of controls and made "which fields still need filling?" a scrolling exercise. The
+     card now lists one row per field with its current value, and editing happens in a sheet that
+     walks the schema with Prev/Next — so the answer to "what's left" is visible at a glance and
+     the card height no longer scales with schema size.
+     The inputs themselves are unchanged and stay mounted in the DOM (inside the sheet), so
+     collectAttrs() still reads them by id exactly as before. */
+  .attr-sum-row {
+    display:flex; align-items:center; gap:10px;
+    padding:10px; margin-bottom:8px; border-radius:12px;
+    background:var(--surface-sunken); border:1px solid var(--card-border); cursor:pointer;
+  }
+  .attr-sum-row:active { border-color:var(--accent-primary); }
+  .attr-sum-row.needs-value { border-color:rgba(245,158,11,0.45); }
+  .attr-sum-body { flex:1; min-width:0; }
+  .attr-sum-label {
+    display:flex; align-items:center; gap:6px;
+    font-size:12px; font-weight:700; color:var(--text-secondary); letter-spacing:0.01em;
+  }
+  .attr-sum-val {
+    font-size:14px; font-weight:650; color:var(--white); margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .attr-sum-val.is-empty { color:var(--text-tertiary); font-weight:600; font-style:italic; }
+  .attr-sum-chev { flex-shrink:0; color:var(--text-tertiary); display:flex; align-items:center; }
+
+  /* One pane per field; only the active one is displayed. Keeping the inactive panes in the DOM
+     (rather than re-rendering on each step) is what preserves both the ids collectAttrs() needs
+     and any value already typed into a field the user has stepped away from. */
+  .attr-pane { display:none; }
+  .attr-pane.active { display:block; }
+  .calc-display { padding:12px 14px; border:1.5px solid var(--card-border); border-radius:12px; background:var(--surface-sunken); color:var(--text-secondary); font-size:14px; font-weight:600; }
+  .calc-display-value { color:var(--text-primary); }
+  .repeat-group { display:flex; flex-direction:column; gap:10px; }
+  .repeat-instances { display:flex; flex-direction:column; gap:10px; }
+  .repeat-empty-hint { padding:4px 0; }
+  .repeat-instance-card { border:1.5px solid var(--card-border); border-radius:14px; padding:12px; background:var(--surface-sunken); display:flex; flex-direction:column; gap:10px; }
+  .repeat-instance-head { display:flex; align-items:center; justify-content:space-between; }
+  .repeat-instance-num { font-size:12px; font-weight:800; letter-spacing:0.02em; text-transform:uppercase; color:var(--text-secondary); }
+  .repeat-remove-btn { width:26px; height:26px; border-radius:50%; border:none; background:rgba(239,68,68,0.12); color:#EF4444; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .repeat-add-btn { width:100%; }
+  .attr-sheet-nav { display:flex; align-items:center; gap:10px; }
+  .attr-sheet-nav .btn { margin:0; flex:1; }
+  .attr-sheet-step {
+    font-size:11.5px; font-weight:700; color:var(--text-tertiary);
+    text-align:center; margin-bottom:10px; letter-spacing:0.04em;
+  }
+
+  /* ══ SPLASH SCREEN ══
+     The mark blooms in on a brand-tinted glow, settles out of a slight overshoot, the wordmark
+     follows, a survey-ring pulse fires at the moment the mark comes to rest, then the whole thing
+     fades to reveal the landing page already rendered underneath.
+
+     ══ ONE TIMELINE, TWO CHANNELS ══
+     These four beats are also the four notes of the chime. That is the whole point of declaring
+     the timeline here as variables rather than hard-coding seconds into each rule: the audio reads
+     these exact same values back out at runtime (see readSplashBeat() in the script below) and
+     schedules against them, so a note can never drift from the frame it belongs to. Retiming the
+     splash means editing these six numbers and nothing else — the sound follows automatically.
+
+       0.14s  mark enters          -> note 1   (D4)
+       0.44s  glow at full bloom   -> note 2   (A4)
+       0.74s  wordmark enters      -> note 3   (E5)
+       1.04s  mark settles + pulse -> note 4   (B5), the resolve
+
+     The notes stack in perfect fifths rather than running a major arpeggio. A major arpeggio is
+     the default startup-chime sound and belongs to no one; stacked fifths read as open, exact and
+     instrument-like — the same idea the measure ring is getting at visually. */
+  :root {
+    --sp-glow-start: 0.06s;
+    --sp-glow-dur:   1.50s;
+    --sp-logo-start: 0.14s;
+    --sp-logo-dur:   0.90s;   /* 0.14 + 0.90 = the settle beat below */
+    --sp-name-start: 0.74s;
+    --sp-name-dur:   0.50s;
+    --sp-settle:     1.04s;
+    --sp-pulse-dur:  0.90s;
+    --sp-hold:       2.30s;   /* fade-out begins */
+    --sp-fade:       0.50s;
+  }
+  .splash {
+    position: fixed; inset: 0; z-index: 999;
+    background:
+      radial-gradient(ellipse 620px 520px at 50% 42%, rgba(var(--accent-rgb-deep),0.22) 0%, transparent 70%),
+      var(--bg-primary);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    transition: opacity var(--sp-fade) ease, visibility var(--sp-fade) ease;
+  }
+  .splash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+  .splash-logo-wrap { position: relative; width: 132px; height: 132px; display: flex; align-items: center; justify-content: center; }
+  /* ══ SIGNATURE: MEASURE RING ══ — a tick-marked dial (rangefinder/theodolite reference), the one
+     visual motif unique to PlotEdge. Pure CSS: a repeating-conic-gradient masked down to a thin
+     ring of ticks, slowly rotating. Reused in exactly two places — the splash brand mark and the
+     capture button, the app's single most-used control — so the brand mark and the core "measure
+     something precisely" action are visually the same idea. Deliberately not used anywhere else. */
+  .measure-ring { position: relative; }
+  .measure-ring::before {
+    content: '';
+    position: absolute; inset: -14px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(var(--measure-ring-color, var(--accent-primary)) 0deg 1.5deg, transparent 1.5deg 15deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 9px) calc(100% - 3px), transparent calc(100% - 3px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 9px) calc(100% - 3px), transparent calc(100% - 3px));
+    opacity: 0.55;
+    animation: measure-ring-spin 48s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes measure-ring-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .measure-ring::before { animation: none; }
+  }
+  .splash-glow {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle, rgba(var(--accent-rgb-deep),0.55) 0%, rgba(var(--accent-rgb),0.22) 45%, transparent 72%);
+    filter: blur(14px);
+    opacity: 0; transform: scale(0.5);
+    animation: splash-glow-bloom var(--sp-glow-dur) cubic-bezier(0.22,0.8,0.32,1) var(--sp-glow-start) forwards;
+  }
+  .splash-logo {
+    position: relative; width: 112px; height: auto;
+    filter: drop-shadow(0 18px 34px rgba(0,0,0,0.45));
+    opacity: 0; transform: scale(0.72) translateY(6px);
+    animation: splash-logo-in var(--sp-logo-dur) cubic-bezier(0.22,1.4,0.36,1) var(--sp-logo-start) forwards;
+  }
+  /* ══ SETTLE PULSE ══ — one ring, thrown off the mark at the instant it stops moving, on the
+     same frame as the chime's resolving note. Deliberately a single event rather than a pulse per
+     note: four rings in three-quarters of a second reads as busy, one perfectly-placed ring reads
+     as deliberate. It borrows the measure-ring's language (a thin survey circle) so the splash is
+     tied to the same motif as the capture button. transform + opacity only, so it composites on
+     the GPU and costs nothing. */
+  .splash-pulse {
+    position: absolute; inset: -14px; border-radius: 50%;
+    border: 1.5px solid var(--accent-primary);
+    opacity: 0; transform: scale(0.62);
+    animation: splash-pulse-out var(--sp-pulse-dur) cubic-bezier(0.16,0.7,0.3,1) var(--sp-settle) forwards;
+    pointer-events: none;
+  }
+  .splash-name {
+    font-family:var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.015em; color: var(--white);
+    opacity: 0; transform: translateY(10px);
+    animation: splash-name-in var(--sp-name-dur) ease var(--sp-name-start) forwards;
+  }
+  .splash-name-accent {
+    background: linear-gradient(100deg, var(--accent-hover) 0%, var(--accent-primary) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  @keyframes splash-glow-bloom { 0% { opacity:0; transform:scale(0.5); } 60% { opacity:1; } 100% { opacity:0.9; transform:scale(1); } }
+  @keyframes splash-logo-in { 0% { opacity:0; transform:scale(0.72) translateY(6px); } 70% { opacity:1; } 100% { opacity:1; transform:scale(1) translateY(0); } }
+  @keyframes splash-name-in { to { opacity:1; transform:translateY(0); } }
+  @keyframes splash-pulse-out { 0% { opacity:0.55; transform:scale(0.62); } 100% { opacity:0; transform:scale(1.5); } }
+  @media (prefers-reduced-motion: reduce) {
+    .splash-glow, .splash-logo, .splash-name { animation: none; opacity: 1; transform: none; }
+    .splash-pulse { animation: none; opacity: 0; }
+  }
+
+  /* ══════════════════ PREMIUM POLISH LAYER ══════════════════
+     Everything below is additive — it never redefines a component's core layout, only adds glow,
+     motion and depth on top of what's already there. Kept as one block at the end of the sheet so
+     it's easy to find/tune as a unit, and so later rules win the cascade without needing !important
+     scattered through the file. Two intensities on purpose per the "subtle base, a few standout
+     glow moments" direction: almost everything gets a slightly richer shadow/lift; a short list of
+     high-value screen elements (capture button, active nav tab, brand mark, health-card fill,
+     accuracy tile) get an actual animated glow because they're the things worth drawing the eye to.
+     Respects prefers-reduced-motion: reduce (see the block just above) — that media query already
+     covers the whole document, so the looping animations added here are skipped for anyone who's
+     asked the OS to minimize motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .welcome-logo-glow, .btn-capture::after, .dash-health-card .storage-meter-fill::after { animation: none !important; }
+  }
+
+  @keyframes glowPulse {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50%      { opacity: 1;    transform: scale(1.08); }
+  }
+  @keyframes sheenSweep {
+    0%   { transform: translateX(-120%) skewX(-20deg); }
+    100% { transform: translateX(220%)  skewX(-20deg); }
+  }
+  @keyframes shimmerSweep { from { transform: translateX(0); } to { transform: translateX(340px); } }
+
+  /* Brand mark — the glow behind the splash/landing logo now breathes gently instead of sitting
+     static, echoing the splash-screen bloom-in so the same "premium" language carries from first
+     launch into the everyday landing page. */
+  .welcome-logo-glow { animation: glowPulse 3.6s ease-in-out infinite; }
+
+  /* Primary capture action — the single most-pressed control in the app, so it's the clearest
+     candidate for a standout glow rather than a subtle one. A soft rose halo sits behind it at
+     rest, and a slow diagonal sheen sweeps across the button face so it never reads as inert. */
+  .btn-capture:not(:disabled) { box-shadow: var(--clay-shadow), 0 0 26px 2px rgba(var(--grad-tint2),0.35); }
+  .btn-capture:not(:disabled)::after {
+    content:''; position:absolute; top:0; left:0; width:40%; height:100%;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
+    animation: sheenSweep 4.5s ease-in-out infinite; animation-delay:1s; pointer-events:none;
+  }
+  .capture-fab .btn-capture:not(:disabled) { box-shadow: 0 10px 30px rgba(0,0,0,0.32), 0 2px 10px rgba(0,0,0,0.16), 0 0 22px 2px rgba(var(--grad-tint2),0.4); }
+
+  /* Active bottom-nav tab in outdoor/high-contrast mode. The old rule glowed the pill background
+     the active tab used to have; that pill is gone, so the emphasis moves to the accent rule —
+     thicker and brighter so it stays readable in direct sunlight. */
+  .nav-btn.active::before { height:3px; box-shadow:0 0 8px rgba(var(--accent-rgb),0.6); }
+  .nav-btn.active svg { filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),0.5)); }
+
+  /* Dashboard KPI tiles — subtle lift on tap, plus a dedicated good/poor/error glow ring on the
+     Accuracy tile (toggled via JS by adding .gps-good/.gps-poor/.gps-error) so GPS quality is
+     legible at a glance without reading the number. */
+
+  /* Dashboard action rows — a gentle lift with a colored ambient shadow (rather than just the flat
+     neutral card-shadow every row already had) so the list reads less like a plain settings menu. */
+
+  /* Today's Progress bar — a soft shimmer sweeps along the fill so the health card reads as a
+     live, animated status rather than a static rectangle. */
+  .dash-health-card .storage-meter-fill::after {
+    content:'';
+    position:absolute; top:0; left:-120px; width:60px; height:100%;
+    background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+    animation: shimmerSweep 2.4s linear infinite;
+    will-change: transform;
+  }
+
+  /* Cards/rows in general — a touch of press-feedback matching the tactile clay language the
+     buttons already use, so the whole app feels like one consistent material rather than flat
+     rows plus a separately-designed capture button. */
+  .card, .project-row, .dash-widget-card, .review-map-wrap { transition: box-shadow 0.15s ease, transform 0.12s ease; }
+  .dash-widget-card:active, .project-row:active { transform: scale(0.99); }
+
+  /* Feature-type rows — same hover language as the dashboard action rows above, so every tappable
+     list in the app (Projects, Feature Types, Dashboard) reads as the same material rather than
+     Feature Types being the one list that never lifts. */
+  .ft-row { transition: background 0.15s, box-shadow 0.15s ease; }
+  .ft-row:hover { box-shadow: 0 6px 16px -6px rgba(var(--grad-tint2),0.24); }
+
+  /* ── Universal tap ripple ──
+     Previously only the Capture button had a ripple; every other button just had a color/transform
+     change. A single delegated pointerdown listener (see the JS near the bottom of the page) now
+     fires the same ripple on every primary button, icon button, and list row, so tap feedback
+     feels like one consistent material instead of Capture being a one-off special case. Each host
+     just needs position:relative + overflow:hidden — added narrowly to this list rather than
+     globally so it never clips something that's meant to overflow elsewhere (glow halos, badges). */
+  .ripple { position:absolute; border-radius:50%; background:rgba(255,255,255,0.35); transform:scale(0); animation:ripple 0.5s linear; pointer-events:none; }
+  .btn, .btn-pill, .dash-action, .ft-row, .project-row, .icon-back, .contrast-toggle,
+  .ext-gps-btn, .gps-detail-toggle, .vertex-map-toggle, .pt-edit, .pt-del, .pt-move, .nav-btn {
+    position:relative; overflow:hidden;
+  }
+  /* A dark ink-blot reads better than a light bloom on the app's own bright/filled surfaces (the
+     orange CTA, the active nav tab); the light bloom above stays the default everywhere else. */
+  .btn-pill:not(.btn-pill-outline) .ripple, .btn-capture .ripple, .nav-btn.active .ripple { background:rgba(0,0,0,0.18); }
+
+  /* Bottom-nav tabs previously only reacted once *active* (via the glow above) — an inactive tap
+     felt like nothing happened until the screen underneath changed. This gives every tap its own
+     small press-bounce regardless of which tab it lands on. */
+  .nav-btn:active { transform: scale(0.94); }
+
+  /* Icon-only utility buttons (back arrow, outdoor-contrast toggle, external-GPS connect, altitude
+     detail toggle, per-vertex edit/delete/reorder) had no pressed state of their own before this —
+     a tap on them felt inert until whatever it triggered elsewhere on screen showed up. */
+  .icon-back, .contrast-toggle, .ext-gps-btn, .gps-detail-toggle, .pt-edit, .pt-del, .pt-move {
+    transition: transform 0.1s ease, filter 0.15s ease;
+  }
+  .icon-back:active, .contrast-toggle:active, .ext-gps-btn:active, .gps-detail-toggle:active,
+  .pt-edit:active, .pt-del:active, .pt-move:active { transform: scale(0.9); filter: brightness(1.15); }
+
+  /* ── Screen transitions ──
+     Panels (Dashboard/Collect/Review/Import/Export) and top-level views (Projects/New Project/
+     Feature Types/the app shell) previously swapped with a flat display:none→block toggle — no
+     sense of motion between screens at all. Both now get the same soft fade + gentle rise every
+     time switchTab()/showX() adds their .active class — exactly the moment this needs to replay,
+     since the class is being added fresh each time rather than just sitting there. */
+  .panel.active, .view.active { animation: screen-in 0.22s ease both; }
+  @keyframes screen-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .panel.active, .view.active { animation:none; }
+    .ripple { display:none; }
+  }
+
+  /* ── DEPTH / ELEVATION PASS ──
+     --card-shadow itself was deliberately trimmed down a while back (see the long comment on the
+     token above) to stop every static row/box from carrying the same heavy stack the buttons use —
+     that call still stands, so this doesn't touch --card-shadow globally. Instead it adds depth in
+     two more targeted ways: real glass/blur on the couple of surfaces that float *over* other
+     content (the control pill, modal sheets) rather than sitting flat in the layout, and a richer,
+     slightly color-tinted shadow on the dashboard's floating widget cards specifically — those are
+     the closest thing this screen has to "cards over a photo", so they're the right candidates for
+     extra lift, the same way the header/bottom-nav already get glass treatment for the same reason. */
+
+  /* Control pill (units/density/contrast/theme/settings) now reads as the same frosted material as
+     the header it sits inside and the bottom-nav bar, instead of a flat opaque chip. */
+  .control-pill {
+    /* No backdrop-filter here on purpose: this pill lives inside the header, which already
+       applies its own blur. Stacking a second full blur pass on top of that, every scroll frame,
+       for a pill that's already sitting on a frosted surface, was pure added cost with almost no
+       extra visible effect — a solid tinted fill reads the same in practice. */
+    background: var(--nav-bg);
+  }
+
+  /* Modal sheets — blurring whatever's behind the overlay (instead of just darkening it) is the
+     one glass effect that reads as "premium" almost everywhere it's used (iOS sheets, native
+     Android dialogs), and it's free here since backdrop-filter already has full browser support in
+     this app's target range (Leaflet/PWA-capable browsers). */
+  .modal-overlay { backdrop-filter: var(--glass-5); -webkit-backdrop-filter: var(--glass-5); }
+  /* A faint diagonal light catch across the top of the sheet — a static stand-in for the same
+     "glass has a highlight where light grazes it" cue the clay-shadow buttons already use via
+     their inset top highlight, applied here to a much larger surface. */
+  /* overflow-x only. This rule used to say `overflow:hidden`, which is shorthand and therefore
+     quietly reset the `overflow-y:auto` set on .modal-box further up. The effect: any sheet taller
+     than the viewport was CLIPPED instead of scrolled, so its Close button sat below the cut and
+     could never be reached or scrolled to — which is exactly why Help & About was impossible to
+     dismiss. Only the horizontal axis needs clipping here (to keep the ::before light-catch inside
+     the rounded corners), so scrolling is restored on the axis that matters. */
+  .modal-box { position:relative; overflow-x:hidden; overflow-y:auto; }
+  .modal-box::before {
+    content:''; position:absolute; inset:0 0 auto 0; height:60px; pointer-events:none;
+    background:linear-gradient(180deg, rgba(255,255,255,0.05), transparent);
+  }
+
+  /* Dashboard widget cards (Recent Activity, Pace Today, Backup & Storage, Today's Progress) float
+     directly over the tinted gradient background rather than a flat panel color — a slightly
+     deeper, warmth-tinted shadow separates them from that busier backdrop more than the plain
+     card-shadow alone does elsewhere. */
+  .dash-widget-card, .dash-health-card {
+    box-shadow: var(--card-shadow), 0 10px 28px -12px rgba(var(--grad-tint2), 0.22);
+    position:relative; overflow:hidden;
+  }
+  .dash-widget-card::before, .dash-health-card::before {
+    content:''; position:absolute; inset:0 0 auto 0; height:44px; pointer-events:none;
+    background:linear-gradient(180deg, rgba(255,255,255,0.035), transparent);
+  }
+  html[data-theme="light"] .dash-widget-card::before, html[data-theme="light"] .dash-health-card::before {
+    background:linear-gradient(180deg, rgba(255,255,255,0.5), transparent);
+  }
+
+  /* Bottom-nav and header already lead with glass; the vertex-correction map toggle button and the
+     new satellite map frame get the same light material treatment as the review map's own basemap
+     pill, so a floating map control never looks like a flat opaque chip dropped on top of tiles. */
+  .vertex-map-toggle { backdrop-filter: var(--glass-10); -webkit-backdrop-filter: var(--glass-10); background:var(--nav-bg); }
+
+  /* ══ REDUCED MOTION — GLOBAL SAFETY NET ══
+     There are already four targeted prefers-reduced-motion blocks above, but they were written
+     one at a time as individual effects were added, so anything introduced since is uncovered.
+     This is the catch-all: it comes last in the sheet, so it wins the cascade over every
+     animation and transition declared before it.
+
+     Two reasons this matters beyond accessibility compliance. First, "reduce motion" is a real
+     Android setting people turn on for motion sickness and vestibular disorders, and this app is
+     used outdoors while walking a boundary — a moving screen in that context isn't a nice-to-have
+     to fix. Second, it's a genuine performance escape hatch: a user on a slow device who finds the
+     app janky can flip one system setting and every looping animation in the app stops.
+
+     Durations go to 0.01ms rather than 0 so that transitionend/animationend listeners still fire —
+     setting them to 0 outright silently breaks any code waiting on those events. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ══ THEME SWITCH ATOMICITY ══ — see applyTheme(). Held for exactly one frame while the
+     theme attribute flips, so the whole UI recolours in a single repaint instead of every
+     transitioned component fading on its own schedule. */
+  /* The ambient mesh is excluded. This rule collapses every animation to 0s for one frame, which
+     for a looping keyframe means "jump straight to the end state" — so without the exclusion the
+     blobs visibly teleport every time the theme or domain is switched, which is the opposite of
+     what the freeze is for. Their own animation touches nothing that needs freezing anyway. */
+  html.theme-switching, html.theme-switching *:not(.mesh-blob):not(.mesh-blobs),
+  html.theme-switching *:not(.mesh-blob)::before, html.theme-switching *:not(.mesh-blob)::after {
+    transition: none !important;
+    animation-duration: 0s !important;
+  }
+
+  /* ══ OPT-IN GRATICULE ══
+     The survey grid used to be baked into --app-gradient, so every form, header and nav bar sat
+     on a dotted grid sheet. It now applies only where a coordinate grid is semantically right
+     (map frames) or where it fills dead space that would otherwise be a flat void (empty states).
+     Deliberately placed at the very end of the stylesheet: several of these selectors set
+     `background:` shorthand in their own rules further up, and a shorthand resets background-image.
+     Declaring the image earlier would have been silently discarded by that cascade. */
+  .empty-box,
+  .empty-projects,
+  .review-map-empty,
+  #reviewMap { background-image: var(--grain); background-repeat: repeat; }
+
+  /* ══ NATIVE ANDROID: NO BACKDROP-FILTER ══
+     html.native-android is set synchronously in <head> (before first paint) whenever this is
+     running inside the Capacitor Android APK — see that script for the full explanation.
+     Neutralizing every --glass-N token here is the ONLY place this has to happen: every current
+     (and, as long as new blur effects reuse a --glass-N token instead of a raw blur(...) value,
+     every future) backdrop-filter in the file is already wired to one of these, so there is no
+     per-element list to keep in sync. */
+  html.native-android {
+    --glass-16: none;
+    --glass-12: none;
+    --glass-10: none;
+    --glass-8:  none;
+    --glass-5:  none;
+  }
+  /* backdrop-filter:none still leaves whatever translucent/color-mix background a rule already
+     has, which can look thin without the blur softening it — these two get a solid fill for
+     legibility. (Most --glass-N users already sit on var(--nav-bg), which is solid enough as-is.) */
+  html.native-android .bottom-nav,
+  html.native-android .pm-header {
+    background: var(--card-bg) !important;
+  }
+  /* ══ THE ANDROID BACKDROP MUST LIVE ON ::before, NOT ON THE OVERLAY ══
+     This rule used to paint var(--modal-backdrop) onto .modal-overlay itself. The sheet
+     architecture above deliberately moved the dim to a ::before pseudo-element precisely so it
+     could fade on its own layer while the sheet stayed opaque — and painting the container as
+     well defeats that on Android only: the container's background is NOT part of any transition,
+     so it appeared at full strength on the first frame of the open and vanished on the frame
+     `visibility` flipped at the end of the close. A dim that pops in instantly and cuts out
+     instantly, over a sheet that is still sliding, is the ghosting/clipping seen when dismissing
+     a modal with the keyboard up.
+     Same colour, same reason (Android WebView's backdrop-filter is unreliable, so a solid fill is
+     needed) — just applied to the layer that actually animates. */
+  html.native-android .modal-overlay {
+    background: transparent !important;
+  }
+  html.native-android .modal-overlay::before {
+    background: var(--modal-backdrop) !important;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }

@@ -1,0 +1,320 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — Ambient mesh, screen intensity bands, textures
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first. */
+
+  /* ══ TWO LAYERS, NOT ONE ══
+     .mesh-bg carries the app's base gradient and is ALWAYS fully opaque. Only the blobs respond
+     to data-screen. Fading the whole thing (the first attempt) also faded the base gradient, so
+     Collect and Review lost the background the rest of the app has and flattened to a single dead
+     tone — the screen-intensity control is supposed to govern the ambience, not strip the paint.
+
+     ══ WHY THIS ELEMENT NO LONGER CARRIES THE OPACITY ══
+     It used to, and that silently broke the blend modes below. `opacity` under 1 (and
+     `will-change: opacity`) each create a stacking context, which ISOLATES the blend group: the
+     blobs then blend against this wrapper's own transparent backdrop rather than against the
+     gradient painted on .mesh-bg. Blending with a fully transparent backdrop returns the source
+     colour unchanged, so `screen` and `multiply` were both doing precisely nothing — the mesh was
+     plain alpha stacking that merely claimed to be blended.
+     The intensity band moved to --mesh-i, a plain multiplier on each blob's own opacity. The
+     wrapper is now inert, the blobs' nearest stacking-context ancestor is .mesh-bg, and they
+     blend against its gradient the way they were always supposed to. */
+  .mesh-blobs { position: absolute; inset: 0; }
+  .mesh-blob {
+    position: absolute;
+    width: 58vmax; height: 58vmax;
+    border-radius: 50%;
+    /* ══ WHY NO filter: blur() ══
+       The brief specified filter:blur(80px). It was implemented that way first and it is the
+       single worst thing you can put on this screen: a blurred layer is re-rasterised whenever
+       its rasterised size changes, the blur radius inflates the layer bounds well past the
+       element's own 58vmax, and on a 1080p display that is a ~1500px surface being re-blurred
+       constantly. Measured effect: visible scroll freezing.
+       A radial-gradient with a transparent falloff produces the same soft-edged blob with the
+       softness baked into the paint, so the layer is rasterised ONCE and thereafter only
+       translated. Same look, no per-frame filter cost. The brief's performance requirement
+       (no CPU throttling or battery drain on field devices) is the reason it was written; this
+       serves that requirement better than the technique it named. */
+    /* ══ WHY A MULTI-STOP FALLOFF ══
+       A two-stop radial has a visible "edge" where the falloff turns over, which
+       is what makes a blob read as a shape sitting on the page rather than light
+       in it. Four stops on an ease-like curve put the softness in the paint, so
+       the blob has no findable boundary at any size. Rasterised once, then only
+       translated — no per-frame filter cost. */
+    background: radial-gradient(circle at 50% 50%,
+      var(--blob) 0%,
+      color-mix(in srgb, var(--blob) 72%, transparent) 26%,
+      color-mix(in srgb, var(--blob) 38%, transparent) 48%,
+      color-mix(in srgb, var(--blob) 14%, transparent) 66%,
+      transparent 82%);
+    /* ══ WHY BLEND MODES ══
+       Stacked alpha just averages toward the canvas: four blobs over a dark page
+       give four separate smudges and a muddy middle. Blending makes overlapping
+       blobs produce genuinely NEW colours — the iridescent quality of an ambient
+       artwork gradient rather than a coloured fog. `screen` on dark (these are
+       glows: light adds), `multiply` on light (these are pigment: light
+       subtracts). Both are GPU compositor operations on layers that are already
+       promoted, so the cost is a blend per pixel, not a repaint. */
+    mix-blend-mode: screen;
+    /* PERF: transform and opacity are the only two properties a compositor can animate without
+       touching layout or paint. Everything below animates exclusively those two. */
+    will-change: transform, opacity;
+    transform: translate3d(0,0,0);
+    backface-visibility: hidden;
+  }
+  html[data-theme="light"] .mesh-blob { mix-blend-mode: multiply; }
+  /* Fallback for engines without color-mix (older Android WebView): a plain
+     three-stop gradient. Slightly harder falloff, still soft, still zero filter
+     cost. Blend modes are guarded separately below. */
+  @supports not (background: color-mix(in srgb, red 50%, transparent)) {
+    .mesh-blob { background: radial-gradient(circle at 50% 50%, var(--blob) 0%, rgba(0,0,0,0) 78%); }
+  }
+  /* If blending is unavailable the blobs fall back to plain alpha, which reads
+     flatter but never wrong — so the opacities below are chosen to be safe in
+     both cases rather than tuned only to the blended path. */
+  @supports not (mix-blend-mode: screen) {
+    .mesh-blob { mix-blend-mode: normal; }
+  }
+  /* ══ WHY THESE OPACITIES ARE LOWER THAN THEY LOOK ══
+     Under a blend mode a blob moves the canvas much further per unit of alpha
+     than a plain alpha stack does. The previous values (0.75 / 0.70) were tuned
+     for stacking; carried over unchanged they pushed the mesh to mid-luminance,
+     and a label sitting where a blob pooled measured ~4.4:1 — legible indoors,
+     gone in direct sun. These are verified against the COMPOSITED background in
+     tests/theme.test.js, which requires 7:1 for body text at the worst point of
+     the mesh, in both themes. */
+  .mesh-blob.b1 { --blob: var(--glow-1); top: -16vmax; left: -14vmax; opacity: calc(0.42 * var(--mesh-i)); animation: mesh-drift-1 34s ease-in-out infinite alternate, mesh-breathe-1 23s ease-in-out infinite alternate; }
+  .mesh-blob.b2 { --blob: var(--glow-2); bottom: -20vmax; right: -16vmax; opacity: calc(0.38 * var(--mesh-i)); animation: mesh-drift-2 41s ease-in-out infinite alternate, mesh-breathe-2 29s ease-in-out infinite alternate; }
+  .mesh-blob.b3 { --blob: var(--glow-3); top: 16vmax; right: -26vmax; opacity: calc(0.18 * var(--mesh-i)); animation: mesh-drift-3 47s ease-in-out infinite alternate, mesh-breathe-3 31s ease-in-out infinite alternate; }
+  /* ── b4: the centre-fill ──
+     b1/b2 anchor opposite corners and b3 hugs the right edge, which left the
+     middle third of a tall phone screen unlit — the field broke into separate
+     smudges exactly where the eye spends most of its time. b4 sits centre-left
+     and slightly smaller, so it joins the other three into one continuous wash
+     rather than adding a fourth distinct shape. */
+  .mesh-blob.b4 { --blob: var(--glow-4); width: 48vmax; height: 48vmax; top: 28vmax; left: -12vmax; opacity: calc(0.20 * var(--mesh-i)); animation: mesh-drift-4 43s ease-in-out infinite alternate, mesh-breathe-4 37s ease-in-out infinite alternate; }
+  /* ── DRIFT: translate only ──
+       No scale(). Scaling a composited layer changes its rasterised size, which
+       is precisely the thing that forces a repaint. The "breathing" that scale
+       was providing is done with opacity instead, which is free on the
+       compositor. The eight periods (34/41/47/43 drift, 23/29/31/37 breathe) are
+       pairwise coprime, so the blobs never resynchronise into a visible loop —
+       which is the difference between a slow ambient field and an animation. */
+  @keyframes mesh-drift-1 {
+    0%   { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(11vmax, 15vmax, 0); }
+  }
+  @keyframes mesh-drift-2 {
+    0%   { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(-13vmax, -12vmax, 0); }
+  }
+  @keyframes mesh-drift-3 {
+    0%   { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(-15vmax, 11vmax, 0); }
+  }
+  /* Breathe ranges track the new peaks. The floor is roughly 55% of the peak in
+     every case, so the field always keeps some presence rather than any blob
+     blinking fully out — a blob that reaches zero reads as a light switching
+     off, which is the opposite of ambient. */
+  @keyframes mesh-breathe-1 { 0% { opacity: calc(0.42 * var(--mesh-i)); } 100% { opacity: calc(0.24 * var(--mesh-i)); } }
+  @keyframes mesh-breathe-2 { 0% { opacity: calc(0.38 * var(--mesh-i)); } 100% { opacity: calc(0.21 * var(--mesh-i)); } }
+  @keyframes mesh-breathe-3 { 0% { opacity: calc(0.18 * var(--mesh-i)); } 100% { opacity: calc(0.10 * var(--mesh-i)); } }
+  /* Drifts run on different diagonals as well as different periods; four blobs
+     sliding along parallel paths would read as one sheet moving. */
+  @keyframes mesh-drift-4 {
+    0%   { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(14vmax, -13vmax, 0); }
+  }
+  @keyframes mesh-breathe-4 { 0% { opacity: calc(0.20 * var(--mesh-i)); } 100% { opacity: calc(0.11 * var(--mesh-i)); } }
+
+  /* ══ "DID THAT DO ANYTHING?" ══
+     Even with six well-separated palettes, a theme change can land on a screen
+     where almost nothing accent-coloured is in view — a long scrolled list, or
+     the Review tab, where the ambient layer is deliberately at zero opacity over
+     the map tiles. A confirmation that lives on .mesh-blobs would be invisible
+     in exactly those cases, and would also have to end on whatever opacity the
+     current screen band happens to set, snapping when the animation ended.
+
+     So it is its own element instead: a fixed, pointer-events-none sheet that is
+     invisible at rest, washes the new accent across the screen once, and fades.
+     Independent of the mesh, so it cannot be suppressed by the intensity band,
+     and it sits above the map so the switch is legible on every screen. Peaks at
+     a low alpha — this is a confirmation, not a flash. */
+  .domain-bloom-layer {
+    position: fixed; inset: 0; z-index: 240; pointer-events: none;
+    opacity: 0;
+    background:
+      radial-gradient(ellipse 120% 90% at 50% 0%,  rgba(var(--accent-rgb), 0.55) 0%, transparent 65%),
+      radial-gradient(ellipse 120% 90% at 50% 100%, rgba(var(--accent-rgb-deep), 0.45) 0%, transparent 65%);
+  }
+  .domain-bloom-layer.play { animation: domain-bloom 760ms cubic-bezier(0.22, 0.8, 0.3, 1); }
+  @keyframes domain-bloom {
+    0%   { opacity: 0;    transform: scale(1.10); }
+    30%  { opacity: 0.85; transform: scale(1.00); }
+    100% { opacity: 0;    transform: scale(1.00); }
+  }
+  /* Motion-sensitive users still get the palette and the toast, just not the wash. */
+  @media (prefers-reduced-motion: reduce) {
+    .domain-bloom-layer.play { animation: none; }
+  }
+
+  /* ══ PAUSE THE MESH WHEN NOTHING CAN SEE IT ══
+     Four blobs, up to 48vmax each, animating transform and opacity forever under
+     mix-blend-mode. The animation itself is compositor-only and cheap by design (see the PERF
+     note at the top of this file) — but a blend mode is not free: the compositor must re-blend
+     those layers against everything beneath them on every frame they change, and on an Android
+     WebView that is a continuous GPU cost that never stops for the life of the process.
+     Two windows where that cost buys nothing at all:
+       · A sheet is open. .modal-overlay is a full-screen backdrop at z-index 200, so the mesh is
+         completely hidden — and this is the worst possible moment to be spending GPU on it,
+         because the sheet's own slide and the keyboard resize are animating at the same time.
+         Pausing here contributes directly to those modal animations landing smoothly.
+       · The app is backgrounded or the screen is off. Nothing is visible by definition.
+     animation-play-state:paused freezes the blobs where they stand and resumes from the same
+     position, so there is no visible jump when a sheet closes — unlike display:none, which would
+     drop the layers and force a full re-raster on the frame the sheet leaves. */
+  html.sheet-open .mesh-blob,
+  html.app-hidden .mesh-blob { animation-play-state: paused; }
+
+  /* ── SCREEN-ADAPTIVE INTENSITY ──
+     Set from JS by setScreenState(); see the navigation hooks. The mesh is a mood layer, and how
+     much mood a screen can afford is entirely a legibility question:
+       home     full ambience — nothing on this screen is being read closely
+       form     dialled right down — an input under direct sun must not sit on a moving wash
+       map      off entirely — a tint over satellite tiles is a data-accuracy problem, not a
+                cosmetic one; you cannot judge crop stress or water colour through a green haze
+       settings mid — a list of controls, read but not filled in
+     Transitioning opacity (not display) keeps the change from snapping as you navigate. */
+  /* --mesh-i is a plain multiplier applied to every blob's own opacity, declared on <html> so it
+     inherits down to the blobs without any element in between needing an opacity of its own.
+     @property is what makes it transition: a bare custom property is a token substitution and
+     changes instantly, so without this the band would snap as you move between tabs. Where
+     @property is unsupported the value still applies, it just cuts rather than fades. */
+  /* 0.45s -> 0.22s, matching the .view.active enter animation in 03-base.css and the sheet
+     timeline in 05-components.css. At 0.45s the backdrop was still travelling long after the
+     incoming screen had finished painting, so navigation looked like the content flashed on and
+     the background caught up behind it. Everything on screen now settles on one clock. */
+  html {
+    --mesh-i: 0.80;
+    transition: --mesh-i 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  html[data-screen="home"]     { --mesh-i: 0.80; }
+  html[data-screen="form"]     { --mesh-i: 0.28; }
+  html[data-screen="settings"] { --mesh-i: 0.40; }
+  html[data-screen="map"]      { --mesh-i: 0; }
+  /* Slowing the loop rather than only fading it: on the form screen a fast-moving blob is caught
+     by peripheral vision even at low opacity, which is exactly the distraction to avoid while
+     someone is typing a measurement. */
+  html[data-screen="form"] .mesh-blob { animation-duration: 78s, 62s; }
+  /* ══ LIGHT MODE IS THE SUNLIGHT MODE ══
+     This used to be dialled DOWN on the theory that a near-white base washes out and greys the
+     page. That reasoning was inverted: the light theme is the one used outdoors, where ambient
+     light crushes low-contrast detail first, so a mesh that was already faint became a mesh that
+     was not there — which is why switching themes appeared to do nothing on a survey. The glows
+     now carry real chroma (see the pillar blocks above) and the layer is allowed to be at least
+     as present as it is on dark. Text legibility is unaffected: cards and inputs are opaque in
+     light mode, so nothing being read sits on this layer. */
+  html[data-theme="light"][data-screen="home"]     { --mesh-i: 0.86; }
+  html[data-theme="light"][data-screen="settings"] { --mesh-i: 0.50; }
+  /* Collect keeps the same restraint it has on dark — an input under direct sun must not sit on
+     a moving wash, regardless of theme. */
+  html[data-theme="light"][data-screen="form"]     { --mesh-i: 0.30; }
+
+  /* ══ LANDING TEXTURE: CONTOURS ══
+     A survey texture, and only here. The landing screen is the one place in the app with no data
+     on it — no map, no form, no list — so it is the only screen that can carry a decorative layer
+     without competing with something being read. Everywhere else the mesh alone is the ambience.
+
+     Contour lines rather than a grid: the graticule is already Geospatial's signature (see
+     .mesh-bg::after), and repeating it here would make the landing screen look like it belonged
+     to one pillar. Nested irregular rings read as terrain in any palette and stay on-brand for
+     every one of the six.
+
+     Drawn as one inline SVG data-URI tile, not an image file: it is under 1 KB, it inherits no
+     network cost, and because it tiles at a fixed 320px it stays the same physical size on every
+     handset instead of scaling with the viewport. currentColor is not available inside a data
+     URI, so the stroke is a fixed neutral and the whole layer is tinted by the accent via
+     `background-color` + `mask`, which keeps it in step with whichever pillar is active.
+
+     Visible but subtle is a measurable claim, so: 0.055 alpha on dark and 0.075 on light, which
+     is roughly a 1.5:1 contrast against the canvas — findable when you look for it, invisible
+     when you are reading the buttons on top of it. It sits under .welcome-shell (z-index 0 vs
+     the shell's own stacking) and is pointer-events:none, so it can never eat a tap. */
+  #view-projects::before {
+    content: '';
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-color: rgba(var(--accent-rgb), 0.055);
+    -webkit-mask-image: var(--contour-tile);
+    mask-image: var(--contour-tile);
+    -webkit-mask-size: 320px 320px;
+    mask-size: 320px 320px;
+    -webkit-mask-repeat: repeat;
+    mask-repeat: repeat;
+  }
+  html[data-theme="light"] #view-projects::before {
+    background-color: rgba(var(--accent-rgb), 0.075);
+  }
+  /* The texture is decoration; outdoor high-contrast mode strips it along with the mesh. */
+  html[data-contrast="high"] #view-projects::before { display: none; }
+  /* Everything on the landing screen must sit above the texture. */
+  #view-projects > .welcome-shell { position: relative; z-index: 1; }
+
+  /* ══ HOME BUTTON ══ Matches the gear and contrast toggle it sits beside — the pill supplies the
+     surface, so these only need a hover/active state of their own. */
+  .home-btn { border-radius: 8px; cursor: pointer; transition: color .15s ease, background .15s ease; }
+  .home-btn:hover { color: var(--text-primary); }
+  .home-btn:active { transform: scale(0.94); }
+     The one pillar that gets a texture rather than just a palette. A coordinate
+     graticule over the ambient mesh is what separates "a blue theme" from
+     something that feels like an instrument display — and this is the pillar
+     doing cadastral and control work, so a survey grid is on-theme rather than
+     decorative. Kept on the mesh layer (behind every card and input, never
+     under text) and at low alpha, so it reads as a texture in peripheral vision
+     and disappears the moment you focus on content. --grain is the existing
+     64x64 tile already used by .has-graticule; reusing it means one asset. */
+  html[data-domain="geospatial"] .mesh-bg::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image: var(--grain);
+    opacity: 0.55;
+  }
+  /* The tile draws in white, which is invisible on a light canvas — invert it
+     there so the grid survives the theme rather than silently vanishing. */
+  html[data-domain="geospatial"][data-theme="light"] .mesh-bg::after {
+    filter: invert(1); opacity: 0.30;
+  }
+  /* Same rule as everywhere else: no texture over map tiles, and none in
+     high-contrast mode. */
+  html[data-domain="geospatial"][data-screen="map"] .mesh-bg::after,
+  html[data-contrast="high"] .mesh-bg::after { opacity: 0; }
+
+  /* ── OFFLINE / GPS WASHES ──
+     These used to live on #panel-collect and <html> respectively and were painted by the panel's
+     own background. The panels are transparent now, so both are mirrored onto <html> (see
+     setGPSUI) and read by the single mesh layer instead. */
+  html[data-gps="good"]  { --gps-tint: 34,197,94;  --gps-a: 0.11; }
+  html[data-gps="poor"]  { --gps-tint: 245,158,11; --gps-a: 0.11; }
+  html[data-gps="error"] { --gps-tint: 239,68,68;  --gps-a: 0.11; }
+
+  /* ── REDUCED MOTION / LOW POWER ──
+     Pause, don't hide. The palette is still doing legibility work; only the drift is a luxury. */
+  @media (prefers-reduced-motion: reduce) {
+    .mesh-blob { animation: none !important; }
+  }
+  /* Android WebView's compositor re-rasterises a blurred layer far more eagerly than desktop
+     Chrome's — the same reason every backdrop-filter in this file is neutralised there (see
+     html.native-android). Three animated 80px-blur layers is the heaviest thing that would be on
+     screen, so the APK build gets a cheaper static version: same colours, no drift, smaller blur
+     radius. The gradient underneath is untouched, so the app still looks themed, just calm. */
+  /* The blur that made this necessary is gone. What remains is a translate + opacity animation
+     on three pre-rasterised layers, which Android WebView's compositor handles as cheaply as
+     desktop Chrome's — so the APK now gets the same living background as the web build, just
+     slowed down to halve the number of composited frames. */
+  html.native-android .mesh-blob { animation-duration: 52s, 38s; }
+  /* Outdoor / high-contrast mode exists so a screen can be read in direct sun. An ambient wash
+     is the first thing to go. */
+  html[data-contrast="high"] { --mesh-i: 0 !important; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }

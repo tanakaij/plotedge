@@ -1,0 +1,2480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0B0F19">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PlotEdge">
+<link rel="manifest" href="plotedge.manifest.json">
+<!-- Logo / favicon — PlotEdge's network-pin mark (same artwork declared in
+     plotedge.manifest.json's icons array), embedded inline as base64 PNG so the browser tab and
+     any "add to home screen" prompt show it immediately, before the manifest icons are fetched. -->
+<link rel="icon" type="image/png" href="resources/favicon-128.png">
+<link rel="apple-touch-icon" href="resources/apple-touch-icon-180.png">
+<title>PlotEdge</title>
+<!-- Fonts — Inter for all UI text and map labels (built specifically for interfaces, stays crisp
+     at the small sizes map legends/badges use); Roboto Mono for coordinates and other live-updating
+     numbers (fixed-width digits stop lat/long/accuracy readouts from jittering as they update).
+     Loaded from a CDN like Leaflet/JSZip above: offline on first load just falls back to the
+     existing system-font stack (see --font/--mono below) rather than failing anything. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Fonts loaded non-render-blocking: preload as a low-priority fetch, then swap to stylesheet
+     once it arrives. On slow/flaky mobile-data connections this means the app shell paints and
+     becomes interactive immediately with the system-font fallback, instead of the whole page
+     hanging behind a stalled Google Fonts request. noscript covers the (rare) no-JS case. -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"></noscript>
+<!-- Leaflet — lightweight mapping library for the Review tab's coverage map. Loaded from a CDN
+     since this app has no backend; if the device is offline on first-ever load the map simply
+     won't initialize (handled gracefully, see ensureReviewMap()) — everything else keeps working.
+     `defer` on the JS (and loading the CSS as non-blocking) means a slow/flaky mobile-data
+     connection to unpkg no longer blocks the app shell from painting and becoming interactive —
+     L. is only ever referenced inside functions that run later (opening the Review/Dashboard map),
+     never at top-level parse time, so deferring it is safe. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" media="print" onload="this.media='all'">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
+<!-- Leaflet-Rotate — adds the actual rotate/bearing machinery Leaflet core has never shipped
+     (touch-twist to rotate, plus map.setBearing()/getBearing()). Both files below are deferred, so
+     they still run in document order once parsing finishes — this one is guaranteed to execute
+     after leaflet.js above has defined L, even though both loaded off the CDN in parallel. Every
+     map that turns on `rotate:true` (see js/14-map.js, js/14a-plotatlas.js, js/15-plotetch.js)
+     depends on this file having loaded first. -->
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js" crossorigin="" defer></script>
+<!-- JSZip — only needed for the Projects screen's "Export all projects" backup, which zips every
+     project's GeoJSON+CSV together. `defer` for the same reason as Leaflet above: it's only
+     invoked on demand (never at parse time), so it shouldn't block initial page load on a slow
+     connection. If there's no network on first load, exportAllProjects() detects it's missing and
+     tells the user rather than failing silently. -->
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="" defer></script>
+<script>
+// Runs synchronously before first paint so the correct theme is set before any CSS renders —
+// otherwise there'd be a flash of the wrong theme on load. Stored value is now a *mode*
+// ('auto' | 'light' | 'dark') rather than a resolved theme: 'auto' (also the default when nothing
+// is stored yet, i.e. first-ever visit) continuously follows the OS-level prefers-color-scheme;
+// 'light'/'dark' are explicit user overrides that stick until changed back to Auto.
+(function(){
+  try {
+    var mode = localStorage.getItem('plotedge_theme') || 'auto';
+    var theme = mode === 'auto' ? ((window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark') : mode;
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-theme-mode', mode);
+    // Domain palette (the six pillars) and the initial screen intensity are set
+    // here for the same reason as the theme: both change accent colours and
+    // background opacity, so resolving them after first paint means a visible
+    // flash of the wrong palette on every cold start. 'home' is the correct
+    // initial screen — the app opens on Projects.
+    // The alias map is duplicated here rather than shared with DOMAIN_ALIASES
+    // below, because this script runs before the main bundle exists. Kept
+    // deliberately tiny; if a key is ever added, both copies must change.
+    var LEGACY_DOMAINS = { default:'water', forestry:'environment', agric:'land', survey:'geospatial' };
+    var VALID_DOMAINS = { land:1, water:1, climate:1, environment:1, people:1, geospatial:1 };
+    var domain = localStorage.getItem('plotedge_domain') || 'geospatial';
+    domain = VALID_DOMAINS[domain] ? domain : (LEGACY_DOMAINS[domain] || 'geospatial');
+    document.documentElement.setAttribute('data-domain', domain);
+    document.documentElement.setAttribute('data-screen', 'home');
+  } catch(e) {}
+  // ══ NATIVE-ANDROID PERF CLASS ══
+  // Added here (synchronously, before first paint) rather than later in the main script, for the
+  // same reason the theme is set this early: so nothing ever paints in the expensive state first.
+  // Capacitor's native bridge injects window.Capacitor before any page <script> runs, so this
+  // check is reliable even this early. See the "NATIVE ANDROID: NO BACKDROP-FILTER" CSS block for
+  // why this class exists — backdrop-filter on a position:fixed element with content scrolling
+  // underneath it (the bottom nav, the header, map toggle pills) is cheap on desktop Chrome's
+  // compositor but forces a full re-blur every frame on Android's WebView compositor, which is
+  // what was actually behind the tearing/stutter/blank-flash/freezing reported on the APK build —
+  // not present on web because that compositor cost doesn't exist there.
+  try {
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android') {
+      document.documentElement.classList.add('native-android');
+    }
+  } catch(e) {}
+})();
+</script>
+<!-- ══ STYLESHEET ══
+     Split out of index.html. Loaded in filename order; 01-tokens.css must come first because
+     everything after it reads the custom properties it declares. -->
+<link rel="stylesheet" href="css/01-tokens.css">
+<link rel="stylesheet" href="css/02-mesh.css">
+<link rel="stylesheet" href="css/03-base.css">
+<link rel="stylesheet" href="css/04-screens.css">
+<link rel="stylesheet" href="css/05-components.css">
+<link rel="stylesheet" href="css/06-plotatlas.css">
+<link rel="stylesheet" href="css/07-analytics.css">
+</head>
+<body>
+
+<!-- ══ AMBIENT MESH BACKGROUND ══
+     One instance for the entire app, sitting at z-index:-1 behind every view. Purely decorative,
+     so aria-hidden and pointer-events:none — it must never be reachable by a screen reader or
+     intercept a tap meant for the map underneath. Intensity is driven by data-screen on <html>;
+     see setScreenState(). -->
+<div class="mesh-bg" id="meshBg" aria-hidden="true">
+  <div class="mesh-blobs" id="meshBlobs">
+    <div class="mesh-blob b1"></div>
+    <div class="mesh-blob b2"></div>
+    <div class="mesh-blob b3"></div>
+    <div class="mesh-blob b4"></div>
+  </div>
+</div>
+<!-- Theme-change confirmation. Outside .mesh-bg on purpose: .mesh-bg sits at
+     z-index -1 and is faded to zero on the map screen, so a confirmation living
+     inside it would be invisible on exactly the screens where the palette is
+     hardest to notice changing. -->
+<div class="domain-bloom-layer" id="domainBloom" aria-hidden="true"></div>
+
+<script>
+// Runs synchronously, before the splash markup below can paint. On any visit after the very
+// first, this injects a style that hides the splash instantly — no flash of the logo animation
+// on every reload. (The full first-visit-only logic lives with the rest of the splash JS at the
+// bottom of the page; this tiny inline snippet only needs to win the race against first paint.)
+try {
+  if (localStorage.getItem('plotedge_visited')) {
+    document.write('<style>#splashScreen{display:none!important;}</style>');
+  }
+} catch(e) {}
+// If there's a last-open project (see LAST_SESSION_KEY / restoreLastSession() near the bottom of
+// the page), pre-emptively hide the Projects/"Welcome" screen before it can even paint — it's
+// marked class="view active" directly in the static markup below, so without this it would flash
+// on screen for a moment on every cold start (e.g. launching the installed app from the home
+// screen icon) before the JS further down gets a chance to switch to the actual project/dashboard
+// view. restoreLastSession() removes this #preRestoreHide style once it's done (whether or not it
+// actually found a project to resume), so this can never leave the app permanently blank.
+try {
+  const lastRaw = localStorage.getItem('plotedge_last_session');
+  const last = lastRaw ? JSON.parse(lastRaw) : null;
+  if (last && last.projectId) {
+    // All three landing screens are covered: with the Welcome / Data hub / Project Manager
+    // split, a cold start that is about to resume into a project could otherwise flash whichever
+    // of them the boot routine is going to pick.
+    document.write('<style id="preRestoreHide">#view-projects,#view-projectmgr,#view-datahub{display:none!important;}</style>');
+  }
+} catch(e) {}
+</script>
+<!-- ══════════════════ SPLASH SCREEN ══════════════════
+     Shown for a brief moment on the very first visit/install only (see the inline script just
+     above, and the matching JS at the bottom of the page). Logo blooms in behind a soft brand-color
+     glow, settles with a gentle overshoot, the wordmark follows a beat later, then the whole thing
+     fades out to reveal the landing page already rendered underneath. Removed from the DOM
+     entirely once done so it can't ever block input by accident. -->
+<div class="splash" id="splashScreen" aria-hidden="true">
+  <div class="splash-logo-wrap measure-ring">
+    <div class="splash-glow"></div>
+    <div class="splash-pulse"></div>
+    <img class="splash-logo" src="resources/splash-logo-320.png" width="112" height="158" alt="" decoding="async">
+  </div>
+  <div class="splash-name">Plot<span class="splash-name-accent">Edge</span></div>
+</div>
+
+<!-- ══ ONBOARDING (first launch) ══ -->
+<div class="onboard-overlay" id="onboardOverlay" aria-hidden="true">
+  <div class="onboard-box" id="onboardBox"></div>
+</div>
+
+<!-- ══════════════════ PROJECTS / LANDING ══════════════════ -->
+<div id="scrollRoot">
+<div class="view active" id="view-projects">
+  <!-- ══ WELCOME SHELL ══
+       Full-height flex column that vertically centres the whole cold-launch block (brand mark +
+       toolbar, the "Welcome to PlotEdge" title, and the primary card) inside the viewport, so the
+       onboarding screen reads as a grounded, balanced splash rather than a page hugging the top
+       edge. When the card grows past one screen (many projects) the container simply grows with
+       it and centring degrades to normal top-anchored flow — nothing is ever clipped off-screen.
+       Note there is deliberately NO bottom navigation bar on this screen: see the .bottom-nav
+       rules in the stylesheet. -->
+  <div class="welcome-shell">
+    <!-- Theme, Density and Units live in the Settings modal now (see #settingsModal) — only
+         Contrast stays out here as a one-tap toggle, since it's the situational outdoor-glare
+         control rather than a standing preference. See the comment above applyContrast().
+         The .landing-hero grid that used to wrap this existed only to keep a fixed-position
+         brand mark and a fixed-position toolbar from colliding while a project list scrolled
+         beneath them. There is no list on this screen any more, so the grid (and its 46px of
+         reserved phantom row height) is gone; .welcome-tools carries the same fixed placement. -->
+    <div class="control-pill welcome-tools">
+      <button class="contrast-toggle" id="contrastToggleLanding" onclick="toggleContrast()" title="Outdoor / high-contrast mode" aria-label="Toggle outdoor high-contrast mode">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="settings-gear pill-icon-btn" id="settingsGearLanding" onclick="openSettings()" title="Settings" aria-label="Open settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <div class="welcome-lockup">
+      <div class="welcome-logo">
+        <div class="welcome-logo-glow"></div>
+      <img src="resources/welcome-mark-176.png" width="60" height="85" alt="PlotEdge" decoding="async">
+      </div>
+      <!-- Wordmark only. The old "Welcome to PlotEdge" headline is gone: a greeting plus a
+           product name is two lines saying what one lockup already says, and it pushed the
+           actual actions below the fold on a short handset. -->
+      <div class="welcome-wordmark">Plot<span class="welcome-wordmark-edge">Edge</span></div>
+    </div>
+
+    <div class="welcome-panel">
+    <!-- ══ INSTALL BANNER ══ — hidden by default; shown by JS (see installPrompt logic near the
+         bottom of the page) either when the browser fires beforeinstallprompt (Android/desktop
+         Chrome/Edge) or, on iOS Safari where that event doesn't exist, with manual
+         Share → Add to Home Screen steps. Dismissing it is remembered so it doesn't nag every
+         visit; it reappears next update in case the person changes their mind. -->
+    <div class="install-banner" id="installBanner" style="display:none;">
+      <div class="install-banner-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </div>
+      <div class="install-banner-body">
+        <div class="install-banner-title">Install PlotEdge</div>
+        <div class="install-banner-sub" id="installBannerSub">Works offline, opens instantly, no browser bar.</div>
+      </div>
+      <button class="install-banner-btn" id="installBannerBtn" onclick="handleInstallClick()">Install</button>
+      <button class="install-banner-close" onclick="dismissInstallBanner()" aria-label="Dismiss">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <button class="btn-pill" onclick="showNewProject()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New project
+    </button>
+    <!-- ══ TEMPLATE PROJECT ══
+         A first-run user who taps "New project" still can't collect anything: Collect keeps
+         Capture/Save disabled until the project defines at least one feature type (see
+         populateFeatureTypeSelect()/noFtBanner). That's a lot of setup before the app does
+         anything visible. This creates a project with three ready-made feature types — point,
+         line and polygon — so the very next tap can capture a real feature. -->
+    <button class="welcome-action" onclick="createTemplateProject()">
+      <span class="welcome-action-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+      </span>
+      <span class="welcome-action-body">Start from a template<span class="welcome-action-sub">Sample project, ready to collect</span></span>
+      <svg class="welcome-action-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+    <!-- Restore stays on this screen while Export/Backup move to the Data tab: on a device with
+         zero projects an "Export all" can only ever produce an empty file, whereas restoring is
+         precisely what a reinstall or a new handset needs first. -->
+    <button class="welcome-action" onclick="triggerBackupImport()" id="importBackupBtn">
+      <span class="welcome-action-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </span>
+      <span class="welcome-action-body">Restore from backup<span class="welcome-action-sub">Import a .plotedge.json file</span></span>
+      <svg class="welcome-action-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+    <!-- ══ PROJECTS LIST ══
+         showLanding()/renderLandingScreen() forces this screen open unconditionally (see the
+         comment above renderLandingScreen()) so the Home button always reaches New/Template/
+         Restore, even once projects exist. That's the one path onto #view-projects that isn't
+         gated on projects.length === 0 — every other route here (renderProjectsScreen,
+         refreshProjectsScreen, boot) only lands on this screen when the list truly is empty. This
+         container is what makes that path work: renderProjectsList() hides it (and its label)
+         entirely on a genuine cold launch and fills it with the project rows otherwise.
+         Deliberately placed AFTER the three actions above, not before: with 10+ projects the list
+         alone can run well past one screen, and New Project is the button a crew reaches for
+         most — it has to stay the first thing on the screen rather than get pushed down by a
+         long list Home is now also showing. The list scrolls below in #scrollRoot same as
+         everywhere else in the app; nothing here needs its own inner scroll region. -->
+    <div class="projects-list-label" id="projectsListLabel" style="display:none;">Your projects</div>
+    <div id="projectsList" class="projects-list"></div>
+  </div>
+  </div><!-- /.welcome-shell -->
+  <input type="file" id="backupImportInput" accept=".json,.plotedge.json" style="display:none" onchange="handleBackupImportFile(event)">
+</div>
+
+<!-- ══════════════════ PROJECT MANAGER ══════════════════
+     The working Projects screen. #view-projects above it is now strictly the cold-launch /
+     empty-state welcome; once at least one project exists, the Projects tab and every "back to
+     projects" path land here instead (see showProjects()). Unlike Welcome, this screen keeps the
+     bottom nav docked and functional — setChromeVisible(true) runs on entry. -->
+<div class="view" id="view-projectmgr">
+  <header class="pm-header">
+    <div class="pm-header-top">
+      <!-- Projects is now a section *inside* the Data tab rather than a top-level destination,
+           so it needs a way back up to the hub. The bottom nav stays docked here (view-projectmgr
+           is in CHROME_VIEWS), so this arrow is an up-level control, not an escape hatch. -->
+      <button class="icon-back" onclick="showDataHub()" aria-label="Back to Data">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <h1 class="pm-title">Projects</h1>
+      <span class="pm-count" id="pmCount"></span>
+      <!-- Theme, Density and Units live in the Settings modal now — only Contrast stays out here,
+           see the matching comment on the Welcome screen's control pill above. -->
+      <div class="control-pill">
+        <!-- Home. Same gap as the Data hub: once a project exists the landing screen is
+             otherwise unreachable, so there is no "start of the app" to return to. -->
+        <button class="home-btn pill-icon-btn" id="homeBtnPm" onclick="showLanding()" title="Home" aria-label="Go to home screen">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5"/><path d="M9.5 21v-6h5v6"/></svg>
+        </button>
+        <button class="contrast-toggle" id="contrastTogglePm" onclick="toggleContrast()" title="Outdoor / high-contrast mode" aria-label="Toggle outdoor high-contrast mode">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="settings-gear pill-icon-btn" id="settingsGearPm" onclick="openSettings()" title="Settings" aria-label="Open settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="pm-search-row">
+      <div class="pm-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="pmSearch" placeholder="Search projects" autocomplete="off" autocorrect="off" spellcheck="false" oninput="onPmSearchInput()" aria-label="Search projects">
+        <button class="pm-search-clear" id="pmSearchClear" onclick="clearPmSearch()" aria-label="Clear search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <button class="pm-new-btn" onclick="showNewProject()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Project
+      </button>
+    </div>
+    <div class="pm-filters" id="pmFilters" role="group" aria-label="Filter projects">
+      <button class="pm-chip active" data-filter="all" onclick="setPmFilter('all')">All</button>
+      <button class="pm-chip" data-filter="recent" onclick="setPmFilter('recent')" title="Modified in the last 7 days">Recent</button>
+      <button class="pm-chip" data-filter="synced" onclick="setPmFilter('synced')" title="Exported or published since the last change">Synced</button>
+      <button class="pm-chip" data-filter="unsynced" onclick="setPmFilter('unsynced')" title="Has captured data not yet exported">Not synced</button>
+    </div>
+  </header>
+  <!-- Export all / Backup all / Import backup used to be stacked at the bottom of this list.
+       They are device-wide data operations, not per-project ones, so they now live in
+       Data → Backup & Restore (#view-backup) and keep their original element ids so the
+       existing busy-state and file-input wiring is unchanged. -->
+  <div class="pm-body">
+    <div id="pmListWrap"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ PLOTLENS — VISUAL STORY ══════════════════
+     WHAT THIS IS, AND WHY IT ISN'T VIDEO.
+     The ask was a minute-long story of a survey from beginning to end. Video was assessed and
+     ruled out on a hard constraint, not a preference: this app persists everything — including
+     photos, as base64 data URLs — inside one JSON blob in localStorage against a 5 MB ceiling
+     (STORAGE_QUOTA_BYTES). A single 60-second clip is ~5 MB as base64, so one story would consume
+     the entire budget AND take the shared persistStore() write down with it, losing project data.
+     In-app transcoding was also ruled out: ffmpeg.wasm needs cross-origin isolation, which would
+     break the CDN-loaded Leaflet and map tiles this app depends on.
+     So PlotLens is a "motion picture" built from photos the crew ALREADY captured: a Ken Burns
+     pan-and-zoom over each frame with crossfades, played as a reel. The decisive property is that
+     a story stores NO media of its own — only references (feature id + vertex index + photo
+     index), a narration string and a duration per beat. A twenty-beat story costs a couple of KB,
+     so this genuinely cannot affect the storage other features depend on.
+     Frames default to capture order, which is what makes it a story: it replays the survey as it
+     actually happened. -->
+<div class="view" id="view-plotlens">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="closePlotLens()" aria-label="Back">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>PlotLens</h2>
+    <button class="pl-head-btn" id="plExportBtn" onclick="exportPlotLensStory()">Export</button>
+  </div>
+  <div class="subpage-body" id="plotlensBody"></div>
+</div>
+
+<!-- The reel itself is a full-screen overlay rather than a view, so playback covers the header and
+     bottom nav the way a story player is expected to, without disturbing view/chrome routing. -->
+<div class="pl-player" id="plPlayer" role="dialog" aria-modal="true" aria-label="PlotLens story player">
+  <div class="pl-stage" id="plStage"></div>
+  <div class="pl-progress" id="plProgress"></div>
+  <!-- ══ ROUTE MINIMAP ══
+       Top-right, under the close button. Shows the whole story route as a dotted
+       trail, the part already narrated solid over it, and a pulse on the frame
+       currently on screen — so a viewer can see where each photo was taken and
+       how far the survey had walked by that point. Tap it to swap between
+       following the pin and framing the whole route. Its basemap is the one
+       chosen in Settings, like every other map in the app. -->
+  <div class="pl-minimap-wrap" id="plMiniMapWrap" onclick="plToggleMiniMap(event)" role="img" aria-label="Route so far">
+    <div class="pl-minimap" id="plMiniMap"></div>
+    <span class="pl-minimap-hint">route</span>
+  </div>
+  <button class="pl-close" onclick="stopPlotLens()" aria-label="Close story">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <div class="pl-overlay-info">
+    <div class="pl-loc" id="plLoc"></div>
+    <div class="pl-narr" id="plNarr"></div>
+    <button class="pl-jump" id="plJump" onclick="plJumpToFeature()">Open this feature</button>
+  </div>
+  <!-- Invisible tap zones, the convention every story player uses: left third steps back, right
+       two-thirds steps forward, and a hold anywhere pauses. -->
+  <button class="pl-tap pl-tap-prev" onclick="plStep(-1)" aria-label="Previous frame"></button>
+  <button class="pl-tap pl-tap-next" onclick="plStep(1)" aria-label="Next frame"></button>
+</div>
+
+<!-- ══════════════════ DATA HUB ══════════════════
+     The bottom-nav "Data" tab lands here. It is the one screen that owns everything stored on the
+     device rather than inside a single project: the project list, backup/restore, and storage.
+     Feature Types, Media and PlotEtch are intentionally absent — all three are per-project state
+     (projectData[id].featureTypes, photos on vertices, sketches), so a device-level entry point
+     for them would be ambiguous with no project open. They stay on the project Dashboard. -->
+<div class="view" id="view-datahub">
+  <header class="pm-header">
+    <div class="pm-header-top">
+      <h1 class="pm-title">Data</h1>
+      <div class="control-pill">
+        <!-- Home. The landing screen used to be unreachable once a project existed, so the app
+             had no "start" to return to from here. Placed first in the pill because it is a
+             navigation action, not a preference like the two beside it. -->
+        <button class="home-btn pill-icon-btn" id="homeBtnHub" onclick="showLanding()" title="Home" aria-label="Go to home screen">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5"/><path d="M9.5 21v-6h5v6"/></svg>
+        </button>
+        <button class="contrast-toggle" id="contrastToggleHub" onclick="toggleContrast()" title="Outdoor / high-contrast mode" aria-label="Toggle outdoor high-contrast mode">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="settings-gear pill-icon-btn" id="settingsGearHub" onclick="openSettings()" title="Settings" aria-label="Open settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <div class="pm-body">
+    <!-- Populated by renderDataHub(). The hub leads with numbers rather than a bare menu so the
+         screen answers "is there anything I still need to get off this phone?" without a tap. -->
+    <div class="hub-summary" id="hubSummary"></div>
+    <div class="pm-section-label">Manage</div>
+    <div id="hubRows"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ DATA › BACKUP &amp; RESTORE ══════════════════ -->
+<div class="view" id="view-backup">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="history.back()" aria-label="Back to Data">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>Backup &amp; Restore</h2>
+  </div>
+  <div class="subpage-body">
+    <!-- Filled by renderBackupStatus(). Leads with the one thing worth knowing before walking
+         out: whether anything on this device has been captured but not yet exported. -->
+    <div id="backupNote"></div>
+    <div class="hub-block">
+      <div class="hub-block-title">Backup all projects</div>
+      <div class="hub-block-desc">A single lossless <code>.plotedge.json</code> holding every project, its features, feature types, notes and sketches. This is the file to keep if you want to restore onto another device.</div>
+      <button class="btn-pill" onclick="exportAllProjectsBackup()" id="backupAllBtnPm">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Backup all projects (.json)
+      </button>
+    </div>
+    <div class="hub-block">
+      <div class="hub-block-title">Restore from backup</div>
+      <div class="hub-block-desc">Reads a full backup or a single-project file back in. Restored projects are always added alongside what's already here — nothing on this device is overwritten or replaced.</div>
+      <button class="btn-pill btn-pill-outline" onclick="triggerBackupImport()" id="importBackupBtnPm" style="margin-top:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import backup
+      </button>
+    </div>
+    <div class="hub-block">
+      <div class="hub-block-title">Export all projects</div>
+      <div class="hub-block-desc">A .zip of every project's data in shareable formats, for handing off to someone else or loading into GIS. Use Backup above if the goal is to restore into PlotEdge later.</div>
+      <button class="btn-pill btn-pill-outline" onclick="exportAllProjects()" id="exportAllBtnPm" style="margin-top:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export all projects (.zip)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ DATA › STORAGE ══════════════════ -->
+<div class="view" id="view-storage">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="history.back()" aria-label="Back to Data">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>Storage</h2>
+  </div>
+  <div class="subpage-body">
+    <div id="storageBody"></div>
+  </div>
+</div>
+
+<!-- ══════════════════ NEW PROJECT ══════════════════ -->
+<div class="view" id="view-newproject">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="cancelProjectForm()" aria-label="Back to projects">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2 id="newProjectTitle">New project</h2>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <div class="field">
+        <label>Project Name</label>
+        <input type="text" id="newProjName" placeholder="e.g. Riverside Site Survey" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <!-- Feeds the description line on the Project Manager cards. Optional: when it's blank the
+           card falls back to the client · manager · site line, so existing projects created
+           before this field existed still read sensibly. -->
+      <div class="field">
+        <label>Description <span class="hint">(optional)</span></label>
+        <textarea id="newProjDesc" placeholder="What this survey covers, scope notes, anything the crew should know" autocomplete="off" spellcheck="true"></textarea>
+      </div>
+      <div class="field">
+        <label>Client <span class="hint">(optional)</span></label>
+        <input type="text" id="newProjClient" placeholder="e.g. Acme Corp" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Project Manager <span class="hint">(optional)</span></label>
+        <input type="text" id="newProjManager" placeholder="e.g. Jane Moyo" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>Site / Location <span class="hint">(optional)</span></label>
+        <div class="site-field-wrap">
+          <input type="text" id="newProjSite" placeholder="e.g. North District" autocomplete="off" autocorrect="off" spellcheck="false">
+          <button type="button" class="locate-btn" id="locateBtn" onclick="useCurrentLocationForSite()" title="Use current location" aria-label="Use current location">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20.94 11a8.994 8.994 0 0 0-7.94-7.94"/><path d="M3.06 13a8.994 8.994 0 0 0 7.94 7.94"/><path d="M11 3.06a8.994 8.994 0 0 0-7.94 7.94"/><path d="M13 20.94a8.994 8.994 0 0 0 7.94-7.94"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="locate-hint" id="locateHint"></div>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="font-size:16px;padding:16px;" onclick="saveProjectForm()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <span id="newProjSaveBtnLabel">Create project</span>
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════ MANAGE FEATURE TYPES ══════════════════ -->
+<div class="view" id="view-featuretypes">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="closeFeatureTypes()" aria-label="Close feature types">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>Feature types</h2>
+  </div>
+  <div class="subpage-body">
+    <div id="ftList" class="ft-list"></div>
+    <button class="btn-pill" onclick="newFeatureType()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New feature type
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════ FEATURE TYPE EDITOR ══════════════════ -->
+<div class="view" id="view-featuretype-edit">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="closeFeatureTypeEditor()" aria-label="Close feature type editor">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2 id="ftEditorTitle">New feature type</h2>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <div class="card-title">Details</div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="ftName" placeholder="e.g. Utility Pole, Parcel Boundary" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Geometry Type</label>
+        <div class="geo-toggle" id="ftGeoToggle">
+          <div class="geo-opt" data-geo="point" onclick="setFtGeo('point')">● Point</div>
+          <div class="geo-opt" data-geo="line" onclick="setFtGeo('line')">— Line</div>
+          <div class="geo-opt" data-geo="polygon" onclick="setFtGeo('polygon')">▱ Polygon</div>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>Color</label>
+        <div class="ft-swatch-row" id="ftColorPicker"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-head">
+        <span class="sec-head-title">Attribute fields</span>
+        <button class="sec-head-btn" onclick="openFtFieldSheet(null)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add field
+        </button>
+      </div>
+      <div id="ftFieldsList"></div>
+    </div>
+
+    <div class="sticky-save">
+      <button class="btn btn-primary" style="font-size:16px;padding:16px;" onclick="saveFeatureType()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Save feature type
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ MEDIA GALLERY ══════════════════
+     Reached from the dashboard's Media Attachments KPI. Flattens every photo across every
+     feature/vertex in the project into one filterable filmstrip; tapping a thumbnail opens the
+     existing photo lightbox (same one used inside Collect/Review) so full-view + prev/next comes
+     for free. -->
+<div class="view" id="view-media">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="closeMediaGallery()" aria-label="Close media gallery">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>Media gallery</h2>
+  </div>
+  <div class="subpage-body">
+    <div class="media-filter-row">
+      <div class="select-wrap media-filter-select">
+        <select id="mediaTypeFilter" onchange="onMediaFilterChange()">
+          <option value="">All types</option>
+        </select>
+      </div>
+      <div class="select-wrap media-filter-select">
+        <select id="mediaDateFilter" onchange="onMediaFilterChange()">
+          <option value="">All time</option>
+          <option value="today">Today</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+      </div>
+    </div>
+    <div class="media-count" id="mediaGalleryCount"></div>
+    <div class="photo-grid media-grid" id="mediaGalleryGrid"></div>
+    <div class="attr-table-empty" id="mediaGalleryEmpty" style="display:none;">No photos match this filter.</div>
+  </div>
+</div>
+
+<!-- ══════════════════ PLOTETCH — ON-SCREEN DIGITIZING ══════════════════
+     Draw features by tapping a map instead of walking them with GPS. Sketches live in their own
+     array (plotetchSketches, persisted per project) and are deliberately NOT savedFeatures: a
+     traced shape has no accuracy, no capture time, and no attributes, so mixing it into the
+     collected set would quietly corrupt every accuracy figure, validation check and export the
+     app produces. "Send to Collect" is the one bridge — it loads the sketch's vertices into the
+     Collect capture buffer, where it goes through the normal feature-type/attribute/save path and
+     becomes a real feature on the same terms as everything else. -->
+<div class="view" id="view-plotetch">
+  <div class="subpage-header">
+    <button class="icon-back" onclick="closePlotEtch()" aria-label="Close PlotEtch">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <h2>PlotEtch</h2>
+    <button class="pe-sketch-x" style="margin-left:auto;width:30px;height:30px;" onclick="openGotoModal()" title="Go to coordinate" aria-label="Go to coordinate">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </button>
+  </div>
+
+  <div class="pe-modebar" role="group" aria-label="Geometry mode">
+    <button class="pe-mode-btn active" id="peModePoint" onclick="setPlotEtchMode('point')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="9"/></svg>
+      Point
+    </button>
+    <button class="pe-mode-btn" id="peModeLine" onclick="setPlotEtchMode('line')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 18 10 8 15 14 20 5"/><circle cx="4" cy="18" r="1.8" fill="currentColor"/><circle cx="20" cy="5" r="1.8" fill="currentColor"/></svg>
+      Line
+    </button>
+    <button class="pe-mode-btn" id="peModePolygon" onclick="setPlotEtchMode('polygon')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 3 21 9 18 20 6 20 3 9"/></svg>
+      Polygon
+    </button>
+  </div>
+
+  <div class="pe-map-wrap">
+    <div id="plotetchMap"></div>
+    <div class="pe-map-empty" id="plotetchMapEmpty"></div>
+
+    <div class="pe-readout" id="peReadout">
+      <span id="peReadoutText">Tap the map to place your first vertex</span>
+      <span class="pe-readout-spacer"></span>
+      <span id="peSnapState"></span>
+    </div>
+
+    <div class="pe-mapbtns">
+      <button class="pe-mapbtn" onclick="togglePlotEtchBasemap()" title="Switch basemap" aria-label="Switch basemap">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+        <span id="peBasemapLabel" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Satellite</span>
+      </button>
+      <!-- Centre-on-me. Drawing against imagery is far easier if you can put yourself on the map
+           first; without this the only way to find your own position was to pan by hand. -->
+      <button class="pe-mapbtn" onclick="plotEtchLocateMe()" title="Centre on my location" aria-label="Centre on my location">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </button>
+      <button class="pe-mapbtn" id="peSnapBtn" onclick="togglePlotEtchSnap()" title="Toggle snapping" aria-label="Toggle snapping">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 12 0V3"/><path d="M12 16v5"/><circle cx="12" cy="16" r="1.6" fill="currentColor"/></svg>
+      </button>
+    </div>
+
+    <!-- Undo / Finish / Discard float over the map bottom: these are used between every pair of
+         taps while digitising, so they belong in the thumb zone and must never scroll away. -->
+    <div class="pe-drawbar">
+      <button class="pe-tool" id="peUndoBtn" onclick="plotEtchUndoVertex()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+        Undo
+      </button>
+      <button class="pe-tool primary" id="peFinishBtn" onclick="plotEtchFinish()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Finish
+      </button>
+      <button class="pe-tool danger" id="peDiscardBtn" onclick="plotEtchDiscard()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Discard
+      </button>
+    </div>
+  </div>
+
+  <!-- Everything that is not drawing lives behind this one handle. Six stacked button rows under
+       the map is a wall of undifferentiated targets; a sheet keeps the map full-height and lets
+       the list, transfer and analysis groups be properly labelled when they are actually open. -->
+  <button type="button" class="pe-sheet-handle" onclick="openPeToolsSheet()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    Sketches &amp; tools
+    <span class="pe-sheet-handle-count" id="peSketchCount">0</span>
+  </button>
+</div>
+
+<!-- ══ PLOTETCH TOOLS SHEET ══ — the sketch list, import/export and the analysis toolbox.
+     Uses the shared .modal-overlay/.modal-box bottom sheet, so it inherits the injected close
+     button, tap-outside-to-close, the scrollable-sheet divider and the keyboard-safe sizing
+     without re-implementing any of it. -->
+<div class="modal-overlay" id="peToolsSheet" role="dialog" aria-modal="true" aria-label="Sketches and tools">
+  <div class="modal-box">
+    <div class="modal-msg">Sketches &amp; tools</div>
+
+    <div class="pe-section-label" style="margin-top:0;">Sketches</div>
+    <div id="peSketchList"></div>
+
+    <div class="pe-section-label">Transfer</div>
+    <div class="pe-toolrow">
+      <button class="pe-tool" onclick="plotEtchImport()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import
+      </button>
+      <button class="pe-tool" onclick="plotEtchExport()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export
+      </button>
+      <button class="pe-tool" id="peToCollectBtn" onclick="plotEtchSendToCollect()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 21s7-6 7-11a7 7 0 1 0-14 0c0 1.4.55 2.9 1.4 4.3"/><circle cx="13.5" cy="10" r="2.6"/></svg>
+        To Capture
+      </button>
+    </div>
+    <input type="file" id="peImportInput" accept=".geojson,.json" style="display:none" onchange="onPlotEtchImportFile(event)">
+
+    <div class="pe-section-label">Measure</div>
+    <div class="pe-toolrow">
+      <button class="pe-tool" onclick="peMeasure()">Measure</button>
+      <button class="pe-tool" onclick="peCentroid()">Centroid</button>
+      <button class="pe-tool" onclick="peConvexHull()">Convex hull</button>
+    </div>
+
+    <div class="pe-section-label">Overlay</div>
+    <div class="pe-toolrow">
+      <button class="pe-tool" onclick="openBufferModal()">Buffer…</button>
+      <button class="pe-tool" onclick="pePointInPolygon()">Points in poly</button>
+      <button class="pe-tool" onclick="peOverlay('intersect')">Intersect</button>
+      <button class="pe-tool" onclick="peOverlay('clip')">Clip (A−B)</button>
+    </div>
+
+    <div id="peResult"></div>
+
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-secondary" onclick="closePeToolsSheet()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP (per-project) ══════════════════ -->
+<div class="view" id="view-app">
+  <header>
+    <div class="header-top">
+      <button class="icon-back" onclick="headerBackTap()" aria-label="Back">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <div class="header-title">
+        <h1 id="activeProjName">Project</h1>
+        <p id="activeProjMeta"></p>
+      </div>
+      <div class="session-badge" id="sessionBadge">0 features</div>
+      <!-- Units, Theme and Density live in the Settings modal now — only Contrast stays out here,
+           see the matching comment on the Welcome screen's control pill above. -->
+      <div class="control-pill">
+        <!-- Home, alongside the back arrow rather than replacing it. Back is one level up (to the
+             project list); this is all the way out to the landing screen, which was otherwise
+             unreachable from inside a project. Two different intents, two controls. -->
+        <button class="home-btn pill-icon-btn" id="homeBtnApp" onclick="showLanding()" title="Home" aria-label="Go to home screen">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5"/><path d="M9.5 21v-6h5v6"/></svg>
+        </button>
+        <button class="contrast-toggle" id="contrastToggleApp" onclick="toggleContrast()" title="Outdoor / high-contrast mode" aria-label="Toggle outdoor high-contrast mode">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="settings-gear pill-icon-btn" id="settingsGearApp" onclick="openSettings()" title="Settings" aria-label="Open settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="capture-strip" id="captureStrip" onclick="scrollToVertexList()"><span class="cs-dot"></span><span class="cs-text" id="captureStripText"></span></div>
+  </header>
+
+  <!-- ══ DASHBOARD ══ -->
+  <div class="panel active" id="panel-dashboard">
+    <div class="dash-map-slot" id="dashMapSlot"></div>
+    <div class="dash-project-strip" id="dashProjectStrip"></div>
+    <div class="dash-inprogress-banner" id="dashInProgressBanner" style="display:none;" onclick="switchTabNav('collect')"></div>
+    <div class="kpi-grid">
+      <div class="kpi-card" data-kpi="features" onclick="switchTabNav('review'); setReviewView('table');" role="button" tabindex="0">
+        <div class="kpi-label">Total Features</div>
+        <div class="kpi-row">
+          <div class="kpi-value" id="dashFeatures">0</div>
+          <svg class="kpi-art" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+            <path d="M32 8 8 20l24 12 24-12z" fill="currentColor" opacity="0.30"/>
+            <path d="M32 24 8 36l24 12 24-12z" fill="currentColor" opacity="0.55"/>
+            <path d="M32 40 8 52l24 12 24-12z" fill="currentColor" opacity="0.85"/>
+          </svg>
+        </div>
+        <div class="kpi-sub" id="dashFeaturesSub">No features yet</div>
+      </div>
+
+      <div class="kpi-card" data-kpi="vertices" onclick="switchTabNav('review')" role="button" tabindex="0">
+        <div class="kpi-label">Total Vertices</div>
+        <div class="kpi-row">
+          <div class="kpi-value" id="dashPoints">0</div>
+          <svg class="kpi-art" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M32 8 56 22v20L32 56 8 42V22z" opacity="0.45"/>
+            <path d="M32 8v48M8 22l48 20M56 22 8 42" opacity="0.35"/>
+            <circle cx="32" cy="8" r="4.5" fill="currentColor" stroke="none"/>
+            <circle cx="56" cy="22" r="4.5" fill="currentColor" stroke="none"/>
+            <circle cx="56" cy="42" r="4.5" fill="currentColor" stroke="none"/>
+            <circle cx="32" cy="56" r="4.5" fill="currentColor" stroke="none"/>
+            <circle cx="8"  cy="42" r="4.5" fill="currentColor" stroke="none"/>
+            <circle cx="8"  cy="22" r="4.5" fill="currentColor" stroke="none"/>
+          </svg>
+        </div>
+        <div class="kpi-sub" id="dashPointsSub">Point density tracker</div>
+      </div>
+
+      <!-- Accuracy carries a signal bar instead of an illustration: the number alone ("3.4m") only
+           means something to someone who already knows what good looks like, and the crew making
+           the call in the field often doesn't. The marker position is what's read, not the digits. -->
+      <div class="kpi-card" data-kpi="accuracy" id="dashAccuracyTile" role="button" tabindex="0" aria-expanded="false" onclick="toggleAccuracyDetail()">
+        <div class="kpi-label">GPS Accuracy
+          <svg class="kpi-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><line x1="12" y1="1.5" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22.5" y2="12"/></svg>
+          <svg class="acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="kpi-row"><div class="kpi-value" id="dashAccuracy">—</div></div>
+        <div class="kpi-signal" id="dashAccSignal" role="img" aria-label="GPS accuracy signal strength">
+          <div class="kpi-signal-track"></div>
+          <div class="kpi-signal-marker" id="dashAccMarker" style="left:0%;"></div>
+        </div>
+        <div class="kpi-sub" id="dashAccuracySub">Waiting for a fix</div>
+        <div class="acc-detail" id="accDetailBody"></div>
+      </div>
+
+      <div class="kpi-card" data-kpi="photos" onclick="showMediaGallery()" role="button" tabindex="0">
+        <div class="kpi-label">Media Attachments
+          <svg class="kpi-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </div>
+        <div class="kpi-row">
+          <div class="kpi-value" id="dashPhotos">0</div>
+          <svg class="kpi-art" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="20" y="8"  width="34" height="26" rx="3" opacity="0.35"/>
+            <rect x="14" y="16" width="34" height="26" rx="3" opacity="0.6"/>
+            <rect x="8"  y="24" width="34" height="26" rx="3"/>
+            <path d="m8 44 9-9 7 6 6-7 12 12" opacity="0.9"/>
+            <circle cx="17" cy="32" r="3" fill="currentColor" stroke="none"/>
+          </svg>
+        </div>
+        <div class="kpi-sub" id="dashPhotosSub">No photos yet</div>
+      </div>
+    </div>
+
+    <!-- ══ SESSION INSIGHTS ══
+         Today's Progress, Recent Activity, Pace and Backup were four stacked cards that pushed
+         the quick actions well below the fold. They are the same four cards, unchanged, now
+         behind one collapsible header: glanceable when wanted, out of the way when not. Collapsed
+         by default, and the header carries a live summary so the section still says something
+         useful while shut. Hidden entirely until the project has a saved feature. -->
+    <div class="dash-insights" id="dashInsights" style="display:none;">
+      <button class="dash-insights-head" id="dashInsightsHead" aria-expanded="false" aria-controls="dashInsightsBody" onclick="toggleDashInsights()">
+        <div class="dash-insights-headline">
+          <span class="dash-insights-title">Session insights</span>
+          <span class="dash-insights-summary" id="dashInsightsSummary"></span>
+        </div>
+        <svg class="dash-insights-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="dash-insights-body" id="dashInsightsBody">
+    <div class="dash-health-card" id="dashHealthCard" style="display:none;">
+      <div class="dash-health-top">
+        <div class="dash-health-title">Today's Progress</div>
+        <div class="dash-health-pct" id="dashHealthPct">0%</div>
+      </div>
+      <div class="storage-meter-track"><div class="storage-meter-fill" id="dashHealthBar" style="width:0%;"></div></div>
+      <div class="dash-health-rows" id="dashHealthRows"></div>
+    </div>
+    <!-- ══ KPI CARDS (2 × 2) ══
+         Four equal cards, each: label, large numeral, an illustrative glyph, and a sub-line that
+         says something the numeral alone doesn't. The previous layout was a 3-column grid with
+         Features spanning the full width; the numbers are the same, but at a glance-from-arm's-
+         length size and with the context line the old tiles had no room for. -->
+    <!-- Recent Activity — last few captured features, tap to jump straight to that feature in
+         Review (reuses scrollToFeatureCard, the same jump-and-flash used from the map popups). -->
+    <div class="dash-widget-card" id="dashRecentCard" style="display:none;">
+      <div class="dash-widget-title">Recent Activity</div>
+      <div class="dash-recent-list" id="dashRecentList"></div>
+    </div>
+
+    <!-- Capture Pace — features/hour so far today, plus a 7-day sparkline for trend context (is
+         today typical, or a slow/fast day compared to the rest of the week). Both numbers come
+         from feature.savedAt, already stored on every saved feature — no new tracking needed. -->
+    <div class="dash-widget-card" id="dashPaceCard" style="display:none;">
+      <div class="dash-widget-row">
+        <div>
+          <div class="dash-widget-title">Pace Today</div>
+          <div class="dash-pace-value" id="dashPaceValue">—</div>
+          <div class="dash-pace-sub" id="dashPaceSub"></div>
+        </div>
+        <div class="dash-sparkline-wrap">
+          <div class="dash-widget-title" style="text-align:right;">Last 7 Days</div>
+          <svg id="dashSparkline" width="120" height="40" viewBox="0 0 120 40"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backup & Storage — surfaces two things that are easy to forget in the field: how full
+         local storage is (reuses the same estimate as the Export tab's meter) and whether this
+         project's data has actually been exported since it was last captured. Tapping opens
+         Export directly since that's the one actionable thing this card is telling you to do. -->
+    <div class="dash-widget-card dash-widget-card-tap" id="dashBackupCard" onclick="switchTabNav('export')" style="display:none;">
+      <div class="dash-widget-title">Backup &amp; Storage</div>
+      <div class="storage-meter-track" style="margin-top:10px;"><div class="storage-meter-fill" id="dashStorageFill" style="width:0%;"></div></div>
+      <div class="storage-meter-label" id="dashStorageLabel">Storage 0% used</div>
+      <div class="dash-export-line" id="dashExportLine"></div>
+    </div>
+
+      </div>
+    </div>
+
+    <!-- ══ QUICK ACTIONS ══
+         Two rules govern this section:
+           1. Nothing here duplicates a Bottom Nav destination. "New Collect" used to sit here as
+              the hero tile while Collect was also the centre of the bottom nav — the same
+              destination reachable two ways from the same screen. The tile is gone; Collect is a
+              nav destination only. (Import/Export are the reverse case: they came *off* the nav —
+              see the nav comment further down — so the tiles here are their only home.)
+           2. Only the top four go in the grid. Everything else lives behind "More…".
+         The visible 2×2, in the order a session actually runs:
+           • Feature Types   — showFeatureTypes(); collecting is impossible without at least one
+                                feature type defined (Collect's captureBtn/saveFeatureBtn stay
+                                disabled and the picker is unusable until one exists — see
+                                noFeatureTypesCard/collectFtWarn below), so it leads.
+           • Import          — switchTabNav('import'); bring existing data in before you walk out.
+           • Export          — switchTabNav('export'); sends the *current* project's data out
+                                (files / web map / PostGIS / cloud endpoint), distinct from
+                                "Backup All" in the drawer which zips *every* project.
+           • Zonal Stats     — runZonalStatsForProject(); raster zonal statistics over this
+                                project's polygon features.
+         Behind "More…" (see #moreActionsModal near the other bottom sheets) sit the four real but
+         occasional field utilities — Connect GPS, New Project, Backup All, Quick Notes. They are
+         each genuinely useful and none of them is something a crew touches every session, which is
+         exactly what earns a tap instead of permanent grid space.
+         "Calibrate GPS", "Target Layer", "Offline Area" and "Force Sync" from the original brief
+         don't correspond to anything this app actually does (no GPS calibration routine, no
+         offline basemap caching, no background sync) — the actions here are the closest real
+         capabilities instead of stubbed-out fakes. -->
+    <div class="dash-section-label">Quick actions</div>
+    <div class="qa-grid" id="qaGrid">    </div>
+    <button class="qa-more-btn" type="button" onclick="openMoreActions()" aria-haspopup="dialog" aria-controls="moreActionsModal">
+      <span class="qa-icon-badge"><svg class="qa-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></span>
+      <span class="qa-more-text">More actions</span>
+      <span class="qa-more-count" id="qaMoreCount"></span>
+      <svg class="qa-more-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+  </div>
+
+  <!-- ══ COLLECT ══ -->
+  <div class="panel" id="panel-collect">
+
+    <!-- Blocking warning, not just the empty-box further down: shown/hidden together with
+         noFeatureTypesCard from populateFeatureTypeSelect() so it can never drift out of sync with
+         the actual disabled state of Capture/Save. -->
+    <div class="no-ft-banner" id="noFtBanner" style="display:none;">
+      <span class="no-ft-banner-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+      <div class="no-ft-banner-body">
+        <div class="no-ft-banner-title">You can't collect yet</div>
+        <div class="no-ft-banner-sub">This project has no feature types defined — capture and save stay off until you add at least one.</div>
+      </div>
+      <button type="button" class="no-ft-banner-btn" onclick="showFeatureTypes()">Add Feature Type</button>
+    </div>
+
+    <div class="edit-mode-banner" id="editModeBanner" style="display:none;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Editing <strong id="editModeBannerName"></strong>. Changes replace the original when saved
+    </div>
+    <!-- ══ PAUSED CAPTURES ══
+         Rows for features the crew parted way through to go and collect something else — a
+         traffic sign met halfway along a road centreline. Rendered by renderCaptureStack()
+         (js/06a-capture-stack.js); hidden entirely while the stack is empty, which is most of
+         the time. Deliberately above the step cards rather than tucked into the Save card: a
+         paused capture is unsaved work, and unsaved work the crew cannot see is unsaved work
+         they will walk away from. -->
+    <div class="cap-stack-bar" id="captureStackBar" style="display:none;"></div>
+    <div class="persist-banner">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Saved to device · fully offline · survives screen timeout
+    </div>
+
+    <!-- The horizontal pill stepper that used to sit here has been removed: it overlapped the
+         screen title, duplicated the numbering already carried by each step card below, and cost
+         a sticky bar's worth of vertical space on a form that is mostly inputs. The step cards
+         themselves are now the stepper (see .step-badge on each .card-title). -->
+
+    <!-- 1. FEATURE TYPE -->
+    <div class="card" id="collectCardType">
+      <div class="card-title collapsible-title" role="button" tabindex="0" aria-expanded="true" onclick="toggleCardCollapse(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCardCollapse(this);}">1 · Feature Type<span class="step-badge" id="stepBadge1" data-state="pending">Pending</span>
+        <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-body">
+      <div class="field">
+        <label>Feature Name</label>
+        <input type="text" id="featureName" placeholder="e.g. Marker 3, Junction 7" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Feature Type</label>
+        <div class="type-pill" id="geoTag">Point</div>
+        <!-- Big-target modal picker (glove-friendly) stands in for a native <select> on the
+             feature-type field, matching the geo-opt pill pattern used elsewhere in the app. The
+             underlying <select> stays in the DOM (hidden) so the rest of the app's code — which
+             reads/writes it directly — doesn't need to change. -->
+        <button type="button" class="ft-picker-trigger" id="featureTypePickerBtn" onclick="openFeatureTypePicker()">
+          <span class="ft-picker-trigger-glyph" id="featureTypePickerGlyph"></span>
+          <span class="ft-picker-trigger-label" id="featureTypePickerLabel">Select a feature type</span>
+          <span class="ft-picker-trigger-chevron">▾</span>
+        </button>
+        <select id="featureTypeSelect" onchange="onFeatureTypeChange()" style="display:none;"></select>
+      </div>
+      <div class="field">
+        <label>Reference ID <span class="hint">(matches your other app's ID)</span></label>
+        <input type="text" id="featureRef" placeholder="e.g. SITE-003" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Environment</label>
+        <!-- PlotOut is the default (existing GNSS behavior, untouched). Switching to PlotIn
+             unhides Building ID / Floor Level below and changes how Step 2 captures a position —
+             see setCollectEnvironment() in js/06-collect.js. -->
+        <div class="geo-toggle" id="collectEnvToggle" data-val="PlotOut">
+          <div class="geo-opt sel" data-env="PlotOut" onclick="setCollectEnvironment('PlotOut')">PlotOut</div>
+          <div class="geo-opt" data-env="PlotIn" onclick="setCollectEnvironment('PlotIn')">PlotIn</div>
+        </div>
+      </div>
+      <div id="collectIndoorFields" style="display:none;">
+        <div class="field">
+          <label>Building ID / Name <span class="hint">(required for PlotIn)</span></label>
+          <input type="text" id="collectBuildingId" placeholder="e.g. NORTHWOOD-BLDG-A" autocomplete="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label>Floor Level <span class="hint">(required for PlotIn)</span></label>
+          <input type="text" id="collectFloorLevel" placeholder="e.g. Level -1, Level 0, Level 1" autocomplete="off" autocorrect="off" spellcheck="false">
+        </div>
+      </div>
+      <!-- Assigned To removed from the Collect flow (one less field to fill in the field) — the
+           input stays in the DOM but hidden, so editing an existing feature that already has an
+           assignee still round-trips that value on save instead of blanking it out. Set/edited
+           from the Review list instead if needed. -->
+      <input type="text" id="featureAssignedTo" style="display:none" value="">
+      <datalist id="assignedToSuggestions"></datalist>
+      </div>
+    </div>
+    <div class="card" id="noFeatureTypesCard" style="display:none;">
+      <div class="empty-box"><strong>No feature types yet</strong>Add one from Manage Feature Types on the dashboard before collecting</div>
+    </div>
+
+    <!-- 2. GPS + CAPTURE + VERTEX LIST — moved right after Feature Type: field crews start the
+         fix acquiring and capture the location first (while it's accurate and top of mind), then
+         fill in descriptive attributes once the geometry is locked in. -->
+    <div class="card" id="collectCardGps">
+      <div class="card-title collapsible-title" role="button" tabindex="0" aria-expanded="true" onclick="toggleCardCollapse(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCardCollapse(this);}">2 · GPS &amp; Capture <span class="hint" id="geoMinHint"></span><span class="step-badge" id="stepBadge2" data-state="pending">Pending</span>
+        <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-body">
+      <!-- PlotIn: GPS is not required to place a vertex here — see setCollectEnvironment(), which
+           forces the satellite/plan tap map (below) open instead of gating Capture on a fix. The
+           gps-bar and captureBtn stay in the DOM and still work if a fix does come through (e.g.
+           near a window), they just aren't the only way in. -->
+      <div class="indoor-gps-banner" id="plotinCaptureNote" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 21v-6h4v6"/></svg>
+        <span>PlotIn capture — tap your position on the satellite/plan map below. GPS isn't required.</span>
+      </div>
+      <div class="gps-bar">
+        <div class="gps-ring" id="gpsRing">
+          <svg id="gpsIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </div>
+        <div class="gps-text">
+          <div class="gt-status" id="gpsStatus">Tap Start to begin</div>
+          <div class="gt-acc" id="gpsAcc">—</div>
+        </div>
+        <button class="gps-toggle" id="gpsBtn" onclick="toggleGPS()">Start GPS</button>
+      </div>
+      <div class="indoor-gps-banner" id="indoorGpsBanner" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Signal isn't settling — likely indoors.</span>
+        <button type="button" onclick="openManualCoordEntry()">Enter coordinates manually</button>
+      </div>
+      <div class="ext-gps-row" id="extGpsRow">
+        <button class="ext-gps-btn" id="extGpsBtn" onclick="toggleExternalGps()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>
+          <span id="extGpsBtnLabel">Connect external GPS</span>
+        </button>
+        <div class="ext-gps-status" id="extGpsStatus" style="display:none;"></div>
+      </div>
+      <div class="coords-grid">
+        <div class="coord-box"><div class="cl">Latitude</div><div class="cv" id="latVal">—</div></div>
+        <div class="coord-box"><div class="cl">Longitude</div><div class="cv" id="lonVal">—</div></div>
+      </div>
+      <!-- Altitude/Accuracy collapsed by default — accuracy is already visible at a glance up in
+           the GPS status row above, so this is just the detail most captures never need to check. -->
+      <button type="button" class="gps-detail-toggle" id="gpsDetailToggle" onclick="toggleGpsDetail()">
+        <span id="gpsDetailToggleLabel">Show altitude &amp; accuracy detail</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="coords-grid" id="gpsDetailRow" style="display:none;">
+        <div class="coord-box"><div class="cl">Altitude m</div><div class="cv" id="altVal">—</div></div>
+        <div class="coord-box"><div class="cl">Accuracy m</div><div class="cv" id="accVal">—</div></div>
+      </div>
+      <button class="btn-capture" id="captureBtn" disabled>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <span id="captureBtnLabel">Capture Point</span>
+        <span class="capture-photo-badge" id="capturePhotoBadge"></span>
+      </button>
+      <div class="capture-hold-hint">Tap to capture · hold ~1s to average a few fixes</div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--card-border);">
+        <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:10px;">Captured Vertices <span style="color:var(--accent-primary);" id="ptCount"></span> <span class="hint" id="swipeHint" style="display:none;">(swipe a row left to delete)</span></div>
+        <svg class="shape-preview" id="shapePreview" viewBox="0 0 300 130" preserveAspectRatio="xMidYMid meet"></svg>
+        <button type="button" class="vertex-map-toggle" id="vertexMapToggleBtn" onclick="toggleVertexMap()" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V0l-7 4-8-4-7 6z"/><path d="M8 2v16M16 6v16"/></svg>
+          <span id="vertexMapToggleLabel">Adjust on satellite map</span>
+        </button>
+        <div class="vertex-map-wrap" id="vertexMapWrap">
+          <div class="vertex-map" id="vertexMap">
+            <!-- ══ LIVE MEASUREMENT ══ — running length (lines) or area + perimeter (polygons),
+                 updated on every vertex added, dragged or removed. Overlaid on the map rather than
+                 placed below it so the number is in view while you are looking at the shape. -->
+            <div class="digi-readout" id="digiReadout" style="display:none;"></div>
+            <!-- ══ COURSE-UP ══ Turns the preview so the direction of travel is at the top,
+                 the way a car satnav does. North-up is right for reading a plan and wrong for
+                 standing in a road: on a survey running south the line grows downwards while
+                 you walk forwards, and screen-left is your right. Shown only for lines, since
+                 nothing else has a direction. Reversible, and the choice is remembered. -->
+            <button type="button" class="course-up-toggle" id="courseUpBtn" onclick="toggleVertexCourseUp()" style="display:none;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+              <span id="courseUpLabel">Facing travel</span>
+            </button>
+          </div>
+          <div class="vertex-map-tools">
+            <button type="button" class="digi-snap-btn on" id="digiSnapBtn" onclick="toggleDigiSnap()" aria-pressed="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 12 0V3"/><path d="M12 16v5"/><circle cx="12" cy="16" r="1.6" fill="currentColor"/></svg>
+              <span id="digiSnapLabel">Snap on</span>
+            </button>
+            <button type="button" class="digi-snap-btn" onclick="undoLastVertex()" title="Remove the last vertex added">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+              Undo
+            </button>
+          </div>
+          <div class="vertex-map-hint">Drag a pin to correct its position · tap the map to add a vertex there</div>
+        </div>
+        <div class="points-list" id="pointsList">
+          <div class="empty-box"><strong>No vertices yet</strong>Start GPS and tap Capture</div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- 3. ATTRIBUTES (feature-wide — defined once for the whole line/polygon/point) -->
+    <div class="card" id="collectCardAttrs">
+      <div class="card-title collapsible-title" role="button" tabindex="0" aria-expanded="true" onclick="toggleCardCollapse(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCardCollapse(this);}">3 · Attributes <span class="hint" id="attrScopeHint">(once per feature)</span><span class="step-badge" id="stepBadge3" data-state="pending">Pending</span>
+        <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-body">
+      <!-- Compact summary. The real inputs live in #attrFields inside the attribute sheet below;
+           these rows are a read-only reflection of them plus the tap target that opens the sheet. -->
+      <div id="attrSummary"></div>
+      <div id="noFeatureAttrsMsg" class="empty-box" style="display:none;">No feature-wide fields on this type. All its fields are captured per vertex below.</div>
+      <!-- Ad hoc attributes — for anything not already in this feature type's schema, added
+           on the fly during capture instead of having to stop and edit the schema first. -->
+      <div id="customAttrsList"></div>
+      <button type="button" class="add-field-btn" id="addCustomAttrBtn" onclick="promptAddCustomAttr()">+ Add attribute</button>
+      <div id="notesField" class="field" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--card-border);margin-bottom:0;">
+        <div class="notes-label-row">
+          <label style="margin-bottom:0;">Notes <span class="hint">(optional)</span></label>
+          <button type="button" class="voice-note-btn" id="voiceNoteBtn" onclick="toggleVoiceNote()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg>
+            <span id="voiceNoteBtnText">Record</span>
+          </button>
+        </div>
+        <textarea id="featureNotes" placeholder="e.g. GPS drift, revisit later…"></textarea>
+        <div class="voice-note-status" id="voiceNoteStatus" style="display:none;">
+          <span class="voice-wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>
+          <span id="voiceNoteStatusText"></span>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- 4. VERTEX DETAILS (per-vertex attributes & photos, shown for the vertex currently being edited) -->
+    <div class="card" id="vertexEditorCard" style="display:none;">
+      <div class="card-title">4 · Vertex Details <span style="color:var(--accent-primary);margin-left:2px;" id="vertexEditorNum"></span><span class="step-badge" id="stepBadge4" data-state="active">Active</span></div>
+      <div class="vtx-cols">
+        <div class="vtx-col-attrs">
+          <div id="vertexAttrFields"></div>
+        </div>
+        <div class="vtx-col-photos">
+          <div id="vertexPhotosWrap">
+            <label style="display:flex;align-items:center;justify-content:space-between;">
+              <span>Photos for this vertex <span class="hint" id="vertexPhotoCount"></span></span>
+              <span style="display:flex;align-items:center;gap:6px;font-weight:400;">
+                <span class="hint">Watermark</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="watermarkToggle" onchange="setWatermarkPref(this.checked)">
+                  <span class="toggle-slider"></span>
+                </label>
+              </span>
+            </label>
+            <input type="file" id="vertexPhotoInput" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" onchange="handleVertexPhotos(event)">
+            <button type="button" class="photo-btn" onclick="openVertexPhotoCapture()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Tap to Take / Add Photo
+            </button>
+            <datalist id="angleLabelSuggestions">
+              <option value="Wide view"><option value="Close-up"><option value="North view">
+              <option value="South view"><option value="Detail">
+            </datalist>
+            <div class="photo-grid" id="vertexPhotoGrid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. SAVE / FINISH -->
+    <div class="card" id="collectCardSave">
+      <div class="card-title">5 · Save<span class="step-badge" id="stepBadge5" data-state="pending">Pending</span></div>
+      <button class="btn-cancel-edit" id="cancelEditBtn" style="display:none;" onclick="cancelEditFeature()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Cancel edit
+      </button>
+      <div class="close-ring-hint" id="closeRingHint">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span>Tap Finish to close the ring back to Start</span>
+      </div>
+      <button class="btn btn-save" id="saveFeatureBtn" style="font-size:16px;padding:16px;margin-bottom:10px;" onclick="saveFeature()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="saveFeatureBtnLabel">Save Feature</span>
+      </button>
+      <!-- Sits between Save and Clear because that is the decision it belongs to: at the point
+           you would reach for one of those two, "neither yet" is the third real answer. Shown
+           only when there is something to pause and room on the stack — see renderCaptureStack(). -->
+      <button type="button" class="btn-pause-capture" id="pauseCaptureBtn" style="display:none;" onclick="suspendCurrentCapture()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        Pause &amp; collect something else
+      </button>
+      <button class="btn-clear-all" id="clearCurrentBtn" onclick="clearCurrent()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Clear current feature
+      </button>
+    </div>
+
+  </div>
+
+  <!-- ══ REVIEW ══ -->
+  <div class="panel" id="panel-review">
+    <div id="reviewMapAnchor"></div>
+    <div class="review-map-wrap" id="reviewMapWrap">
+      <div style="position:relative;">
+        <div id="reviewMap"></div>
+        <div class="review-map-empty" id="reviewMapEmpty" style="display:none;"></div>
+        <!-- Opens PlotAtlas rather than the old in-place full-screen mode. That mode pinned this
+             wrapper over the viewport and told #reviewMap to fill it with height:100% — but
+             #reviewMap sits inside an auto-height div, so the percentage resolved to zero and the
+             "expanded" map rendered blank, with the legend and layer list scrolling underneath it.
+             See js/14a-plotatlas.js for the full account. -->
+        <button class="map-fullscreen-toggle" id="mapFullscreenToggle" onclick="openPlotAtlas()" title="Open PlotAtlas" aria-label="Open PlotAtlas full-screen map">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+        <button class="map-basemap-toggle" id="mapBasemapToggle" onclick="toggleBasemap()" title="Switch basemap" aria-label="Switch basemap between map and satellite">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+          <span id="mapBasemapToggleLabel">Satellite</span>
+        </button>
+        <!-- Layers + Go-to sit with the other map-corner controls rather than in a menu: both act
+             on the map you're looking at, so they belong on it. -->
+        <button class="map-layer-toggle" id="mapLayerToggle" onclick="openLayerModal()" title="Layers" aria-label="Manage layers">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span id="mapLayerToggleLabel">Layers</span>
+        </button>
+        <button class="map-goto-toggle" id="mapGotoToggle" onclick="openGotoModal()" title="Go to coordinate" aria-label="Go to coordinate or search features">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="map-raster-toggle" id="mapRasterToggle" onclick="onRasterToggleClick()" title="Add reference raster (GeoTIFF)" aria-label="Add or manage reference raster imagery">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <span id="mapRasterToggleLabel">Raster</span>
+        </button>
+        <input type="file" id="rasterFileInput" accept=".tif,.tiff,image/tiff" style="display:none;" onchange="onRasterFileSelected(event)" aria-label="Choose a GeoTIFF file">
+        <div class="map-raster-panel" id="mapRasterPanel">
+          <span class="raster-name" id="rasterFileName">—</span>
+          <input type="range" id="rasterOpacitySlider" min="0" max="100" value="80" oninput="onRasterOpacityChange(this.value)" title="Opacity" aria-label="Raster layer opacity">
+          <button onclick="runZonalStatsForProject()" title="Compute zonal stats for all polygon features" aria-label="Compute zonal statistics for all polygon features">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
+          </button>
+          <button onclick="removeRasterLayer()" title="Remove raster" aria-label="Remove raster layer">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="map-legend" id="reviewMapLegend"></div>
+      <div class="review-map-conn" id="reviewMapConn"></div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box" data-stat="features"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div><div class="stat-val" id="statFeatures">0</div><div class="stat-lbl">Features</div></div>
+      <div class="stat-box" data-stat="vertices"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg></div><div class="stat-val" id="statPoints">0</div><div class="stat-lbl">Vertices</div></div>
+      <div class="stat-box" data-stat="layers"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div><div class="stat-val" id="statLayers">0</div><div class="stat-lbl">Layers</div></div>
+    </div>
+    <div class="review-validation-bar" id="reviewValidationBar" style="display:none;"></div>
+    <!-- Set by tapping a day in the Analytics time series; composes with the search box, the type
+         dropdown and the validation pills rather than replacing them. -->
+    <div class="analytics-day-bar" id="analyticsDayBar"></div>
+    <div class="review-filter-row" id="reviewFilterRow" style="display:none;">
+      <input type="text" id="reviewSearchInput" class="review-search-input" placeholder="Search by name or ref…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="onReviewFilterChange()">
+      <div class="select-wrap review-type-filter">
+        <select id="reviewTypeFilter" onchange="onReviewFilterChange()">
+          <option value="">All types</option>
+        </select>
+      </div>
+      <!-- ══ VIEW MODE ══ — Cards vs Attribute table. The same filtered set feeds both, so a
+           search or type filter carries across when you flip between them. -->
+      <div class="review-viewmode" role="group" aria-label="Review view mode">
+        <button class="rv-btn active" id="rvBtnCards" onclick="setReviewView('cards')" title="Card view" aria-label="Card view">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/></svg>
+        </button>
+        <button class="rv-btn" id="rvBtnTable" onclick="setReviewView('table')" title="Attribute table" aria-label="Attribute table">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ══ ATTRIBUTE TABLE ══
+         The GIS view of the same data: one row per feature, one column per attribute, sortable,
+         with the row selection wired to the map above. Hidden until the table view is chosen. -->
+    <div class="attr-table-wrap" id="attrTableWrap" style="display:none;">
+      <div class="attr-table-bar">
+        <span class="attr-table-count" id="attrTableCount"></span>
+        <button class="attr-table-btn" id="attrQueryBtn" onclick="openAttrQuery()" title="Filter with an expression, QGIS style">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          Query
+        </button>
+        <button class="attr-table-btn" onclick="copyAttributeTable()" title="Copy as TSV — paste straight into Excel or Sheets">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy
+        </button>
+      </div>
+      <!-- Shown only while a query is applied, so the table can never be silently filtered:
+           a narrowed table that looks like the whole project is how features get reported missing. -->
+      <div class="attr-query-active" id="attrQueryActiveBar" style="display:none;">
+        <code id="attrQueryActiveText"></code>
+        <button type="button" class="aq-x" onclick="clearAttrQuery()" aria-label="Clear query">✕</button>
+      </div>
+      <div class="attr-selection-bar" id="attrSelectionBar" style="display:none;">
+        <span id="attrSelectionCount">0 selected</span>
+        <button type="button" class="attr-table-btn" id="attrShowSelectedBtn" onclick="toggleShowSelectedOnly()">Show selected</button>
+        <button type="button" class="attr-table-btn" onclick="zoomToAttrSelection()">Zoom to</button>
+        <button type="button" class="attr-table-btn" onclick="clearAttrSelection()">Clear</button>
+      </div>
+      <div class="attr-table-scroll" id="attrTableScroll"></div>
+    </div>
+
+    <div id="featuresList">
+      <div class="empty-box"><strong>Nothing saved yet</strong>Record features on the Capture tab</div>
+    </div>
+    <button class="btn-clear-all" onclick="clearAll()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      Clear all features
+    </button>
+  </div>
+
+  <!-- ══ IMPORT ══ -->
+  <div class="panel" id="panel-import">
+    <div class="card">
+      <div class="export-heading">Import a PlotEdge project</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Restore a <code>.plotedge.json</code> backup exported from this or another device — features, photos, notes, sketches and the feature-type schema all come back intact. Imports are always <strong>additive</strong>: the file lands as a new project and nothing already on this device is overwritten.</p>
+      <input type="file" id="projectBackupInput" accept=".json,.plotedge.json,application/json" style="display:none" onchange="handleProjectBackupImport(event)">
+      <button class="btn btn-outline" style="margin-bottom:0;" onclick="document.getElementById('projectBackupInput').click()">Choose backup file…</button>
+      <div id="projectBackupResult" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="export-heading">Import data</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Bring in a <code>.gpkg</code> or <code>.csv</code> file captured in QGIS, ArcGIS, or another field app.</p>
+      <input type="file" id="importFileInput" accept=".plotpack,.csv,.gpkg" style="display:none" onchange="handleImportFileChosen(event)">
+      <button class="btn btn-outline" id="importChooseBtn" style="margin-bottom:0;" onclick="document.getElementById('importFileInput').click()">Choose file…</button>
+      <div id="importWizard" style="display:none;margin-top:14px;"></div>
+    </div>
+    <div class="import-status" id="importStatus"></div>
+    <div class="export-note">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span>GeoPackage import loads the same small SQLite engine used for GeoPackage export (needs network signal once, then works offline). CRS is auto-detected: WGS84, UTM zones, and Web Mercator reproject automatically; anything else is flagged and skipped per-layer rather than imported in the wrong place.</span>
+    </div>
+  </div>
+
+  <!-- ══ EXPORT ══ -->
+  <div class="panel" id="panel-export">
+    <div class="card" id="cardReadiness">
+      <div class="card-title">Ready to Export</div>
+      <div id="readinessBody"></div>
+    </div>
+    <div class="card card-collapsible" id="cardSessionSummary">
+      <div class="card-collapse-header" onclick="toggleCard('cardSessionSummary')">
+        <div class="card-title">Session Summary</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <div class="stats-row" style="margin-bottom:0;grid-template-columns:repeat(4,1fr);">
+        <div class="stat-box" data-stat="features"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div><div class="stat-val" id="expStatF">0</div><div class="stat-lbl">Features</div></div>
+        <div class="stat-box" data-stat="vertices"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg></div><div class="stat-val" id="expStatP">0</div><div class="stat-lbl">Points</div></div>
+        <div class="stat-box" data-stat="layers"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div><div class="stat-val" id="expStatL">0</div><div class="stat-lbl">Layers</div></div>
+        <div class="stat-box" data-stat="photos"><div class="stat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div><div class="stat-val" id="expStatPh">0</div><div class="stat-lbl">Photos</div></div>
+      </div>
+      <div class="storage-meter-wrap" id="storageMeterWrap">
+        <div class="storage-meter-track"><div class="storage-meter-fill" id="storageMeterFill" style="width:0%;"></div></div>
+        <div class="storage-meter-label" id="storageMeterLabel">Storage 0% used</div>
+      </div>
+      <div class="last-export-note" id="lastExportNote"></div>
+      </div>
+    </div>
+    <div class="card card-collapsible" id="cardExportFormat">
+      <div class="card-collapse-header" onclick="toggleCard('cardExportFormat')">
+        <div class="export-heading">Export format</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <div class="field">
+        <label>Choose a format</label>
+        <div class="select-wrap">
+          <select id="exportFormatSelect" onchange="updateExportFormatUI()">
+            <!-- The two formats PlotEdge can read back. Kept at the top and in their own
+                 group because they answer a different question from everything below: those
+                 hand data to other software, these move a project or a device. -->
+            <optgroup label="PlotEdge (re-importable)">
+              <option value="plotpack">PlotPack (.plotpack — whole project, photos included)</option>
+              <option value="settings">Device settings (.plotpack — preferences only)</option>
+              <option value="plotedge">Backup (.json — older format)</option>
+            </optgroup>
+            <optgroup label="Vector layers">
+              <option value="geojson">GeoJSON (1 file per layer)</option>
+              <option value="gpkg">GeoPackage (single .gpkg file)</option>
+              <option value="fgb">FlatGeobuf (1 file per layer)</option>
+              <option value="geoparquet">GeoParquet (1 file per layer)</option>
+            </optgroup>
+            <optgroup label="Tables &amp; media">
+              <option value="csv">CSV (flat table, all features)</option>
+              <option value="xlsx">Excel workbook (.xlsx)</option>
+              <option value="pdf">PDF report (.pdf)</option>
+              <option value="maplayout">Map layout (.pdf, legend + scale)</option>
+              <option value="photos">Photos (original images)</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="maplayoutBasemapField" style="display:none;">
+        <label>Basemap layer <span class="hint">(optional — drawn behind your features)</span></label>
+        <div class="seg-control" id="maplayoutBasemapSeg">
+          <button type="button" onclick="setMaplayoutBasemapMode('none')" id="maplayoutBasemapNone">None</button>
+          <button type="button" onclick="setMaplayoutBasemapMode('street')" id="maplayoutBasemapStreet">Street</button>
+          <button type="button" onclick="setMaplayoutBasemapMode('satellite')" id="maplayoutBasemapSatellite">Satellite</button>
+        </div>
+        <div class="hint" style="display:block;margin-top:7px;line-height:1.5;">Downloads map tiles and places them under your plotted points/lines/polygons for context. Needs a live connection at export time; if tiles can't be fetched the layout still exports, just without the basemap.</div>
+      </div>
+      <p id="exportFormatDesc" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;"></p>
+      <button class="btn btn-geo" id="exportFormatBtn" onclick="runSelectedExport()">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="exportFormatBtnText">Download GeoJSON</span>
+      </button>
+      <div class="export-note" id="exportFormatNote" style="display:none;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span id="exportFormatNoteText"></span>
+      </div>
+      </div>
+    </div>
+    <div class="card card-collapsible collapsed" id="cardWebMap">
+      <div class="card-collapse-header" onclick="toggleCard('cardWebMap')">
+        <div class="export-heading">Web map (GitHub Pages)</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Publishes a live, view-only map of this project's features to a free GitHub Pages site — shareable with anyone by link, responsive on phone or desktop. PlotEdge talks to GitHub directly from this browser; there's no PlotEdge server involved.</p>
+
+      <!-- Not connected yet -->
+      <div id="ghSetupBlock">
+        <ol class="webmap-steps">
+          <li>Create one empty GitHub repo to hold all your published maps (only needs doing once) — <a href="https://github.com/new?name=plotedge-maps&amp;description=PlotEdge+published+web+maps&amp;visibility=public" target="_blank" rel="noopener">create it on GitHub</a>.</li>
+          <li>Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained personal access token</a>, scoped to just that repo, with <strong>Contents: Read and write</strong> and <strong>Pages: Read and write</strong> permissions.</li>
+          <li>Paste the token and repo name below.</li>
+        </ol>
+        <div class="field"><label>Personal access token</label><input type="password" id="ghTokenInput" placeholder="github_pat_…" autocomplete="off"></div>
+        <div class="field"><label>Repo name</label><input type="text" id="ghRepoInput" placeholder="plotedge-maps" value="plotedge-maps"></div>
+        <button class="btn btn-outline" id="ghConnectBtn" onclick="connectGithub()">Connect</button>
+        <div id="ghConnectStatus" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+        <div class="export-note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>The token is stored only in this browser (localStorage) and used only for direct calls to <code>api.github.com</code> — never sent to PlotEdge or anywhere else. Use "Disconnect" any time to remove it from this device; it doesn't touch anything already published.</span>
+        </div>
+      </div>
+
+      <!-- Connected -->
+      <div id="ghConnectedBlock" style="display:none;">
+        <div class="webmap-meta-label" id="ghConnectedInfo"></div>
+        <div id="webmapStatusBox"></div>
+        <div id="webmapPublishStatus" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+        <div class="export-note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>The published page is view-only — visitors can't edit your data. To change what's shown, edit the project here in PlotEdge and tap "Update web map" again.</span>
+        </div>
+        <button class="btn-clear-all" style="margin-top:2px;" onclick="disconnectGithub()">Disconnect GitHub from this device</button>
+      </div>
+      </div>
+    </div>
+    <div class="card card-collapsible collapsed" id="cardPostGIS">
+      <div class="card-collapse-header" onclick="toggleCard('cardPostGIS')">
+        <div class="export-heading">PostGIS (push to a database)</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">PlotEdge runs fully offline with no server, so it can't write to a database directly from the browser. Fill in your connection details and get a ready-to-run command to load your latest GeoJSON export into PostGIS.</p>
+      <div class="postgis-fields">
+        <div class="field"><label>Host</label><input type="text" id="pgHost" placeholder="localhost" value="localhost"></div>
+        <div class="field"><label>Port</label><input type="text" id="pgPort" placeholder="5432" value="5432"></div>
+        <div class="field"><label>Database</label><input type="text" id="pgDb" placeholder="gis" value="gis"></div>
+        <div class="field"><label>User</label><input type="text" id="pgUser" placeholder="postgres" value="postgres"></div>
+        <div class="field field-wide"><label>Schema</label><input type="text" id="pgSchema" placeholder="public" value="public"></div>
+      </div>
+      <button class="btn btn-outline" style="margin-bottom:0;" onclick="generatePostGISCommand()">Generate command</button>
+      <div id="pgCmdWrap" style="display:none;">
+        <div class="cmd-block" id="pgCmdBlock"></div>
+        <button class="btn btn-copy-cmd" onclick="copyPostGISCommand()">Copy command</button>
+      </div>
+      <div class="export-note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>This generates an <code>ogr2ogr</code> command you run on your own machine after exporting GeoJSON above. Your database password is never entered here or sent anywhere by PlotEdge. A live "push" from the browser would need a backend proxy holding the connection string server-side, which is a separate, optional project since it makes the app network-dependent.</span>
+      </div>
+      </div>
+    </div>
+    <div class="card card-collapsible collapsed" id="cardPhotoBackup">
+      <div class="card-collapse-header" onclick="toggleCard('cardPhotoBackup')">
+        <div class="export-heading">Photo backup</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Photos always stay in this browser first. Turn on either option below to also back them up as they're captured, instead of only at export time.</p>
+      <div class="field">
+        <label>Cloud upload endpoint</label>
+        <input type="text" id="cloudEndpointInput" placeholder="https://yoursite.netlify.app/.netlify/functions/upload-photo">
+      </div>
+      <button class="btn btn-outline" style="margin-bottom:10px;" onclick="saveCloudEndpoint()">Save endpoint</button>
+      <div id="cloudQueueStatus" style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;"></div>
+      <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <input type="checkbox" id="saveToDeviceToggle" style="width:18px;height:18px;flex-shrink:0;" onchange="toggleSaveToDevice(this.checked)">
+        <label style="margin:0;">Also save photos to a device folder</label>
+      </div>
+      <div id="deviceFolderStatus" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
+      <button class="btn btn-outline" style="margin-bottom:14px;" onclick="chooseDeviceFolder()">Choose folder…</button>
+      <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <input type="checkbox" id="autoExportToggle" style="width:18px;height:18px;flex-shrink:0;" onchange="toggleAutoExport(this.checked)">
+        <label style="margin:0;">Auto-save GeoJSON + CSV to that folder after every capture</label>
+      </div>
+      <div id="autoExportStatus" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
+      <div class="export-note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Writes into <code>&lt;folder&gt;/&lt;Project name&gt;/exports/</code>, overwriting the same file each time (<code>_latest</code>) rather than piling up a new export on every single capture. The folder always holds one current snapshot, and the manual Export section below is still there whenever you want a timestamped copy instead.</span>
+      </div>
+      <div class="export-note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Cloud backup needs a small serverless function you deploy yourself (Netlify Function or Cloudflare Worker). PlotEdge only calls the URL you paste in; no database credentials live in this app. Device-folder saving uses the File System Access API (Chrome/Android/desktop) and falls back to the one-at-a-time download used by "Download Photos" on browsers without it, like Safari/iOS. Uploads queue locally and retry automatically once you're back online.</span>
+      </div>
+      </div>
+    </div>
+    <div class="card card-collapsible collapsed" id="cardAiRecognition">
+      <div class="card-collapse-header" onclick="toggleCard('cardAiRecognition')">
+        <div class="export-heading">AI photo recognition</div>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="card-collapse-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Same no-server-required approach as photo backup above: paste an endpoint that takes a photo and returns a short label (e.g. "utility pole", "cracked pavement"), and PlotEdge tags each new photo automatically. This one needs network access when it runs, so it's the one part of PlotEdge that isn't fully offline.</p>
+      <div class="field">
+        <label>Recognition endpoint</label>
+        <input type="text" id="aiEndpointInput" placeholder="https://yoursite.netlify.app/.netlify/functions/recognize-photo">
+      </div>
+      <button class="btn btn-outline" style="margin-bottom:10px;" onclick="saveAiEndpoint()">Save endpoint</button>
+      <div id="aiEndpointStatus" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
+      <div class="export-note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>PlotEdge posts <code>{ image: dataUrl }</code> to your endpoint and expects <code>{ label: "..." }</code> back — your function is free to call whichever vision API/model you choose server-side; no keys are ever stored in this app. A photo is never blocked or lost if recognition fails or is unset — it just won't have a label.</span>
+      </div>
+      </div>
+    </div>
+    <div class="export-status" id="exportStatus" role="status" aria-live="polite"></div>
+    <button class="btn-clear-all" style="margin-top:4px;" onclick="clearAll()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      Clear entire session
+    </button>
+  </div>
+
+  <!-- ══ BOTTOM NAV (moved) ══
+       The <nav> used to sit here, inside #view-app. It now lives at <body> level, immediately
+       after this view closes, because the Project Manager screen (#view-projectmgr) is a
+       sibling view that must show the same bar — a nav nested inside #view-app can never render
+       on a sibling. Visibility is driven by the data-chrome flag on <body>; see
+       setChromeVisible() and the .bottom-nav rules in the stylesheet. -->
+
+
+  <!-- ══ COLLECT ACTION DOCK ══
+       Present for the whole Collect tab, not just once the in-card Capture button scrolls off.
+       Carries the three things a field crew needs continuously: fix quality, capture, commit.
+       #captureFabBtn / #captureFabLabel / #captureFabPhotoBadge keep their original IDs because
+       the press-and-hold handlers and the MutationObserver that mirrors the real #captureBtn are
+       bound to them by ID — the button's job is unchanged, only where it lives. -->
+  <div class="capture-fab" id="captureFab">
+    <div class="cd-status" id="collectDockStatus">
+      <div class="cd-status-main" id="cdStatusMain"><span class="cd-dot" id="cdDot"></span>GPS off</div>
+      <div class="cd-status-sub" id="cdStatusSub">No vertices yet</div>
+    </div>
+    <button type="button" class="cd-save" id="collectDockSave" onclick="saveFeature()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <span id="collectDockSaveLabel">Save</span>
+    </button>
+    <!-- position:relative wrapper so the photo badge's negative offsets anchor to the button
+         rather than to the dock's left edge. .btn-capture itself has overflow:hidden (it clips
+         its own ripple), which is why the badge can't simply live inside it. -->
+    <div class="cd-capture-wrap measure-ring">
+      <button class="btn-capture" id="captureFabBtn" disabled aria-label="Capture Point">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <span id="captureFabLabel" class="capture-fab-label">Capture Point</span>
+      </button>
+      <span class="capture-photo-badge" id="captureFabPhotoBadge"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BOTTOM NAV ══
+     Six tabs, evenly distributed. Import is now a first-class tab rather than a Dashboard-only
+     tile; the labels were shrunk to 10px with tight tracking so all six fit on a narrow handset
+     without truncation. -->
+<nav class="bottom-nav" id="bottomNav">
+  <button class="nav-btn active" id="navBtn-dashboard" onclick="switchTabNav('dashboard')">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    <span>Dashboard</span>
+  </button>
+  <button class="nav-btn" id="navBtn-collect" onclick="switchTabNav('collect')">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+    <span>Capture</span>
+  </button>
+  <button class="nav-btn" id="navBtn-review" onclick="switchTabNav('review')">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+    <span>Review</span>
+  </button>
+  <!-- Import/Export dropped from the bottom nav — they're deliberate, occasional actions (start-
+       /end-of-session), not something you tab into every few minutes like Collect/Review. Moved
+       to Quick Actions on the Dashboard instead, where they sit in the visible 2×2 alongside
+       Feature Types and Zonal Stats; see the qa-grid above. Fewer nav items also means more
+       thumb-reach width for the ones left.
+       The traffic runs the other way for Collect: it's a nav destination and *only* a nav
+       destination. The dashboard used to carry a "New Collect" tile pointing at this same button,
+       which is the duplication this comment's own rule exists to prevent — that tile is gone. -->
+  <!-- Was "Projects" pointing straight at the list. It is now "Data": the same tab position, but
+       it opens the hub that owns projects *and* the other device-wide data (backup/restore,
+       storage). Projects is one tap in from there — see showDataHub()/renderDataHub(). -->
+  <button class="nav-btn" id="navBtn-data" onclick="showDataHub()">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+    <span>Data</span>
+  </button>
+</nav>
+</div>
+
+<!-- ══ PLOTATLAS ══
+     The full-screen map. A fixed overlay rather than a .view, deliberately: it is opened from
+     the Review map, from Quick Actions and from PlotMind, and on the way out it has to hand the
+     screen back to whichever tab the user was on. An overlay does that for free (and inherits
+     the back-button handling in closeTopOverlay), where a view would have to remember and
+     restore the previous destination.
+
+     Every control below has one corner and no control shares a corner with the zoom — see the
+     layout contract at the top of css/06-plotatlas.css. The old expand button sat at top-left,
+     which is exactly where Leaflet puts its zoom control; that is the stacking that was reported.
+-->
+<div class="plot-atlas" id="plotAtlas">
+  <div id="atlasMap"></div>
+  <div class="atlas-empty" id="atlasEmpty" style="display:none;"></div>
+
+  <!-- top-left: exit + what you are looking at -->
+  <div class="atlas-top">
+    <button class="atlas-close" onclick="closePlotAtlas()" aria-label="Close PlotAtlas">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="atlas-titlebox">
+      <div class="atlas-brand">PlotAtlas</div>
+      <div class="atlas-subtitle" id="atlasProjectName">Project</div>
+    </div>
+    <div class="atlas-count" id="atlasCount"></div>
+  </div>
+
+  <!-- top-centre: search -->
+  <div class="atlas-search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="atlasSearchInput" placeholder="Filter by name, ref or type…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="atlasOnSearch(this.value)">
+    <button class="atlas-search-clear" id="atlasSearchClear" onclick="atlasClearSearch()" aria-label="Clear search">&times;</button>
+  </div>
+
+  <!-- measurement readout, only while the measure tool is on -->
+  <div class="atlas-measure" id="atlasMeasure">
+    <span class="atlas-measure-text" id="atlasMeasureText">Tap the map to start measuring</span>
+    <button type="button" onclick="atlasUndoMeasurePoint()">Undo</button>
+    <button type="button" onclick="atlasClearMeasure()">Clear</button>
+  </div>
+
+  <!-- right edge: the collapsible tool rail -->
+  <div class="atlas-rail" id="atlasRail">
+    <button class="atlas-rail-toggle" id="atlasRailToggle" onclick="atlasToggleTools()" aria-expanded="false" aria-controls="atlasRailTools" aria-label="Show map tools">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+    <div class="atlas-rail-tools" id="atlasRailTools">
+      <button class="atlas-tool" id="atlasToolLayers" onclick="atlasOpenLayers()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        Layers
+      </button>
+      <button class="atlas-tool" id="atlasToolLabels" onclick="atlasToggleLabels()" aria-pressed="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.6"/></svg>
+        Labels
+      </button>
+      <button class="atlas-tool" id="atlasToolCluster" onclick="atlasToggleCluster()" aria-pressed="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="8" r="3"/><circle cx="17" cy="7" r="2.4"/><circle cx="12" cy="16" r="3.4"/></svg>
+        Cluster
+      </button>
+      <button class="atlas-tool" id="atlasToolDensity" onclick="atlasToggleDensity()" aria-pressed="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Density
+      </button>
+      <button class="atlas-tool" id="atlasToolMeasure" onclick="atlasToggleMeasure()" aria-pressed="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m2 14 8-8 12 12-8 8z"/><path d="M6 10.5 8 12.5M9.5 7l2 2M13 3.5l2 2"/></svg>
+        Measure
+      </button>
+      <button class="atlas-tool" id="atlasToolLegend" onclick="atlasToggleLegend()" aria-pressed="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="4" cy="18" r="1.6"/></svg>
+        Legend
+      </button>
+      <button class="atlas-tool" id="atlasToolGoto" onclick="openGotoModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Go to
+      </button>
+      <button class="atlas-tool" id="atlasToolFit" onclick="atlasFitData()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m18 0V5a2 2 0 0 0-2-2h-4M3 15v4a2 2 0 0 0 2 2h4m6 0h4a2 2 0 0 0 2-2v-4"/></svg>
+        Fit all
+      </button>
+      <button class="atlas-tool" id="atlasToolAnalytics" onclick="openAnalytics()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
+        Analytics
+      </button>
+    </div>
+  </div>
+
+  <!-- bottom-right: my location, stacked above Leaflet's zoom control -->
+  <button class="atlas-locate" onclick="atlasLocate()" aria-label="Show my location">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>
+  </button>
+
+  <!-- bottom-left: basemap chip, its picker, and the legend -->
+  <button class="atlas-basemap-chip" onclick="atlasOpenBasemapSheet()" aria-haspopup="dialog">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+    <span id="atlasBasemapLabel">Map</span>
+  </button>
+
+  <div class="atlas-bm-sheet" id="atlasBasemapSheet">
+    <div class="atlas-bm-title">Basemap</div>
+    <div class="atlas-bm-grid">
+      <button class="atlas-bm-opt" data-bm="street" onclick="atlasSetBasemap('street')"><span class="atlas-bm-swatch" data-bm="street"></span>Map</button>
+      <button class="atlas-bm-opt" data-bm="satellite" onclick="atlasSetBasemap('satellite')"><span class="atlas-bm-swatch" data-bm="satellite"></span>Satellite</button>
+      <button class="atlas-bm-opt" data-bm="topo" onclick="atlasSetBasemap('topo')"><span class="atlas-bm-swatch" data-bm="topo"></span>Terrain</button>
+      <button class="atlas-bm-opt" data-bm="light" onclick="atlasSetBasemap('light')"><span class="atlas-bm-swatch" data-bm="light"></span>Light</button>
+      <button class="atlas-bm-opt" data-bm="dark" onclick="atlasSetBasemap('dark')"><span class="atlas-bm-swatch" data-bm="dark"></span>Dark</button>
+    </div>
+  </div>
+
+  <div class="atlas-legend" id="atlasLegend">
+    <div class="atlas-legend-body" id="atlasLegendBody"></div>
+  </div>
+
+  <!-- long-press readout -->
+  <div class="atlas-pin-bar" id="atlasPinBar"></div>
+
+  <!-- the card a tapped feature opens -->
+  <div class="atlas-sheet" id="atlasSheet"></div>
+</div>
+
+<!-- ══ ANALYTICS ══ — every chart is a control: tapping a slice, a bar or a link
+     leaves Review filtered to exactly that subset. -->
+<div class="modal-overlay" id="analyticsModal">
+  <div class="modal-box">
+    <div class="modal-title">Analytics</div>
+    <p class="modal-sub">Everything below is computed on this device from the current project. Tap a slice, a bar or a link to filter the Review list to it.</p>
+    <div id="analyticsBody"></div>
+  </div>
+</div>
+
+<!-- ══ PLOTMIND ══ — on-device analysis. No endpoint, no key, no network: see the
+     header of js/16a-plotmind.js for what each check actually does. -->
+<div class="modal-overlay" id="plotMindModal">
+  <div class="modal-box">
+    <div class="modal-title">PlotMind</div>
+    <p class="modal-sub">Checks your geometry and attributes for the mistakes that survive a capture session, suggests values from nearby features, and answers questions about the project — all on this device, offline.</p>
+    <div id="plotMindBody"></div>
+  </div>
+</div>
+
+<!-- ══ BARCODE / QR SCANNER OVERLAY ══ -->
+<div class="barcode-scanner-overlay" id="barcodeScannerOverlay">
+  <div class="barcode-scanner-bar">
+    <div class="barcode-scanner-title">Scan barcode / QR</div>
+    <button class="barcode-scanner-close" onclick="closeBarcodeScanner()" aria-label="Close barcode scanner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <video class="barcode-scanner-video" id="barcodeScannerVideo" autoplay playsinline muted></video>
+  <div class="barcode-scanner-frame"></div>
+  <div class="barcode-scanner-hint" id="barcodeScannerHint">Line the code up inside the frame</div>
+</div>
+
+<!-- ══ PHOTO LIGHTBOX ══ — fullscreen viewer opened by tapping any photo thumbnail -->
+<div class="lightbox" id="photoLightbox">
+  <button class="lb-close" onclick="closeLightbox()" aria-label="Close">×</button>
+  <div class="lightbox-stage" id="lightboxStage">
+    <button class="lb-nav lb-prev" id="lightboxPrev" onclick="lightboxNav(-1)" aria-label="Previous photo">‹</button>
+    <img id="lightboxImg" src="" alt="Photo">
+    <button class="lb-nav lb-next" id="lightboxNext" onclick="lightboxNav(1)" aria-label="Next photo">›</button>
+  </div>
+  <div class="lb-footer">
+    <div class="lb-caption" id="lightboxCaption"></div>
+    <div class="lb-counter" id="lightboxCounter"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="toast undo-toast" id="undoToast">
+  <span id="undoToastMsg"></span>
+  <button id="undoToastBtn" class="undo-toast-btn">Undo</button>
+</div>
+
+<!-- ══ CUSTOMISE QUICK ACTIONS ══ — which actions get a slot on the dashboard grid. Everything not
+     picked stays reachable in the More drawer, so this only ever reorders emphasis; it can never
+     hide a capability outright. -->
+<div class="modal-overlay" id="customizeQaModal" role="dialog" aria-modal="true" aria-label="Customise quick actions">
+  <div class="modal-box">
+    <div class="modal-msg">Customise quick actions</div>
+    <div class="help-p" style="margin-top:-12px;">Pick up to <strong id="qaMaxLabel">6</strong> for the dashboard grid. The rest stay in More actions. Drag isn't needed — grid order follows the order below.</div>
+    <div id="qaCustomList"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="resetQuickActions()">Reset</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeCustomizeQa()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LAYER MANAGER ══ — feature types are the app's layers, so this manages visibility per type
+     rather than inventing a second grouping concept. Hidden types drop out of the review map and
+     its legend but stay in the data untouched: this is a display filter, never a delete. -->
+<div class="modal-overlay" id="layerModal" role="dialog" aria-modal="true" aria-label="Layer manager">
+  <div class="modal-box">
+    <div class="modal-msg">Layers</div>
+    <div id="layerModalList"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="showAllLayers()">Show all</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeLayerModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GO TO COORDINATE / SEARCH ══ — two ways to get somewhere: type a coordinate, or find a
+     feature you already saved by name/ref. Both end in the same place (map centred on a target),
+     so they share one sheet rather than being two separate controls the user has to choose
+     between before knowing which one will work. -->
+<div class="modal-overlay" id="gotoModal" role="dialog" aria-modal="true" aria-label="Go to location">
+  <div class="modal-box">
+    <div class="modal-msg">Go to</div>
+    <div class="field" style="margin-bottom:6px;">
+      <label>Coordinate</label>
+      <input type="text" id="gotoCoordInput" placeholder="-17.8252, 31.0335" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();gotoCoordinate();}">
+      <div class="hint" style="display:block;margin-top:6px;">Decimal degrees or DMS — <code>17°49'30.7"S 31°02'00.6"E</code> both work.</div>
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin:10px 0 4px;" onclick="gotoCoordinate()">Go to coordinate</button>
+    <div class="field" style="margin-bottom:6px;margin-top:14px;">
+      <label>Find a saved feature</label>
+      <input type="text" id="gotoSearchInput" placeholder="Name or reference…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="renderGotoResults()">
+    </div>
+    <div id="gotoResults"></div>
+    <!-- Shown instead of jumping straight to Review when Go To is opened from a screen with no
+         map underneath it (Quick Actions, Dashboard, …) — see gotoCoordinate()/gotoFeature() /
+         gotoResolveDestination() in js/16-geometry-math.js. -->
+    <div id="gotoDestChooser" style="display:none;margin-top:14px;">
+      <div class="hint" style="display:block;margin-bottom:8px;">Open this location in—</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" style="flex:1;margin:0;" onclick="gotoResolveDestination('plotetch')">PlotEtch</button>
+        <button class="btn btn-outline" style="flex:1;margin:0;" onclick="gotoResolveDestination('plotatlas')">PlotAtlas</button>
+        <button class="btn btn-outline" style="flex:1;margin:0;" onclick="gotoResolveDestination('review')">Review</button>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeGotoModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ FEATURE INSPECTOR ══ — the full record for one saved feature in a single sheet: geometry
+     figures, every attribute (including the auto-computed geometry ones), vertex count with
+     accuracy, and the actions that apply to it. Opened from the review cards, the attribute-table
+     rows, and the map popups, all of which previously showed only a partial summary. -->
+<div class="modal-overlay" id="inspectModal" role="dialog" aria-modal="true" aria-label="Feature details">
+  <div class="modal-box">
+    <div id="inspectBody"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeInspect()">Close</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" id="inspectEditBtn">Edit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BUFFER DISTANCE ══ — a one-field prompt rather than a free-text box on the PlotEtch screen,
+     so the distance is entered deliberately and can be validated before any work starts. -->
+<div class="modal-overlay" id="bufferModal" role="dialog" aria-modal="true" aria-label="Buffer distance">
+  <div class="modal-box">
+    <div class="modal-msg">Buffer distance</div>
+    <div class="field" style="margin-bottom:16px;">
+      <label>Metres</label>
+      <input type="number" id="bufferDistInput" value="25" min="0.5" step="0.5" inputmode="decimal" onkeydown="if(event.key==='Enter'){event.preventDefault();runBuffer();}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeBufferModal()">Cancel</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="runBuffer()">Buffer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HELP & ABOUT ══ — the app has no server, no account and no docs site, so this sheet is the
+     only place the storage model and the offline rules are written down for the person using it. -->
+<div class="modal-overlay" id="helpModal" role="dialog" aria-modal="true" aria-label="Help and about">
+  <div class="modal-box">
+    <div class="modal-msg">Help &amp; about</div>
+    <div class="help-h">What PlotEdge is</div>
+    <div class="help-p">An offline-first field GIS. Everything you capture is written to this device and stays there until you export it — there is no account, no server, and no background sync.</div>
+    <div class="help-h">The two ways to make a feature</div>
+    <div class="help-p"><strong>Capture</strong> walks the geometry with GPS, recording accuracy and a timestamp at every vertex. <strong>PlotEtch</strong> draws it by tapping a map, for anything you can see but can't walk. A PlotEtch sketch has no accuracy figures, so it isn't a real feature until you send it to Capture and save it there. <strong>PlotAtlas</strong> is the full-screen map for reviewing everything captured, and <strong>PlotLens</strong> turns a set of photos into a narrated story.</div>
+    <div class="help-h">Feature types come first</div>
+    <div class="help-p">A feature type is your schema: the geometry kind plus the attribute fields collected against it. Capture and Save stay disabled until at least one exists.</div>
+    <div class="help-h">Working offline</div>
+    <div class="help-p">Capture, edit, review and export all work with no signal. Map tiles are the exception — they need a connection at least once, after which recently viewed tiles are cached. GeoPackage import/export fetches a small SQLite engine on first use, so run one export while you still have signal if you'll need it in the field.</div>
+    <div class="help-h">Your data lives in this browser</div>
+    <div class="help-p">Features are stored in localStorage for this site. Clearing site data, uninstalling the app, or "clear browsing data" will erase them. Use "Backup all projects (.json)" on the Projects screen regularly — it's the only copy, and it's the one format "Import backup" can read back in to restore everything (features, photos, notes, sketches) on this or another device. The GeoJSON/CSV/GeoPackage exports are one-way, for other GIS software.</div>
+    <div class="help-h">Measurement</div>
+    <div class="help-p">Lengths and areas use haversine geodesics on WGS84, not planar approximations. PlotEtch's buffer, intersect and clip are grid-sampled approximations — good for planning, not for cadastral work.</div>
+    <div class="help-ver" id="helpVersion"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeHelp()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PLOTVAULT ══ — reference data read live out of object storage.
+     Read-only and online-only by design: see the header comment in js/19a-plotvault.js. Nothing
+     in here touches the capture path or the store, so the app stays exactly as offline-first as
+     it was; a source that cannot be reached simply does not load. -->
+<div class="modal-overlay" id="plotvaultModal" role="dialog" aria-modal="true" aria-label="PlotVault reference data">
+  <div class="modal-box">
+    <button class="modal-x" type="button" onclick="closePlotVault()" aria-label="Close">&times;</button>
+    <div class="modal-msg">PlotVault</div>
+    <p style="font-size:12.5px;color:var(--text-secondary);margin:-8px 0 14px;line-height:1.55;">
+      Point PlotEdge at a FlatGeobuf (<code>.fgb</code>) file on your bucket. Only the features inside
+      the map view you are looking at are transferred — a large dataset stays on the server.
+    </p>
+    <div id="plotvaultList"></div>
+    <div class="pv-status" id="plotvaultStatus"></div>
+    <label>Name</label>
+    <input type="text" id="plotvaultName" placeholder="e.g. City water mains" autocomplete="off">
+    <label>URL of the .fgb file</label>
+    <input type="text" id="plotvaultUrl" placeholder="https://your-bucket.r2.dev/mains.fgb" autocomplete="off" spellcheck="false">
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closePlotVault()">Close</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="plotvaultAddSource()">Add source</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MORE QUICK ACTIONS DRAWER ══ — the overflow half of the Dashboard's Quick actions block.
+     Uses the same .modal-overlay/.modal-box bottom sheet as every other drawer in the app (so it
+     inherits the slide-up, the backdrop blur, and the safe-area padding for free) and reuses the
+     .qa-grid/.qa-tile classes verbatim, so the four tiles in here are pixel-identical to the four
+     on the dashboard — same 2×2, same white bordered card. Opening a tile closes the sheet first:
+     every one of these either navigates, mutates state, or opens another sheet, so leaving this
+     one stacked underneath would strand it behind whatever comes next. -->
+<div class="modal-overlay" id="moreActionsModal" role="dialog" aria-modal="true" aria-label="More quick actions">
+  <div class="modal-box">
+    <div class="modal-msg">More actions</div>
+    <!-- Shown by renderQuickActions() only past QA_SEARCH_MIN overflow actions: a search field over
+         a list you can already take in at a glance reads as friction rather than help. -->
+    <div class="qa-search-wrap" id="qaSearchWrap" style="display:none;">
+      <svg class="qa-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="qaSearchInput" placeholder="Search actions…" autocomplete="off" oninput="onQaSearchInput(this.value)" aria-label="Search actions">
+    </div>
+    <div id="qaDrawerGrid">    </div>
+    <div class="modal-actions" style="margin-top:18px;">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="runFromMoreActions(openCustomizeQa)">Customise…</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeMoreActions()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ RENAME PROJECT MODAL ══ — single-field rename from the Project Manager's "…" menu, so the
+     most common metadata edit doesn't require opening the full Edit Project form. -->
+<div class="modal-overlay" id="quickNotesModal">
+  <div class="modal-box">
+    <div class="modal-msg">Quick notes</div>
+    <div class="field" style="margin-bottom:6px;">
+      <textarea id="quickNotesTextarea" style="height:150px;" placeholder="Jot down anything about this project — site access, contacts, things to remember for next visit…" oninput="onQuickNotesInput()"></textarea>
+    </div>
+    <div class="quick-notes-saved" id="quickNotesSavedLabel"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeQuickNotesModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="renameModal">
+  <div class="modal-box">
+    <div class="modal-msg">Rename project</div>
+    <div class="field" style="margin-bottom:20px;">
+      <label>Project name</label>
+      <input type="text" id="renameInput" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();closeRenameModal(true);}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeRenameModal(false)">Cancel</button>
+      <button class="btn" id="renameModalOk" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeRenameModal(true)">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EDIT ATTRIBUTE FIELD ══
+     Edits a *copy* of the field (ftFieldDraft) rather than the live array, so Cancel — and a
+     backdrop tap, which routes to the same close — genuinely discards. Done is the only path
+     that writes back. -->
+<!-- ══ COLLECT ATTRIBUTE SHEET ══
+     Holds the actual attribute inputs for step 3. They are rendered once per feature-type change
+     (by onFeatureTypeChange) and stay mounted here for the whole capture, so collectAttrs() keeps
+     finding them by id and a value typed into one field survives stepping to another. -->
+<div class="modal-overlay" id="attrSheet" role="dialog" aria-modal="true" aria-label="Edit attribute">
+  <div class="modal-box">
+    <div class="sheet-head">
+      <button class="sheet-head-btn" onclick="closeAttrSheet()">Close</button>
+      <span class="sheet-head-title" id="attrSheetTitle">Attribute</span>
+      <button class="sheet-head-btn primary" onclick="closeAttrSheet()">Done</button>
+    </div>
+    <div class="attr-sheet-step" id="attrSheetStep"></div>
+    <div id="attrFields"></div>
+    <div class="modal-actions attr-sheet-nav">
+      <button class="btn btn-outline" id="attrSheetPrev" onclick="attrSheetNav(-1)">Previous</button>
+      <button class="btn btn-primary" id="attrSheetNext" onclick="attrSheetNav(1)">Next</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ftFieldModal" role="dialog" aria-modal="true" aria-label="Edit attribute field">
+  <div class="modal-box">
+    <div class="sheet-head">
+      <button class="sheet-head-btn" onclick="closeFtFieldSheet(false)">Cancel</button>
+      <span class="sheet-head-title" id="ftFieldSheetTitle">Edit field</span>
+      <button class="sheet-head-btn primary" onclick="closeFtFieldSheet(true)">Done</button>
+    </div>
+    <div class="field">
+      <label>Field label</label>
+      <input type="text" id="ftfLabel" placeholder="e.g. Condition" autocomplete="off" autocorrect="off" spellcheck="false" oninput="updateFtDraft('label',this.value)">
+    </div>
+    <div class="field">
+      <label>Field type</label>
+      <div class="select-wrap"><select id="ftfType" onchange="updateFtDraft('type',this.value)"></select></div>
+    </div>
+    <div class="field">
+      <label>Placeholder / hint <span class="hint">(optional)</span></label>
+      <input type="text" id="ftfPlaceholder" placeholder="Shown inside the empty field" autocomplete="off" oninput="updateFtDraft('placeholder',this.value)">
+    </div>
+    <div class="field" id="ftfOptionsField" style="display:none;">
+      <label>Choices</label>
+      <div class="opt-tag-row" id="ftfOptTags"></div>
+      <div class="opt-add-row">
+        <input type="text" id="ftfOptInput" placeholder="Add a choice…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addFtDraftOption();}">
+        <button onclick="addFtDraftOption()">+</button>
+      </div>
+    </div>
+    <div class="field" id="ftfExpressionField" style="display:none;">
+      <label>Expression</label>
+      <!-- Arithmetic only (+ - * / and parentheses), reading other fields as {field_id}. Evaluated
+           by a small hand-written parser (js/06-collect.js: evalFieldExpression) — deliberately
+           not eval()/Function() over schema-config text. Insert a token instead of typing the raw
+           id, since ids are generated (f_169..._3) and not something a schema author would guess. -->
+      <textarea id="ftfExpression" placeholder="e.g. {f_depth} - {f_offset}" oninput="updateFtDraft('expression',this.value)"></textarea>
+      <div class="hint" style="margin-top:6px;">Tap a field below to insert it. Only + − × ÷ and ( ) are supported — if any field it depends on is blank, the result shows as “—”.</div>
+      <div class="opt-tag-row" id="ftfExpressionTokens" style="margin-top:8px;"></div>
+    </div>
+    <div class="field" id="ftfSubfieldsField" style="display:none;">
+      <label>Entries in this group</label>
+      <!-- A repeating group is always captured once per feature (not per vertex) and can't itself
+           be conditioned on or calculated from — see REPEAT_SUBFIELD_TYPES and ftEligibleDependencies
+           in js/03-schema.js/06-collect.js. What repeats here is the whole set of sub-fields below,
+           once per entry the crew adds in the field. -->
+      <div id="ftSubfieldsList"></div>
+      <button type="button" class="btn btn-outline" style="margin-top:8px;" onclick="openFtSubfieldSheet(null)">+ Add field to this group</button>
+    </div>
+    <div class="field" id="ftfScopeField">
+      <label>Applies to</label>
+      <div class="geo-toggle" id="ftfScopeToggle">
+        <div class="geo-opt" data-scope="feature" onclick="updateFtDraft('scope','feature')">Once per feature</div>
+        <div class="geo-opt" data-scope="vertex" onclick="updateFtDraft('scope','vertex')">Per vertex</div>
+      </div>
+      <div class="hint" id="ftfScopeHint" style="display:block;margin-top:7px;line-height:1.5;"></div>
+    </div>
+    <div class="req-toggle-row" id="ftfRequiredRow">
+      <label style="margin-bottom:0;" id="ftfRequiredLabel">Required</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="ftfRequired" onchange="updateFtDraft('required',this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="field">
+      <!-- Skip logic: this field only appears in the capture form when another, earlier field on
+           the same type meets a condition. Restricted to earlier fields of the same scope (feature
+           vs. per-vertex) so there's no forward reference and no cross-scope confusion — see
+           renderFtConditionOptions() in js/03-schema.js. -->
+      <div class="req-toggle-row" style="padding:0;border:none;">
+        <label style="margin-bottom:0;">Only show this field conditionally</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="ftfConditionOn" onchange="toggleFtDraftCondition(this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="ftfConditionRow" style="display:none;margin-top:10px;">
+        <div class="select-wrap" style="margin-bottom:8px;"><select id="ftfConditionField" onchange="updateFtDraftCondition('fieldId',this.value)"></select></div>
+        <div class="select-wrap" style="margin-bottom:8px;">
+          <select id="ftfConditionOp" onchange="updateFtDraftCondition('op',this.value)">
+            <option value="eq">equals</option>
+            <option value="neq">does not equal</option>
+            <option value="set">is filled in</option>
+            <option value="not_set">is left blank</option>
+          </select>
+        </div>
+        <input type="text" id="ftfConditionValue" placeholder="Value to match" autocomplete="off" oninput="updateFtDraftCondition('value',this.value)">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline tone-danger" id="ftfDeleteBtn" style="flex:1;" onclick="deleteFtDraftField()">Delete field</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ftSubfieldModal" role="dialog" aria-modal="true" aria-label="Edit group entry field" style="z-index:1201;">
+  <div class="modal-box">
+    <div class="sheet-head">
+      <button class="sheet-head-btn" onclick="closeFtSubfieldSheet(false)">Cancel</button>
+      <span class="sheet-head-title" id="ftSubfieldSheetTitle">Edit field</span>
+      <button class="sheet-head-btn primary" onclick="closeFtSubfieldSheet(true)">Done</button>
+    </div>
+    <div class="field">
+      <label>Field label</label>
+      <input type="text" id="ftsLabel" placeholder="e.g. Name" autocomplete="off" autocorrect="off" spellcheck="false" oninput="updateFtSubfieldDraft('label',this.value)">
+    </div>
+    <div class="field">
+      <label>Field type</label>
+      <div class="select-wrap"><select id="ftsType" onchange="updateFtSubfieldDraft('type',this.value)"></select></div>
+    </div>
+    <div class="field">
+      <label>Placeholder / hint <span class="hint">(optional)</span></label>
+      <input type="text" id="ftsPlaceholder" placeholder="Shown inside the empty field" autocomplete="off" oninput="updateFtSubfieldDraft('placeholder',this.value)">
+    </div>
+    <div class="field" id="ftsOptionsField" style="display:none;">
+      <label>Choices</label>
+      <div class="opt-tag-row" id="ftsOptTags"></div>
+      <div class="opt-add-row">
+        <input type="text" id="ftsOptInput" placeholder="Add a choice…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addFtSubfieldDraftOption();}">
+        <button onclick="addFtSubfieldDraftOption()">+</button>
+      </div>
+    </div>
+    <div class="req-toggle-row">
+      <label style="margin-bottom:0;">Required on every entry</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="ftsRequired" onchange="updateFtSubfieldDraft('required',this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline tone-danger" id="ftsDeleteBtn" style="flex:1;" onclick="deleteFtSubfieldDraftField()">Remove from group</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-box">
+    <div class="modal-msg" id="confirmModalMsg"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;" onclick="closeConfirmModal(false)">Cancel</button>
+      <button class="btn" id="confirmModalOk" style="flex:1;" onclick="closeConfirmModal(true)">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="webmapDeleteModal">
+  <div class="modal-box">
+    <div class="ft-picker-title">Delete web map</div>
+    <p style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px;">This permanently removes <strong id="webmapDeleteProjName"></strong>'s published page from GitHub Pages. This can't be undone. Type the project name exactly to confirm.</p>
+    <div class="field"><input type="text" id="webmapDeleteConfirmInput" placeholder="Type project name" oninput="checkWebmapDeleteConfirm()"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;" onclick="closeWebmapDeleteModal()">Cancel</button>
+      <button class="btn tone-danger" id="webmapDeleteConfirmBtn" style="flex:1;" disabled onclick="confirmDeleteWebmap()">Delete web map</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="manualCoordModal">
+  <div class="modal-box">
+    <div class="ft-picker-title">Enter coordinates manually</div>
+    <!-- Lat/lon are a single logical coordinate pair, so they sit side by side on one row rather
+         than stacked. Reuses the existing .field-row2 grid (1fr 1fr) so both fields are exactly
+         equal width, and the shared .field/input rules keep their heights identical. -->
+    <div class="field-row2">
+      <div class="field"><label>Latitude</label><input type="number" step="any" id="manualLat" placeholder="e.g. -17.824858"></div>
+      <div class="field"><label>Longitude</label><input type="number" step="any" id="manualLon" placeholder="e.g. 31.053028"></div>
+    </div>
+    <div class="hint" style="margin-bottom:12px;">Recorded with no accuracy value (marked as a manual entry) since it isn't from a GPS fix.</div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;" onclick="closeManualCoordEntry()">Cancel</button>
+      <button class="btn" style="flex:1;" onclick="submitManualCoordEntry()">Use these coordinates</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ATTRIBUTE QUERY ══
+     The syntax is QGIS's, on purpose: this data is going to QGIS, and an expression that works
+     in one should work in the other without translation. Field names go in "double quotes",
+     text values in 'single quotes'. -->
+<div class="modal-overlay" id="attrQueryModal">
+  <div class="modal-box">
+    <div class="ft-picker-title">Query features</div>
+    <div class="field">
+      <label>Expression</label>
+      <textarea id="attrQueryInput" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off"
+        placeholder="&quot;condition&quot; = 'poor' AND &quot;__photos&quot; = 0"
+        oninput="liveValidateAttrQuery()"></textarea>
+    </div>
+    <div class="aq-error" id="attrQueryError" style="display:none;"></div>
+    <div class="aq-preview" id="attrQueryPreview"></div>
+
+    <div class="aq-section-label">Tap a field to insert it</div>
+    <div class="aq-chips" id="attrQueryFields"></div>
+
+    <div class="aq-section-label">Common queries</div>
+    <div class="aq-chips" id="attrQueryPresets"></div>
+
+    <details class="aq-help">
+      <summary>Syntax</summary>
+      <ul>
+        <li><code>=</code> <code>&lt;&gt;</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> — compare</li>
+        <li><code>AND</code> <code>OR</code> <code>NOT</code> and <code>( )</code> — combine</li>
+        <li><code>LIKE</code> / <code>ILIKE</code> with <code>%</code> — <code>"name" ILIKE '%pole%'</code></li>
+        <li><code>IN</code> — <code>"condition" IN ('poor','fair')</code></li>
+        <li><code>IS NULL</code> / <code>IS NOT NULL</code> — find blanks</li>
+        <li><code>lower()</code> <code>upper()</code> <code>length()</code> <code>round()</code> <code>abs()</code> <code>coalesce()</code></li>
+      </ul>
+    </details>
+
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;" onclick="clearAttrQuery()">Clear</button>
+      <button class="btn" style="flex:1;" onclick="applyAttrQuery()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="attrStatsModal">
+  <div class="modal-box">
+    <div class="ft-picker-title" id="attrStatsTitle">Column</div>
+    <div id="attrStatsBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;" onclick="closeAttrStats()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="featureTypePickerModal">
+  <div class="modal-box">
+    <div class="ft-picker-title">Choose a Feature Type</div>
+    <div class="ft-picker-list" id="featureTypePickerList"></div>
+    <button class="btn btn-outline" style="flex:1;width:100%;" onclick="closeFeatureTypePicker()">Cancel</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal-box">
+    <div class="ft-picker-title">Settings</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Theme</div>
+        <div class="settings-row-sub">Auto follows your device's setting</div>
+      </div>
+      <div class="seg-control" id="settingsThemeSeg">
+        <button onclick="setThemeMode('auto')" id="settingsThemeAuto">Auto</button>
+        <button onclick="setThemeMode('light')" id="settingsThemeLight">Light</button>
+        <button onclick="setThemeMode('dark')" id="settingsThemeDark">Dark</button>
+      </div>
+    </div>
+    <!-- ══ THE SIX PILLARS ══ Full-width grid rather than a seg-control: colour
+         is the whole point and a text label cannot convey it. Each swatch shows
+         the two mesh glows and the accent that will actually be applied, so the
+         choice is made from the result rather than from a name. Chips use the
+         DARK-mode values; the light equivalents are the same hues one step down
+         in lightness, so the swatch stays a truthful preview in both themes.
+         Order alternates warm/cool so no two neighbouring swatches share a hue
+         family — the old picker put three greens in a row. -->
+    <div class="settings-row settings-row-stack">
+      <div>
+        <div class="settings-row-label">Theme</div>
+        <div class="settings-row-sub">Tints the whole app — buttons, badges, focus rings and the ambient background</div>
+      </div>
+      <div class="domain-grid" id="domainGrid" role="group" aria-label="Theme">
+        <button type="button" class="domain-swatch" data-domain="land"        onclick="setDomainTheme('land', true)"        aria-pressed="false"><span class="ds-chips"><i style="background:#B45309"></i><i style="background:#C2410C"></i><i style="background:#F59E0B"></i></span><span class="ds-name">Earth &amp; Land</span></button>
+        <button type="button" class="domain-swatch" data-domain="water"       onclick="setDomainTheme('water', true)"       aria-pressed="false"><span class="ds-chips"><i style="background:#0E7490"></i><i style="background:#0369A1"></i><i style="background:#22D3EE"></i></span><span class="ds-name">Water</span></button>
+        <button type="button" class="domain-swatch" data-domain="climate"     onclick="setDomainTheme('climate', true)"     aria-pressed="false"><span class="ds-chips"><i style="background:#7C3AED"></i><i style="background:#DB2777"></i><i style="background:#A78BFA"></i></span><span class="ds-name">Climate</span></button>
+        <button type="button" class="domain-swatch" data-domain="environment" onclick="setDomainTheme('environment', true)" aria-pressed="false"><span class="ds-chips"><i style="background:#047857"></i><i style="background:#4D7C0F"></i><i style="background:#34D399"></i></span><span class="ds-name">Environment</span></button>
+        <button type="button" class="domain-swatch" data-domain="people"      onclick="setDomainTheme('people', true)"      aria-pressed="false"><span class="ds-chips"><i style="background:#BE123C"></i><i style="background:#C026D3"></i><i style="background:#FB7185"></i></span><span class="ds-name">People &amp; Places</span></button>
+        <button type="button" class="domain-swatch" data-domain="geospatial"  onclick="setDomainTheme('geospatial', true)"  aria-pressed="false"><span class="ds-chips"><i style="background:#4338CA"></i><i style="background:#0891B2"></i><i style="background:#818CF8"></i></span><span class="ds-name">Geospatial</span></button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Units</div>
+        <div class="settings-row-sub">Distances &amp; areas shown on screen</div>
+      </div>
+      <div class="seg-control" id="settingsUnitsSeg">
+        <button onclick="setUnitsPref('metric')" id="settingsUnitsMetric">Metric</button>
+        <button onclick="setUnitsPref('imperial')" id="settingsUnitsImperial">Imperial</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Default map style</div>
+        <div class="settings-row-sub">Review &amp; vertex-correction maps</div>
+      </div>
+      <!-- Five options, one preference. This governs every map in the app —
+           Review, the Dashboard preview, PlotAtlas, the PlotLens route map and
+           the story player's minimap — rather than only the Review tab, which is
+           all the old two-button control reached. Swatches instead of labels
+           alone for the same reason the theme picker uses them: the choice is
+           about how the map LOOKS. -->
+      <div class="atlas-bm-grid" id="settingsBasemapGrid" role="group" aria-label="Map style">
+        <button type="button" class="atlas-bm-opt" data-bm="street" onclick="setBasemapPref('street')"><span class="atlas-bm-swatch" data-bm="street"></span>Map</button>
+        <button type="button" class="atlas-bm-opt" data-bm="satellite" onclick="setBasemapPref('satellite')"><span class="atlas-bm-swatch" data-bm="satellite"></span>Satellite</button>
+        <button type="button" class="atlas-bm-opt" data-bm="topo" onclick="setBasemapPref('topo')"><span class="atlas-bm-swatch" data-bm="topo"></span>Terrain</button>
+        <button type="button" class="atlas-bm-opt" data-bm="light" onclick="setBasemapPref('light')"><span class="atlas-bm-swatch" data-bm="light"></span>Light</button>
+        <button type="button" class="atlas-bm-opt" data-bm="dark" onclick="setBasemapPref('dark')"><span class="atlas-bm-swatch" data-bm="dark"></span>Dark</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Default export format</div>
+        <div class="settings-row-sub">Pre-selected when you open Export</div>
+      </div>
+      <select class="settings-select" id="settingsExportFormat" onchange="setExportFormatDefault(this.value)">
+        <optgroup label="Vector layers">
+          <option value="geojson">GeoJSON</option>
+          <option value="gpkg">GeoPackage</option>
+          <option value="fgb">FlatGeobuf</option>
+          <option value="geoparquet">GeoParquet</option>
+        </optgroup>
+        <optgroup label="Tables &amp; media">
+          <option value="csv">CSV</option>
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="pdf">PDF report</option>
+          <option value="maplayout">Map layout</option>
+          <option value="photos">Photos</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Density</div>
+        <div class="settings-row-sub">Comfortable vs compact layout</div>
+      </div>
+      <div class="seg-control" id="settingsDensitySeg">
+        <button onclick="setDensityPref('comfortable')" id="settingsDensityComfortable">Comfortable</button>
+        <button onclick="setDensityPref('compact')" id="settingsDensityCompact">Compact</button>
+      </div>
+    </div>
+    <!-- This row used to toggle a "shape complete" celebration animation that happened to be
+         called PlotEtch. That animation is gone, and PlotEtch is now the digitizing screen — so
+         the row keeps its name but finally controls something about the thing users actually
+         mean when they say PlotEtch. Snapping is the right preference to surface here rather than
+         on the screen itself: it changes how every tap behaves, you set it once for how you work,
+         and burying a mode switch in a toolbar you're actively drawing in invites mis-taps. -->
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">PlotEtch snapping</div>
+        <div class="settings-row-sub">Snap new vertices onto nearby ones so shapes share edges cleanly</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="settingsSnapToggle" onchange="setSnapPref(this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <!-- ══ PLOTLENS ══
+         Off by default and gated behind a toggle because it is a storytelling/reporting feature,
+         not part of the capture loop — a crew who only ever collects data should never have to
+         step around it. Turning it on reveals the entry point on Review; turning it off hides the
+         screen but never touches the stories themselves, so it is safe to flip either way. -->
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">PlotLens story mode</div>
+        <div class="settings-row-sub">Turn a project's captured photos into a narrated visual story</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="settingsPlotLensToggle" onchange="setPlotLensPref(this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Help &amp; about</div>
+        <div class="settings-row-sub">How the app works, and where your data actually lives</div>
+      </div>
+      <button class="btn btn-outline" style="width:auto;min-height:36px;padding:8px 16px;margin:0;font-size:12.5px;" onclick="closeSettings();openHelp();">Open</button>
+    </div>
+    <button class="btn btn-outline" style="flex:1;width:100%;margin-top:6px;" onclick="closeSettings()">Done</button>
+  </div>
+</div>
+
+<!-- ══ APPLICATION ══
+     Split out of index.html at top-level statement boundaries, in source order. These are
+     classic scripts, not modules: each file can only use top-level names declared in itself or
+     in a file above it. Do not reorder. -->
+<script src="js/01-theme-and-settings.js"></script>
+<script src="js/02-state.js"></script>
+<script src="js/03-schema.js"></script>
+<script src="js/03a-plotmate.js"></script>
+<script src="js/04-store.js"></script>
+<script src="js/04a-photostore.js"></script>
+<script src="js/05-projects.js"></script>
+<script src="js/06-collect.js"></script>
+<script src="js/06a-capture-stack.js"></script>
+<script src="js/07-navigation.js"></script>
+<script src="js/08-gps.js"></script>
+<script src="js/09-geometry.js"></script>
+<script src="js/10-photos.js"></script>
+<script src="js/11-features.js"></script>
+<script src="js/11a-attr-query.js"></script>
+<script src="js/12-review.js"></script>
+<script src="js/13-dashboard.js"></script>
+<script src="js/13a-analytics.js"></script>
+<script src="js/13b-map-rotate.js"></script>
+<script src="js/14-map.js"></script>
+<script src="js/14a-plotatlas.js"></script>
+<script src="js/15-plotetch.js"></script>
+<script src="js/16-geometry-math.js"></script>
+<script src="js/16a-plotmind.js"></script>
+<script src="js/17-export.js"></script>
+<script src="js/17a-plansheet.js"></script>
+<script src="js/17b-plotpack.js"></script>
+<script src="js/18-import.js"></script>
+<script src="js/19-sync.js"></script>
+<script src="js/19a-plotvault.js"></script>
+<script src="js/20-ui-feedback.js"></script>
+<script src="js/21-webmap.js"></script>
+<script src="js/22-boot.js"></script>
+</body>
+</html>

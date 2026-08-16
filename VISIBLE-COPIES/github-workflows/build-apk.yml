@@ -1,0 +1,245 @@
+# ── PlotEdge / .github/workflows/build-apk.yml ──
+# Create this on GitHub at:  .github/workflows/build-apk.yml
+# (Add file -> Create new file, then type the whole path including the slashes.)
+# These three lines start with # so they are valid YAML comments — paste the file as-is.
+
+name: Build PlotEdge APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          # 17, not 21. This is the version the Capacitor 6 / AGP 8.2 toolchain in
+          # this project is known to build under.
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # scripts/patch-android-ui.py composes the launcher icon mipmaps and does
+      # `from PIL import Image` at import time, exiting 1 if that fails.
+      # ubuntu-latest ships python3 but not Pillow, so this MUST be explicit —
+      # without it the UI patch step fails and the whole build stops.
+      - name: Install Python dependencies for the UI patch script
+        run: pip install pillow
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run the test suite
+        # The gate. A build that ships a broken app is worse than no build,
+        # because the APK installs over a working one.
+        run: npm test
+
+      # ══ STAGE THE WEB APP ══
+      # capacitor.config.json points webDir at www/. The app is a shell plus two
+      # ORDERED asset folders — index.html alone produces an APK that launches to
+      # a blank unstyled page, which in a field app is indistinguishable from
+      # data loss. Nothing here is committed back; www/ is throwaway.
+      - name: Stage the web app into www/ for Capacitor
+        run: |
+          set -e
+          rm -rf www
+          mkdir -p www
+          cp index.html www/index.html
+          cp plotedge-sw.js www/plotedge-sw.js
+          cp plotedge.manifest.json www/plotedge.manifest.json
+          cp -r css www/css
+          cp -r js www/js
+          # resources/ holds two very different kinds of file, and only one
+          # belongs in the APK:
+          #   * runtime images the app actually loads (favicon, splash logo,
+          #     welcome mark, the three manifest icons) - a few hundred KB;
+          #   * icon.png / logo.png, the 2048x2048 master artwork that
+          #     scripts/patch-android-ui.py reads AT BUILD TIME from the repo
+          #     root to compose the launcher mipmaps. It never reaches a
+          #     WebView, and it is 5.2 MB. (logo.png is a byte-for-byte
+          #     duplicate of icon.png, so the pair was 10.3 MB.)
+          # `cp -r resources` shipped both, putting >10 MB of dead weight into
+          # every APK for artwork no code path ever requests. The build step
+          # still reads the masters from ./resources, so nothing downstream
+          # changes - they are simply not copied into the web payload.
+          mkdir -p www/resources
+          find resources -maxdepth 1 -type f \
+            ! -name 'icon.png' ! -name 'logo.png' \
+            -exec cp {} www/resources/ \;
+          echo "Staged web payload: $(du -sh www | cut -f1)"
+
+      - name: Verify every referenced file was staged
+        # Catches what the copy above cannot: a new css/ or js/ file added to
+        # index.html but never staged. Invisible on the Pages build (same folder),
+        # fatal in the APK.
+        run: |
+          set -e
+          MISSING=0
+          for f in $(grep -o 'href="css/[^"]*"' index.html | sed 's/href="//;s/"//'); do
+            [ -f "www/$f" ] || { echo "::error::index.html references $f but it was not staged"; MISSING=1; }
+          done
+          for f in $(grep -o 'src="js/[^"]*"' index.html | sed 's/src="//;s/"//'); do
+            [ -f "www/$f" ] || { echo "::error::index.html references $f but it was not staged"; MISSING=1; }
+          done
+          # resources/ too, now that the icons are real files rather than inline
+          # base64. This is the check that matters most for the new exclusion
+          # above: if the find filter is ever tightened by mistake and drops a
+          # runtime image, the APK launches to a broken splash and a missing
+          # favicon — and without this loop CI would pass anyway. Covers both
+          # index.html (href= and src=) and the web manifest's icon list.
+          for f in $(grep -oh 'resources/[A-Za-z0-9._-]*\.png' index.html plotedge.manifest.json | sort -u); do
+            [ -f "www/$f" ] || { echo "::error::$f is referenced but was not staged"; MISSING=1; }
+          done
+          [ "$MISSING" = "0" ] || exit 1
+          echo "All referenced assets staged."
+
+      - name: Add the Android platform
+        run: npx cap add android
+
+      # ══ PATCHES ══
+      # ORDER MATTERS and is not arbitrary:
+      #   manifest  -> permissions and allowBackup
+      #   assets    -> generic icons (allowed to fail)
+      #   ui        -> rewrites MainActivity.java WHOLESALE, and overwrites the
+      #                generic icons with its own composition. Must follow assets.
+      #   widget    -> only APPENDS to the manifest, so it must follow ui or the
+      #                MainActivity rewrite would wipe it.
+      #   signing   -> build.gradle only, independent
+      # cap sync runs after all of them, before Gradle.
+      - name: Declare hardware permissions in AndroidManifest.xml
+        run: python3 scripts/patch-android-manifest.py
+
+      - name: Generate app icons
+        run: npx capacitor-assets generate --android
+        continue-on-error: true
+
+      - name: Patch Android UI (edge-to-edge, camera permission, launcher icons)
+        run: python3 scripts/patch-android-ui.py
+
+      - name: Patch Android widget (home screen provider, deep links)
+        run: python3 scripts/patch-android-widget.py
+
+      # Without this every CI build signs with a fresh random debug key, Android
+      # refuses the update as INSTALL_FAILED_UPDATE_INCOMPATIBLE, and the only way
+      # forward is uninstall — which deletes every captured feature on the device.
+      # See "Signing, updates, and why data used to disappear" in BUILD_APK.md.
+      - name: Patch signing config and versionCode
+        env:
+          # The committed keystore at signing/plotedge-release.keystore is the
+          # default. Set these repository secrets only to override it.
+          PLOTEDGE_KEYSTORE_B64: ${{ secrets.PLOTEDGE_KEYSTORE_B64 }}
+          PLOTEDGE_KEYSTORE_PASSWORD: ${{ secrets.PLOTEDGE_KEYSTORE_PASSWORD }}
+          PLOTEDGE_KEY_ALIAS: ${{ secrets.PLOTEDGE_KEY_ALIAS }}
+          PLOTEDGE_KEY_PASSWORD: ${{ secrets.PLOTEDGE_KEY_PASSWORD }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -e
+          if [ -n "$PLOTEDGE_KEYSTORE_B64" ]; then
+            echo "$PLOTEDGE_KEYSTORE_B64" | base64 -d > /tmp/plotedge.jks
+            export PLOTEDGE_KEYSTORE_PATH=/tmp/plotedge.jks
+          fi
+          python3 scripts/patch-android-signing.py
+
+      - name: Sync web assets into the Android project
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # ══ RELEASE, NOT DEBUG — THIS IS THE "FAILS THE FIRST TIME, INSTALLS THE
+      #    SECOND TIME" BUG ══
+      # patch-android-signing.py already fixed the *signature* half of this
+      # (a stable keystore instead of a per-run random debug key). What was left
+      # is that assembleDebug produces an APK with android:debuggable="true"
+      # baked into the merged manifest.
+      #
+      # A debuggable, sideloaded APK from an unknown signer is exactly the
+      # profile Play Protect and most OEM package installers (MIUI, One UI,
+      # ColorOS) hold back on the first attempt: the install is refused or
+      # buried behind a "send app for scanning / install anyway" interstitial,
+      # and the retry — which is really just the user answering that prompt —
+      # goes through. That is the cancel-then-install-again dance.
+      #
+      # assembleRelease drops debuggable, and the signing patch already attaches
+      # signingConfigs.plotedge to the release build type as well (see the
+      # `attach("release", text)` call), so the APK is signed with the SAME
+      # stable key and remains a valid in-place update over any previous build.
+      # Capacitor's generated release block is minifyEnabled false, so there is
+      # no ProGuard step to configure and nothing can be stripped from the
+      # WebView bridge.
+      - name: Build release APK
+        run: cd android && ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Fail if no real APK was produced
+        # An empty or missing artifact is otherwise a silent failure: the job goes
+        # green and the download is a zero-byte file.
+        run: |
+          set -e
+          OUT=android/app/build/outputs/apk/release
+          APK="$OUT/app-release.apk"
+
+          # ══ THE UNSIGNED GUARD ══
+          # Gradle names the artifact app-release-UNSIGNED.apk when the release
+          # build type has no signingConfig. If patch-android-signing.py ever
+          # stops matching build.gradle (an AGP or Capacitor template change is
+          # all it would take), the build still goes green and quietly ships an
+          # APK Android refuses to install at all — reintroducing the exact
+          # failure this workflow exists to prevent, but harder to spot.
+          # Fail loudly here instead of shipping it.
+          if [ ! -f "$APK" ] && [ -f "$OUT/app-release-unsigned.apk" ]; then
+            echo "::error::Gradle produced an UNSIGNED release APK — the signing patch did not apply. Check scripts/patch-android-signing.py against android/app/build.gradle."
+            exit 1
+          fi
+          if [ ! -f "$APK" ]; then
+            echo "::error::Gradle reported success but produced no APK"
+            ls -la "$OUT" || true
+            exit 1
+          fi
+          SIZE=$(stat -c%s "$APK")
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "::error::APK is only $SIZE bytes — the web assets did not make it in"
+            exit 1
+          fi
+          cp "$APK" "$OUT/PlotEdge.apk"
+          echo "Built PlotEdge.apk ($SIZE bytes)"
+
+      - name: Upload APK (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlotEdge-release-apk
+          path: android/app/build/outputs/apk/release/PlotEdge.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # A Release has one stable page and one stable download URL that never
+      # changes between builds, unlike the artifact above (expires, and is buried
+      # under Actions -> this specific run):
+      #   https://github.com/<you>/<repo>/releases/download/latest/PlotEdge.apk
+      - name: Publish APK to the "latest" GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: PlotEdge (latest build)
+          body: Automatically rebuilt from the latest push to `main`. Download `PlotEdge.apk` below.
+          make_latest: true
+          files: android/app/build/outputs/apk/release/PlotEdge.apk

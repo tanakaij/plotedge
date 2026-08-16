@@ -1,0 +1,684 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — PlotAtlas: the full-screen map
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first.
+
+   ══ THE LAYOUT CONTRACT ══
+   index.html points at this comment. Every control owns ONE corner or edge, and
+   no app control shares a corner with a Leaflet control. The reported bug was
+   the old expand button sitting at top-left — which is exactly where Leaflet
+   puts its zoom control by default.
+
+   Leaflet controls, all placed explicitly in js/14a-plotatlas.js so none of them
+   fall back to a default corner:
+     zoom          bottom-right,  12px in,  18px up
+     scale         bottom-left,   12px in,  18px up
+     attribution   pinned flat along the very bottom, out of both corners
+
+   App chrome, measured off the same edges so nothing can drift into them:
+     top-left      close, PlotAtlas / project name, feature count
+     top-centre    search, with the measure readout directly beneath it
+     top-centre    the dropped-pin readout, directly under the measure readout
+     right, mid    the collapsible tool rail at 50% — clears the top band above
+                   it and the zoom below it, at any viewport height
+     bottom-right  my-location, stacked ABOVE the zoom
+     bottom-left   basemap chip, its picker and the legend, stacked ABOVE
+                   the scale bar
+     bottom, full  the feature sheet, which is allowed to cover all of it
+
+   The pin readout is in the TOP band and not, as a map app would normally put
+   it, at bottom-centre. The bottom-left column is already three deep (scale,
+   chip, legend) and the readout is full-bleed wide, so at 320x568 with the
+   legend open it landed on top of it. The top band has room and the readout is
+   a transient answer to "what is that spot?", which reads fine up there.
+
+   ══ HEIGHT ══
+   The overlay is fixed and the map is absolutely pinned inside it. NOT
+   height:100% — a percentage height against an auto-height ancestor resolves to
+   zero, which is what produced a blank screen you could scroll past.
+
+   ══ STACKING ══
+   90 puts the overlay above the bottom nav (50) but below toasts (100) and
+   below modals and the lightbox (200), so Inspect and the photo viewer still
+   open on top of the map and toasts stay readable while it is open. */
+
+  /* ══════════════ THE OVERLAY ══════════════ */
+  .plot-atlas {
+    position:fixed; inset:0;
+    z-index:90;
+    display:none;
+    background:var(--surface-sunken);
+    overscroll-behavior:none;
+    font-family:var(--font);
+  }
+  .plot-atlas.show { display:block; }
+
+  /* z-index:0 rather than auto is load-bearing: it makes the map its own
+     stacking context, so Leaflet's internal panes and controls (400–1000) stay
+     trapped inside it and cannot paint over the chrome below, which would
+     otherwise need four-figure z-indexes of its own to compete. */
+  #atlasMap {
+    position:absolute; inset:0;
+    z-index:0;
+    background:var(--surface-sunken);
+  }
+
+  /* Sits over the map, under the chrome. pointer-events:none so a tap on the
+     "nothing matches that search" message still reaches the map underneath.
+     display is owned by js/14a-plotatlas.js, which flips it between none and
+     flex — so it is deliberately not declared here.
+     THIS USED TO BE inset:0 with an opaque --surface-sunken background — a
+     full-bleed panel painted directly over #atlasMap, one z-index above it.
+     The basemap tiles were loading fine underneath; this panel just hid every
+     pixel of them any time there was nothing to draw (no features yet, or a
+     search with no matches), which read as "the map never loaded" rather
+     than "nothing captured yet". It's now a small floating card centred over
+     the map, the same glass as every other piece of PlotAtlas chrome, so the
+     basemap is visible behind it regardless of whether there's data on it. */
+  .atlas-empty {
+    position:absolute; left:50%; top:50%; z-index:1;
+    transform:translate(-50%,-50%);
+    max-width:78%;
+    align-items:center; justify-content:center;
+    text-align:center; padding:16px 22px;
+    font-size:13px; line-height:1.6; font-weight:600;
+    color:var(--text-secondary);
+    border-radius:14px;
+    pointer-events:none;
+  }
+
+  /* ══════════════ SHARED CONTROL SURFACE ══════════════
+     Every floating control on PlotAtlas is the same piece of glass as the
+     Review map's chips, so the two maps read as one product. Defined once. */
+  .atlas-close,
+  .atlas-titlebox,
+  .atlas-count,
+  .atlas-search,
+  .atlas-measure,
+  .atlas-rail-toggle,
+  .atlas-rail-tools,
+  .atlas-locate,
+  .atlas-basemap-chip,
+  .atlas-bm-sheet,
+  .atlas-legend,
+  .atlas-pin-bar,
+  .atlas-empty {
+    background:var(--nav-bg);
+    backdrop-filter:var(--glass-12);
+    -webkit-backdrop-filter:var(--glass-12);
+    border:1px solid var(--card-border);
+    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+    color:var(--text-primary);
+  }
+
+  /* ══════════════ TOP-LEFT: EXIT AND CONTEXT ══════════════ */
+  .atlas-top {
+    position:absolute; z-index:6;
+    top:calc(10px + var(--sat));
+    left:calc(12px + var(--sal));
+    right:calc(12px + var(--sar));
+    display:flex; align-items:center; gap:10px;
+    pointer-events:none;
+  }
+  .atlas-top > * { pointer-events:auto; }
+  .atlas-close {
+    flex-shrink:0;
+    width:38px; height:38px; border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .atlas-close:active { filter:brightness(0.92); }
+  .atlas-titlebox {
+    min-width:0; border-radius:12px;
+    padding:5px 12px 6px;
+    line-height:1.25;
+  }
+  .atlas-brand {
+    font-family:var(--font-display);
+    font-size:12px; font-weight:700; letter-spacing:0.8px;
+    text-transform:uppercase;
+    color:var(--accent-primary);
+  }
+  .atlas-subtitle {
+    font-size:12.5px; font-weight:600;
+    color:var(--text-secondary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    max-width:46vw;
+  }
+  .atlas-count {
+    margin-left:auto; flex-shrink:0;
+    border-radius:999px; padding:6px 11px;
+    font-family:var(--mono);
+    font-size:11px; font-weight:700; letter-spacing:0.4px;
+    color:var(--text-secondary);
+  }
+  .atlas-count:empty { display:none; }
+
+  /* ══════════════ TOP-CENTRE: SEARCH ══════════════
+     Below the row above, not beside it — a project name and a search field
+     cannot both have the width they need on a 320px handset. */
+  .atlas-search {
+    position:absolute; z-index:6;
+    top:calc(58px + var(--sat));
+    left:calc(12px + var(--sal));
+    right:calc(12px + var(--sar));
+    display:flex; align-items:center; gap:8px;
+    border-radius:12px; padding:0 10px;
+    height:40px;
+  }
+  .atlas-search svg { flex-shrink:0; color:var(--text-tertiary); }
+  .atlas-search input {
+    flex:1; min-width:0;
+    background:none; border:none; outline:none;
+    font-family:var(--font);
+    font-size:13.5px; font-weight:600;
+    color:var(--text-primary);
+  }
+  .atlas-search input::placeholder { color:var(--text-tertiary); font-weight:500; }
+  /* display is owned by atlasOnSearch(), which flips none/flex as the query
+     empties and fills. Hidden here so it is absent on a cold open. */
+  .atlas-search-clear {
+    display:none;
+    flex-shrink:0;
+    width:24px; height:24px; border-radius:50%;
+    align-items:center; justify-content:center;
+    background:var(--glass-8, rgba(255,255,255,0.08));
+    border:none; cursor:pointer;
+    font-size:16px; line-height:1;
+    color:var(--text-secondary);
+  }
+
+  /* ══════════════ MEASURE READOUT ══════════════
+     Directly under the search, so the two never occupy the same band. */
+  .atlas-measure {
+    position:absolute; z-index:6;
+    top:calc(104px + var(--sat));
+    left:calc(12px + var(--sal));
+    right:calc(12px + var(--sar));
+    display:none;
+    align-items:center; gap:8px;
+    border-radius:12px; padding:8px 10px;
+    font-size:12px; font-weight:600;
+  }
+  .atlas-measure.show { display:flex; }
+  .atlas-measure-text {
+    flex:1; min-width:0;
+    font-family:var(--mono);
+    font-size:11.5px; font-weight:700;
+    color:var(--text-primary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .atlas-measure button {
+    flex-shrink:0;
+    background:var(--glass-8, rgba(255,255,255,0.08));
+    border:1px solid var(--card-border); border-radius:8px;
+    padding:5px 9px;
+    font-family:var(--font);
+    font-size:11px; font-weight:700;
+    color:var(--text-secondary);
+    cursor:pointer;
+  }
+  .atlas-measure button:active { filter:brightness(0.92); }
+
+  /* ══════════════ RIGHT EDGE: THE TOOL RAIL ══════════════
+     right:12px and top:50% are the contract. Mid-height on the right edge is
+     the one place on this screen that clears the search band above and the
+     zoom control below it at every viewport height, which is why the tools
+     were consolidated here instead of being scattered around the corners. */
+  .atlas-rail {
+    position:absolute; z-index:7;
+    right:12px;
+    top:50%;
+    transform:translateY(-50%);
+    display:flex; flex-direction:column; align-items:flex-end; gap:8px;
+    /* The rail is centred, so it grows equally in both directions and the
+       tighter of the two bands governs. Above it: search, measure and pin
+       readouts, ending at 194px. Below it: the legend at its 120px cap, topping
+       out at 212px. 2 x 212 plus breathing room is 440px, which is what keeps
+       the rail clear of both on a 320x568 handset with every control open at
+       once. Under that the tools panel scrolls rather than the rail growing
+       into its neighbours. */
+    max-height:max(132px, calc(100% - 440px));
+  }
+  .atlas-rail-toggle {
+    flex-shrink:0;
+    width:44px; height:44px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    transition:transform 0.18s ease;
+  }
+  .atlas-rail.open .atlas-rail-toggle { transform:rotate(45deg); }
+  .atlas-rail-toggle:active { filter:brightness(0.92); }
+  .atlas-rail-tools {
+    display:flex; flex-direction:column; gap:2px;
+    min-height:0;
+    border-radius:14px; padding:5px;
+    overflow-y:auto; overscroll-behavior:contain;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transform:translateX(10px) scale(0.96);
+    transform-origin:top right;
+    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+  }
+  .atlas-rail.open .atlas-rail-tools {
+    opacity:1; visibility:visible; pointer-events:auto;
+    transform:none;
+    transition:opacity 0.16s ease, transform 0.16s ease;
+  }
+  .atlas-tool {
+    display:flex; align-items:center; gap:8px;
+    width:100%;
+    background:none; border:none; border-radius:9px;
+    padding:8px 10px;
+    font-family:var(--font);
+    font-size:12px; font-weight:600; white-space:nowrap;
+    color:var(--text-secondary);
+    cursor:pointer;
+    text-align:left;
+  }
+  .atlas-tool svg { flex-shrink:0; opacity:0.85; }
+  .atlas-tool:active { background:var(--glass-8, rgba(255,255,255,0.08)); }
+  .atlas-tool.on {
+    background:var(--accent-primary);
+    color:var(--on-accent);
+    font-weight:700;
+  }
+  .atlas-tool.on svg { opacity:1; }
+  .atlas-tool:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
+
+  /* ══════════════ BOTTOM-RIGHT: LOCATE, ABOVE THE ZOOM ══════════════
+     The zoom sits at 18px + safe-area and is ~60px tall, so 88px clears it
+     with a gap rather than butting against it. */
+  .atlas-locate {
+    position:absolute; z-index:6;
+    right:12px;
+    bottom:calc(88px + var(--sab));
+    width:44px; height:44px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .atlas-locate:active { filter:brightness(0.92); }
+
+  /* ══════════════ BOTTOM-LEFT: BASEMAP AND LEGEND ══════════════
+     Stacked upward from the scale bar: scale (18px), chip (48px),
+     legend (92px). */
+  .atlas-basemap-chip {
+    position:absolute; z-index:6;
+    left:calc(12px + var(--sal));
+    bottom:calc(48px + var(--sab));
+    display:flex; align-items:center; gap:6px;
+    border-radius:999px; padding:8px 13px 8px 11px;
+    font-size:12px; font-weight:700;
+    cursor:pointer;
+  }
+  .atlas-basemap-chip:active { filter:brightness(0.92); }
+
+  .atlas-bm-sheet {
+    position:absolute; z-index:8;
+    left:calc(12px + var(--sal));
+    bottom:calc(92px + var(--sab));
+    width:min(268px, calc(100vw - 24px));
+    border-radius:16px; padding:12px;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transform:translateY(8px) scale(0.97);
+    transform-origin:bottom left;
+    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+  }
+  .atlas-bm-sheet.show {
+    opacity:1; visibility:visible; pointer-events:auto;
+    transform:none;
+    transition:opacity 0.16s ease, transform 0.16s ease;
+  }
+  .atlas-bm-title {
+    font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+    color:var(--text-tertiary);
+    margin-bottom:9px;
+  }
+  .atlas-bm-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .atlas-bm-opt {
+    display:flex; align-items:center; gap:8px;
+    background:var(--glass-8, rgba(255,255,255,0.08));
+    border:1px solid transparent; border-radius:10px;
+    padding:8px 10px;
+    font-family:var(--font);
+    font-size:12px; font-weight:600;
+    color:var(--text-secondary);
+    cursor:pointer;
+  }
+  .atlas-bm-opt:active { filter:brightness(0.92); }
+  .atlas-bm-opt.on {
+    border-color:var(--accent-primary);
+    color:var(--text-primary);
+    font-weight:700;
+  }
+  .atlas-bm-swatch {
+    width:18px; height:18px; border-radius:6px; flex-shrink:0;
+    border:1px solid var(--card-border);
+    background:var(--surface-sunken);
+  }
+  /* Literal colours, not tokens: these are previews of map imagery, so they
+     must look the same in every app theme. */
+  .atlas-bm-swatch[data-bm="street"]    { background:linear-gradient(135deg,#E8E3D8 0%,#C9D8C0 100%); }
+  .atlas-bm-swatch[data-bm="satellite"] { background:linear-gradient(135deg,#3F4A2E 0%,#1E2A16 100%); }
+  .atlas-bm-swatch[data-bm="topo"]      { background:linear-gradient(135deg,#D8C9A8 0%,#8FA378 100%); }
+  .atlas-bm-swatch[data-bm="light"]     { background:linear-gradient(135deg,#FAFAFA 0%,#DCDCDC 100%); }
+  .atlas-bm-swatch[data-bm="dark"]      { background:linear-gradient(135deg,#3A3F46 0%,#14171A 100%); }
+
+  .atlas-legend {
+    position:absolute; z-index:5;
+    left:calc(12px + var(--sal));
+    bottom:calc(92px + var(--sab));
+    max-width:min(300px, calc(100vw - 80px));
+    /* Hard cap, not a viewport fraction: the rail's band is derived from this
+       number, so it has to be the same on every screen. Longer legends scroll. */
+    max-height:120px; overflow-y:auto; overscroll-behavior:contain;
+    border-radius:14px; padding:10px 12px;
+    display:none;
+  }
+  .atlas-legend.show { display:block; }
+  .atlas-legend-body { display:flex; flex-wrap:wrap; gap:6px 12px; }
+  .atlas-legend-empty { font-size:11px; font-weight:600; color:var(--text-tertiary); }
+
+  /* ══════════════ BOTTOM-CENTRE: DROPPED PIN ══════════════ */
+  .atlas-pin-bar {
+    position:absolute; z-index:7;
+    left:50%;
+    top:calc(153px + var(--sat));
+    transform:translateX(-50%) translateY(-6px);
+    max-width:min(340px, calc(100vw - 32px));
+    display:flex; align-items:center; gap:8px;
+    border-radius:999px; padding:7px 8px 7px 14px;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+  }
+  .atlas-pin-bar.show {
+    opacity:1; visibility:visible; pointer-events:auto;
+    transform:translateX(-50%);
+    transition:opacity 0.16s ease, transform 0.16s ease;
+  }
+  .atlas-pin-coord {
+    font-family:var(--mono);
+    font-size:11.5px; font-weight:700; letter-spacing:0.2px;
+    color:var(--text-primary);
+    white-space:nowrap;
+  }
+  .atlas-pin-bar button {
+    flex-shrink:0;
+    background:var(--glass-8, rgba(255,255,255,0.08));
+    border:1px solid var(--card-border); border-radius:999px;
+    padding:5px 11px;
+    font-family:var(--font);
+    font-size:11px; font-weight:700;
+    color:var(--text-secondary);
+    cursor:pointer;
+  }
+  .atlas-pin-bar button:active { filter:brightness(0.92); }
+
+  /* ══════════════ MAP MARKERS ══════════════
+     Leaflet's .leaflet-div-icon paints a white box with a grey border. Every
+     divIcon below is a shape of its own, so that default has to go first. */
+  .atlas-cluster,
+  .atlas-label,
+  .atlas-pin { background:transparent; border:none; }
+
+  .atlas-cluster-dot {
+    display:flex; align-items:center; justify-content:center;
+    box-sizing:border-box;
+    border-radius:50%;
+    background:var(--cl, #38BDF8);
+    border:2px solid rgba(255,255,255,0.92);
+    box-shadow:0 2px 9px rgba(0,0,0,0.38);
+    color:#fff;
+    font-family:var(--mono);
+    font-size:11.5px; font-weight:700; line-height:1;
+  }
+
+  /* iconSize is [0,0] and the anchor lifts it above the marker, so the label
+     has to position itself off that zero-size origin. */
+  .atlas-label span {
+    position:absolute; left:0; top:0;
+    transform:translateX(-50%);
+    white-space:nowrap;
+    padding:2px 6px; border-radius:6px;
+    background:rgba(0,0,0,0.62);
+    color:#fff;
+    font-family:var(--font);
+    font-size:10.5px; font-weight:700; letter-spacing:0.2px;
+    border-left:3px solid var(--cl, #38BDF8);
+    text-shadow:0 1px 2px rgba(0,0,0,0.6);
+  }
+
+  .atlas-pin-dot {
+    width:18px; height:18px; box-sizing:border-box;
+    border-radius:50%;
+    background:var(--danger);
+    border:3px solid #fff;
+    box-shadow:0 2px 8px rgba(0,0,0,0.45);
+  }
+
+  /* ══════════════ THE FEATURE SHEET ══════════════
+     The reason a full-screen map is worth having: room to show the photos and
+     the attributes without a 260px popup covering the map it belongs to. */
+  .atlas-sheet {
+    position:absolute; z-index:10;
+    left:0; right:0; bottom:0;
+    max-height:72%;
+    overflow-y:auto; overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+    box-sizing:border-box;
+    padding:8px calc(16px + var(--sar)) calc(18px + var(--sab)) calc(16px + var(--sal));
+    background:var(--surface-modal);
+    border-top:1px solid var(--card-border);
+    border-radius:20px 20px 0 0;
+    box-shadow:0 -8px 34px rgba(0,0,0,0.4);
+    transform:translateY(101%);
+    visibility:hidden;
+    transition:transform 0.22s cubic-bezier(0.32,0.72,0,1), visibility 0s linear 0.22s;
+  }
+  .atlas-sheet.show {
+    transform:none;
+    visibility:visible;
+    transition:transform 0.22s cubic-bezier(0.32,0.72,0,1);
+  }
+  .atlas-sheet-grip {
+    display:block; width:38px; height:4px;
+    margin:4px auto 12px;
+    padding:0;
+    border:none; border-radius:999px;
+    background:var(--card-border);
+    cursor:pointer;
+  }
+  .atlas-sheet-type {
+    font-size:10.5px; font-weight:700; letter-spacing:1.1px; text-transform:uppercase;
+    margin-bottom:3px;
+  }
+  .atlas-sheet-name {
+    font-family:var(--font-display);
+    font-size:19px; font-weight:700; line-height:1.25;
+    color:var(--text-primary);
+  }
+  .atlas-sheet-ref {
+    font-family:var(--mono);
+    font-size:12px; font-weight:600;
+    color:var(--text-tertiary);
+  }
+  .atlas-sheet-meta {
+    margin-top:4px;
+    font-size:12px; font-weight:600;
+    color:var(--text-secondary);
+  }
+  .atlas-sheet-coord {
+    display:flex; align-items:center; gap:8px;
+    margin-top:10px;
+    background:var(--surface-sunken);
+    border:1px solid var(--card-border); border-radius:10px;
+    padding:8px 11px;
+    font-family:var(--mono);
+    font-size:12px; font-weight:700;
+    color:var(--text-primary);
+    cursor:pointer;
+  }
+  .atlas-sheet-coord span {
+    margin-left:auto;
+    font-family:var(--font);
+    font-size:10px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase;
+    color:var(--accent-primary);
+  }
+  .atlas-sheet-coord:active { filter:brightness(0.94); }
+  /* Not an error state — a CSV import whose lat/lon columns were never mapped
+     is the ordinary cause, and this sheet is where someone comes to find out. */
+  .atlas-sheet-nocoord {
+    margin-top:10px;
+    background:var(--chip-info-bg, var(--surface-sunken));
+    border:1px solid var(--chip-info-border, var(--card-border));
+    border-radius:10px; padding:9px 11px;
+    font-size:11.5px; line-height:1.55; font-weight:600;
+    color:var(--chip-info-text, var(--text-secondary));
+  }
+
+  /* popupAttrRows() is shared with the Leaflet popups, whose palette is
+     hard-coded light because it renders on map tiles. On this surface it has to
+     come back to the app's tokens. */
+  .atlas-sheet .pe-popup-attrs { border-top-color:var(--card-border); margin-top:12px; padding-top:9px; }
+  .atlas-sheet .pe-popup-attr { font-size:12px; line-height:1.85; }
+  .atlas-sheet .pe-popup-attr-k { color:var(--text-secondary); }
+  .atlas-sheet .pe-popup-attr-v { color:var(--text-primary); }
+  .atlas-sheet .pe-popup-attr-more { color:var(--text-tertiary); font-size:11px; }
+
+  .atlas-sheet-photos {
+    display:flex; gap:7px;
+    margin-top:12px;
+    overflow-x:auto; overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:2px;
+  }
+  .atlas-sheet-photos img {
+    width:74px; height:74px; flex-shrink:0;
+    object-fit:cover; display:block;
+    border-radius:10px;
+    border:1px solid var(--card-border);
+    cursor:pointer;
+  }
+  .atlas-sheet-more {
+    width:74px; height:74px; flex-shrink:0;
+    border-radius:10px;
+    background:var(--surface-sunken);
+    border:1px solid var(--card-border);
+    font-family:var(--font);
+    font-size:13px; font-weight:700;
+    color:var(--text-secondary);
+    cursor:pointer;
+  }
+
+  .atlas-sheet-actions { display:flex; gap:8px; margin-top:14px; }
+  .atlas-sheet-btn {
+    flex:1;
+    border:none; border-radius:11px;
+    padding:11px 10px;
+    font-family:var(--font);
+    font-size:12.5px; font-weight:700;
+    cursor:pointer;
+  }
+  .atlas-sheet-btn:active { filter:brightness(0.93); }
+  /* Overrides the inline background/color the sheet writes for the primary
+     action, so the two secondary buttons stay quiet next to it. */
+  .atlas-sheet-btn.ghost {
+    background:var(--surface-sunken) !important;
+    border:1px solid var(--card-border);
+    color:var(--text-secondary) !important;
+  }
+  .atlas-sheet-btn:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; }
+
+  /* ══════════════ LEAFLET'S OWN CONTROLS ══════════════
+     Pushed to the corners the contract at the top of this file assigns them,
+     and dressed in the same glass as everything else. */
+  .plot-atlas .leaflet-bottom.leaflet-right {
+    margin-bottom:calc(18px + var(--sab));
+    margin-right:calc(12px + var(--sar));
+  }
+  .plot-atlas .leaflet-bottom.leaflet-left {
+    margin-bottom:calc(18px + var(--sab));
+    margin-left:calc(12px + var(--sal));
+  }
+  /* Rotate control (Leaflet-Rotate, added alongside touchRotate in js/14a-plotatlas.js) — the one
+     Leaflet control this screen puts top-right. Nothing else lived in that corner before (zoomControl
+     is off up there), but the top band underneath is the atlas-top bar plus the search field below
+     it, both full-bleed and z-index:6, so the control needs pushing down to clear them rather than
+     sitting at Leaflet's default 10px. */
+  .plot-atlas .leaflet-top.leaflet-right {
+    margin-top:calc(106px + var(--sat));
+    margin-right:calc(12px + var(--sar));
+  }
+  .plot-atlas .leaflet-control-rotate {
+    margin:0 !important;
+  }
+  .plot-atlas .leaflet-control-rotate-toggle {
+    width:34px; height:34px;
+    border-radius:12px;
+    border:1px solid var(--card-border) !important;
+    background:var(--nav-bg);
+    backdrop-filter:var(--glass-12);
+    -webkit-backdrop-filter:var(--glass-12);
+    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+  }
+  .plot-atlas .leaflet-control-zoom {
+    margin:0 !important;
+    border:1px solid var(--card-border) !important;
+    border-radius:12px; overflow:hidden;
+    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+  }
+  .plot-atlas .leaflet-control-zoom a {
+    width:34px; height:34px; line-height:34px;
+    background:var(--nav-bg);
+    backdrop-filter:var(--glass-12);
+    -webkit-backdrop-filter:var(--glass-12);
+    color:var(--text-primary);
+    border-bottom:1px solid var(--card-border);
+    font-size:18px; font-weight:600;
+  }
+  .plot-atlas .leaflet-control-zoom a:last-child { border-bottom:none; }
+  .plot-atlas .leaflet-control-zoom a:hover { background:var(--raised); color:var(--text-primary); }
+  .plot-atlas .leaflet-control-scale {
+    margin:0 !important;
+  }
+  .plot-atlas .leaflet-control-scale-line {
+    background:rgba(0,0,0,0.45);
+    border-color:rgba(255,255,255,0.75);
+    color:#fff;
+    font-family:var(--mono);
+    font-size:10px; font-weight:700;
+    padding:2px 6px;
+  }
+  /* Lifted out of the bottom-right corner entirely and laid flat along the
+     bottom edge, so it cannot stack under the zoom and push it up into the
+     locate button. Required attribution, so it is never hidden — only made
+     small and quiet. */
+  .plot-atlas .leaflet-control-attribution {
+    position:fixed; left:0; right:0; bottom:0;
+    margin:0 !important;
+    padding:2px calc(8px + var(--sar)) calc(2px + var(--sab)) calc(8px + var(--sal));
+    background:rgba(0,0,0,0.42);
+    color:rgba(255,255,255,0.72);
+    font-size:9px; line-height:1.5;
+    text-align:right;
+    pointer-events:auto;
+  }
+  .plot-atlas .leaflet-control-attribution a { color:rgba(255,255,255,0.9); }
+
+  /* ══════════════ NARROW HANDSETS ══════════════ */
+  @media (max-width:360px) {
+    .atlas-subtitle { max-width:38vw; }
+    .atlas-sheet-photos img,
+    .atlas-sheet-more { width:64px; height:64px; }
+    .atlas-rail-tools { padding:4px; }
+    .atlas-tool { padding:7px 8px; font-size:11.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .atlas-sheet,
+    .atlas-bm-sheet,
+    .atlas-pin-bar,
+    .atlas-rail-tools,
+    .atlas-rail-toggle { transition:none; }
+  }

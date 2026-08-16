@@ -1,0 +1,886 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — Reset, layout, views, headers, bottom nav
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first. */
+
+  /* ══ MESH: VIEWS ARE TRANSPARENT ══
+     The base tone lives here so there is never a white flash before the mesh layer paints, and
+     so the browser has an opaque canvas colour to hand to overscroll/rubber-band areas. The
+     GRADIENT itself moved to .mesh-bg; every view and panel below is transparent so that one
+     fixed layer shows through all of them. Two things fall out of that which are worth keeping:
+     the gradient no longer repaints as each panel scrolls, and the ambient blobs stay put
+     relative to the screen instead of scrolling away with the content. */
+  /* ══ SCROLL BOUNCE FIX ══
+     overscroll-behavior on <html>/<body> is NOT reliably honoured by iOS Safari when the
+     document itself is the thing scrolling (WebKit bug 176454) — it only reliably takes effect
+     on an actual inner overflow:auto element. So instead of scrolling the document, html/body
+     are pinned in place (fixed, no scroll of their own) and #scrollRoot — a plain div wrapping
+     every .view — becomes the real scroller. overscroll-behavior-y:none on THAT element is what
+     actually kills the rubber-band drift on iOS. Everything that was already position:fixed
+     (mesh background, splash, onboarding, toasts, modals, docked bars) sits outside/after this
+     wrapper in the markup and is untouched — fixed-position elements are relative to the
+     viewport regardless of which container they're nested in, as long as no ancestor sets a
+     transform, so they keep behaving exactly as before. */
+  html, body { background:var(--grad-1); height:100%; overflow:hidden; position:fixed; inset:0; overscroll-behavior:none; }
+  body { color:var(--text-primary); font-family:var(--font); font-size:16px; -webkit-font-smoothing:antialiased; }
+  #scrollRoot { height:100%; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior-y:none; }
+  button, input, select, textarea { font-family:var(--font); }
+
+  /* ══ VIEW SWITCHER ══ */
+  /* ══ VIEW SWAP ══
+     display:none/block is kept as the mount mechanism on purpose. It is the one swap that CANNOT
+     ghost: the outgoing screen is gone in the same frame the incoming one appears, so there is no
+     window in which two screens are painted over each other. Cross-fading them would mean both
+     alive at once — which is precisely the content-bleed the sheets had.
+
+     What actually caused the flash on navigation was not this line, it was the mismatch around it:
+     the view swapped in one frame while the mesh background behind it was still animating
+     --mesh-i over 0.45s toward the new screen's intensity. So the content arrived instantly and
+     the backdrop caught up a third of a second later — read as the new screen "flashing" onto a
+     wash that was still the old screen's. Two changes fix it as a pair:
+
+       1. --mesh-i is brought down to 0.22s (in 02-mesh.css) so the backdrop settles with the
+          content rather than trailing it;
+       2. the incoming view gets a 0.22s fade-and-rise on the SAME curve, so the swap reads as one
+          movement instead of an instant cut against a slow background.
+
+     The animation is on .active only, and it is an animation rather than a transition because the
+     element is coming back from display:none — a transition has no previous computed value to
+     start from there and would simply not run. */
+  .view { display:none; min-height:100vh; }
+  .view.active { display:block; animation:view-enter 0.22s cubic-bezier(0.32, 0.72, 0, 1) both; }
+  @keyframes view-enter {
+    from { opacity:0; transform:translate3d(0, 6px, 0); }
+    to   { opacity:1; transform:none; }
+  }
+  /* transform on an ancestor creates a containing block for position:fixed descendants, which
+     would re-anchor the bottom nav and any open sheet to the view instead of the viewport for the
+     220ms the animation runs. `to { transform:none }` above is what releases it; this guarantees
+     nothing is left promoted afterwards even if the animation is interrupted mid-flight. */
+  .view.active { will-change:auto; }
+  @media (prefers-reduced-motion: reduce) {
+    .view.active { animation:none; }
+  }
+
+  /* ══ LANDING / PROJECTS VIEW ══ */
+  #view-projects { background:transparent; }
+  /* Vertical centring for the cold-launch/onboarding screen. min-height is 100dvh where
+     supported (falls back to 100vh) so mobile browser chrome collapsing/expanding doesn't leave
+     the block visibly jumping. justify-content:center only actually centres while the content is
+     shorter than the viewport; once the projects card outgrows one screen the shell grows and
+     the children lay out from the top as usual, so nothing is ever pushed above the scroll
+     origin and clipped. The vertical padding is the guaranteed breathing room at both ends. */
+  .welcome-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 24px 0 calc(32px + var(--sab));
+  }
+  /* align-items:center would otherwise shrink-wrap this to its content width. The panel keeps
+     its 20px side margins, so its width is 100% minus those margins rather than a flat 100% —
+     otherwise margin + width would overrun the viewport and force a horizontal scrollbar. */
+  .welcome-shell > .welcome-panel { width: calc(100% - 40px); max-width: 420px; }
+
+  /* The .landing-hero grid, .brand-mark (a logo pinned to the top-left) and .hero-title
+     ("Welcome to PlotEdge") rules that used to live here are gone along with the markup they
+     styled — see the #view-projects comment. The grid existed only to stop a fixed-position logo
+     and a fixed-position toolbar colliding above a scrolling project list; there is no list and
+     no pinned logo on this screen any more. .welcome-lockup / .welcome-wordmark below replace
+     them, and .welcome-tools carries the toolbar's old fixed placement verbatim. */
+
+  /* ══ WELCOME / FIRST RUN ══
+     #view-projects only ever renders when projects.length === 0 (see renderProjectsScreen), so
+     this is a true first-run screen — not a projects list. It therefore carries no project list,
+     no counts, and deliberately no "Export all"/"Backup all" buttons: on a device with zero
+     projects those could only ever export nothing. Restore (Import backup) DOES belong here, as
+     reinstalling onto a fresh device is exactly when it's needed.
+     No tagline. The logo + wordmark lockup is the whole identity block, which is how essentially
+     every shipping app opens; a sentence explaining what the app is reads as marketing copy to
+     someone who has already installed it. */
+  .welcome-tools {
+    /* Same fixed top-right position the old .landing-hero .control-pill used, so Contrast and
+       Settings stay in the exact spot users already reach for, independent of the centred shell. */
+    position:fixed; top:calc(12px + var(--sat)); right:20px; z-index:40;
+  }
+  .welcome-lockup { display:flex; flex-direction:column; align-items:center; gap:16px; padding:0 24px; }
+  .welcome-logo { position:relative; width:76px; height:76px; display:flex; align-items:center; justify-content:center; }
+  /* Overrides the width/height attributes on the <img> itself — that element is a base64 data URI
+     several thousand characters long, so it is never touched by markup edits; sizing it from CSS
+     keeps the logo re-scalable without ever rewriting that line. */
+  .welcome-logo img { position:relative; width:64px; height:auto; filter:drop-shadow(0 8px 22px rgba(0,0,0,0.42)); }
+  .welcome-logo-glow {
+    position:absolute; inset:-22px; border-radius:50%;
+    background: radial-gradient(circle, rgba(var(--accent-rgb-deep),0.38) 0%, transparent 70%);
+    filter: blur(14px); pointer-events:none;
+  }
+  .welcome-wordmark { font-family:var(--font-display); font-size:34px; font-weight:700; letter-spacing:-0.025em; line-height:1; color:var(--white); }
+  .welcome-wordmark-edge {
+    background: linear-gradient(100deg, var(--accent-hover) 0%, var(--accent-primary) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .welcome-panel { margin:32px auto 0; width:calc(100% - 40px); max-width:420px; display:flex; flex-direction:column; gap:10px; }
+  html[data-density="compact"] .welcome-panel { width:calc(100% - 32px); margin-top:24px; }
+  /* Secondary actions are rows rather than more pill buttons: stacking three identical-weight
+     pills gave the old screen no visual hierarchy at all, so "New project" — the thing a first-run
+     user almost always wants — competed with backup/restore for attention. */
+  .welcome-action {
+    width:100%; display:flex; align-items:center; gap:12px; padding:13px 14px;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl);
+    color:var(--white); font-family:var(--font); font-size:14.5px; font-weight:700; text-align:left;
+    cursor:pointer; box-shadow:var(--clay-shadow); transition:transform 0.1s, border-color 0.15s;
+  }
+  .welcome-action:active { transform:scale(0.985); border-color:var(--accent-primary); }
+  .welcome-action-icon { width:36px; height:36px; flex-shrink:0; border-radius:11px; background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); }
+  .welcome-action-body { flex:1; min-width:0; }
+  .welcome-action-sub { display:block; margin-top:2px; font-size:12px; font-weight:600; color:var(--text-tertiary); }
+  .welcome-action-chevron { flex-shrink:0; color:var(--text-tertiary); }
+
+  /* ══ PLOTLENS ══ */
+
+  /* ── STORY TRAY ──
+     Deliberately NOT wrapped in a .hub-block card. A card would draw a second
+     border immediately above the one the block below it already has, and stack
+     that block's padding on top of the tray's own — two heavy horizontal rules
+     and ~28px of dead space before the screen's real content starts. Bare row,
+     one hairline underneath to separate it, and the scroll runs edge to edge.
+     Negative margins + matching padding cancel .subpage-body's 16px gutter so
+     thumbnails bleed off both edges: that half-visible tile at the right is the
+     only affordance telling you the row scrolls. */
+  .pl-tray {
+    display:flex; gap:12px; align-items:flex-start;
+    margin:-4px -16px 14px; padding:2px 16px 12px;
+    overflow-x:auto; overflow-y:hidden;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    scroll-snap-type:x proximity;
+    border-bottom:1px solid var(--card-border);
+  }
+  .pl-tray::-webkit-scrollbar { display:none; }
+  .pl-tray-item {
+    flex:0 0 auto; width:62px; scroll-snap-align:start;
+    display:flex; flex-direction:column; align-items:center; gap:5px;
+    background:none; border:none; padding:0; cursor:pointer;
+    font-family:var(--font); -webkit-tap-highlight-color:transparent;
+  }
+  .pl-tray-item:active .pl-tray-ring { transform:scale(0.94); }
+  /* The ring is a padded gradient border with the thumbnail inset inside it —
+     one element rather than an ::after overlay, so it cannot fall out of
+     alignment with the image at any density. */
+  .pl-tray-ring {
+    position:relative; width:56px; height:56px; border-radius:50%;
+    padding:2px; box-sizing:border-box;
+    background:var(--card-border);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform 0.14s ease;
+  }
+  /* A frame that has narration written against it is the one worth returning
+     to, so it — and only it — gets the accent ring. If every tile were accented
+     the ring would carry no information. */
+  .pl-tray-ring.has-narr {
+    background:linear-gradient(140deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 45%, var(--card-border)));
+  }
+  .pl-tray-thumb {
+    width:100%; height:100%; border-radius:50%; object-fit:cover; display:block;
+    border:2px solid var(--card-bg); box-sizing:border-box; background:var(--surface-sunken);
+  }
+  .pl-tray-num {
+    position:absolute; right:-1px; bottom:-1px; min-width:17px; height:17px; padding:0 4px;
+    border-radius:999px; background:var(--card-bg); border:1px solid var(--card-border);
+    color:var(--text-secondary); font-size:9.5px; font-weight:800; line-height:15px; text-align:center;
+  }
+  .pl-tray-ring-all { background:var(--accent-primary); }
+  .pl-tray-play {
+    width:100%; height:100%; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--accent-primary); color:var(--on-accent);
+    border:2px solid var(--card-bg); box-sizing:border-box;
+  }
+  .pl-tray-label {
+    width:100%; font-size:10.5px; font-weight:700; color:var(--text-tertiary);
+    text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .pl-tray-all .pl-tray-label { color:var(--text-secondary); }
+
+  .pl-map { height:200px; width:100%; margin:4px 0 12px; border-radius:12px; overflow:hidden; background:var(--surface-sunken); border:1px solid var(--card-border); z-index:0; }
+  .pl-map-actions { display:flex; gap:9px; align-items:stretch; }
+  .pl-map-btn { flex:1; padding:12px; border-radius:999px; border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--white); font-family:var(--font); font-size:13px; font-weight:800; cursor:pointer; }
+  .pl-map-btn:active { border-color:var(--accent-primary); }
+  .pl-head-btn { margin-left:auto; padding:7px 14px; border-radius:999px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--white); font-family:var(--font); font-size:12.5px; font-weight:800; cursor:pointer; }
+  .pl-head-btn:disabled { opacity:0.45; }
+  .pl-beat { display:flex; align-items:center; gap:12px; padding:10px; margin-bottom:9px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); box-shadow:var(--card-shadow); }
+  .pl-beat-thumb { width:52px; height:52px; border-radius:10px; object-fit:cover; flex-shrink:0; border:1px solid var(--card-border); }
+  .pl-beat-body { flex:1; min-width:0; }
+  .pl-beat-title { font-size:13.5px; font-weight:800; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pl-beat-sub { margin-top:2px; font-size:11.5px; font-weight:600; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pl-beat-narr { width:100%; margin-top:8px; padding:9px 11px; border-radius:10px; border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--text-primary); font-family:var(--font); font-size:12.5px; resize:vertical; min-height:38px; }
+
+  /* ── THE REEL ──
+     Full-screen fixed overlay, above the bottom nav (z-index 200 band) so playback is immersive
+     the way a story player is expected to be. Uses the same visibility discipline as .modal-overlay
+     so it is fully out of the render and tab order when closed. */
+  .pl-player {
+    position:fixed; inset:0; z-index:260; background:#000; display:flex; align-items:center; justify-content:center;
+    opacity:0; visibility:hidden; pointer-events:none; transition:opacity 0.2s ease, visibility 0s linear 0.2s;
+  }
+  .pl-player.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.2s ease, visibility 0s linear 0s; }
+  .pl-stage { position:absolute; inset:0; overflow:hidden; background:#000; }
+  /* Each frame is its own layer so an outgoing and incoming photo can crossfade rather than cut. */
+  .pl-frame { position:absolute; inset:0; opacity:0; transition:opacity 0.5s ease; }
+  .pl-frame.on { opacity:1; }
+  .pl-frame img { width:100%; height:100%; object-fit:cover; will-change:transform; }
+  /* THE "MOTION PICTURE" — a slow Ken Burns drift over a still. This is what turns a set of
+     captured photos into something that reads as footage without a single byte of video. */
+  @keyframes plKenBurns {
+    from { transform:scale(1.06) translate3d(0,0,0); }
+    to   { transform:scale(1.18) translate3d(-1.5%, -1.5%, 0); }
+  }
+  .pl-frame.on img { animation:plKenBurns var(--pl-dur, 5s) ease-out forwards; }
+  /* Legibility scrim — captured photos are arbitrary, so narration needs a guaranteed backdrop. */
+  .pl-stage::after { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.25) 38%, transparent 62%); }
+  .pl-progress { position:absolute; top:calc(10px + var(--sat)); left:12px; right:12px; display:flex; gap:4px; z-index:3; }
+  .pl-progress span { flex:1; height:3px; border-radius:2px; background:rgba(255,255,255,0.3); overflow:hidden; }
+  .pl-progress span i { display:block; height:100%; width:0; background:#fff; }
+  .pl-progress span.done i { width:100%; }
+  .pl-progress span.active i { animation:plFill var(--pl-dur, 5s) linear forwards; }
+  @keyframes plFill { from { width:0; } to { width:100%; } }
+  /* ══ ROUTE MINIMAP ══ top-right, clear of the progress bar above it and the
+     close button beside it. Deliberately small: it is an indicator inside a
+     photo story, and anything larger starts competing with the photograph it is
+     annotating. Expanded (tap) it grows enough to read the whole route. */
+  .pl-minimap-wrap {
+    position:absolute; top:calc(66px + var(--sat)); right:12px; z-index:4;
+    width:112px; height:112px; border-radius:14px; overflow:hidden;
+    border:1.5px solid rgba(255,255,255,0.55);
+    box-shadow:0 6px 22px rgba(0,0,0,0.5);
+    cursor:pointer; background:#111;
+    transition:width 0.22s ease, height 0.22s ease;
+  }
+  .pl-minimap-wrap.expanded { width:190px; height:190px; }
+  .pl-minimap { position:absolute; inset:0; width:100%; height:100%; background:#111; }
+  .pl-minimap-hint {
+    position:absolute; left:0; right:0; bottom:0; z-index:2;
+    text-align:center; font-size:8.5px; font-weight:800; letter-spacing:0.12em;
+    text-transform:uppercase; color:rgba(255,255,255,0.9);
+    background:linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+    padding:8px 0 3px; pointer-events:none;
+  }
+  /* The current frame's pin. A divIcon so it can pulse — a Leaflet vector cannot
+     animate its own radius. */
+  .pl-mini-here { background:none; border:none; }
+  .pl-mini-here span {
+    display:block; width:10px; height:10px; margin:3px; border-radius:999px;
+    background:#fff; border:2px solid var(--accent-primary);
+    box-shadow:0 0 0 0 rgba(var(--accent-rgb),0.7);
+    animation:plMiniPulse 1.8s ease-out infinite;
+  }
+  @keyframes plMiniPulse {
+    0%   { box-shadow:0 0 0 0 rgba(var(--accent-rgb),0.65); }
+    70%  { box-shadow:0 0 0 11px rgba(var(--accent-rgb),0); }
+    100% { box-shadow:0 0 0 0 rgba(var(--accent-rgb),0); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .pl-mini-here span { animation:none; }
+    .pl-minimap-wrap { transition:none; }
+  }
+  /* Leaflet paints its container white by default, which reads as a hole punched
+     in the photo on a dark story. */
+  .pl-minimap .leaflet-container { background:#111; }
+
+  .pl-close { position:absolute; top:calc(24px + var(--sat)); right:12px; z-index:4; width:34px; height:34px; border-radius:999px; border:none; background:rgba(0,0,0,0.45); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .pl-overlay-info { position:absolute; left:0; right:0; bottom:0; z-index:3; padding:20px 18px calc(24px + var(--sab)); pointer-events:none; }
+  .pl-loc { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:rgba(255,255,255,0.8); margin-bottom:6px; }
+  .pl-narr { font-family:var(--font-display); font-size:19px; font-weight:700; line-height:1.35; color:#fff; text-shadow:0 2px 12px rgba(0,0,0,0.6); }
+  .pl-jump { pointer-events:auto; margin-top:12px; padding:9px 16px; border-radius:999px; border:1px solid rgba(255,255,255,0.5); background:rgba(0,0,0,0.35); color:#fff; font-family:var(--font); font-size:12.5px; font-weight:800; cursor:pointer; }
+  /* Tap zones sit under the info block (which is pointer-events:none apart from the jump button)
+     so narration never blocks the step gesture. */
+  .pl-tap { position:absolute; top:0; bottom:0; z-index:2; border:none; background:transparent; cursor:pointer; }
+  .pl-tap-prev { left:0; width:33%; }
+  .pl-tap-next { left:33%; right:0; }
+  @media (prefers-reduced-motion: reduce){
+    .pl-frame.on img { animation:none; transform:scale(1.04); }
+    .pl-frame { transition:none; }
+  }
+     The Projects tab is now a Data tab: a hub that owns everything that is *global* to the device
+     — the project list, backup/restore, and storage. Feature Types, Media and PlotEtch are
+     deliberately NOT here: each is stored per-project (projectData[id].featureTypes / photos on
+     vertices / sketches), so a device-wide entry point for them would either be meaningless with
+     no project open or silently act on whichever project happened to be active. They stay on the
+     project Dashboard where the scope is unambiguous. */
+  .hub-summary { display:flex; gap:9px; margin-bottom:20px; }
+  .hub-stat { flex:1; min-width:0; padding:12px 11px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); box-shadow:var(--card-shadow); }
+  .hub-stat-val { font-family:var(--font-display); font-size:21px; font-weight:800; line-height:1.1; color:var(--white); }
+  .hub-stat-lbl { margin-top:3px; font-size:10px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; color:var(--text-tertiary); }
+  .hub-row {
+    width:100%; display:flex; align-items:center; gap:12px; padding:14px; margin-bottom:10px;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl);
+    color:var(--white); font-family:var(--font); text-align:left; cursor:pointer;
+    box-shadow:var(--card-shadow); transition:transform 0.1s, border-color 0.15s;
+  }
+  .hub-row:active { transform:scale(0.99); border-color:var(--accent-primary); }
+  .hub-row-icon { width:38px; height:38px; flex-shrink:0; border-radius:12px; background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); }
+  .hub-row-body { flex:1; min-width:0; }
+  .hub-row-title { font-size:15px; font-weight:800; letter-spacing:-0.01em; }
+  .hub-row-sub { margin-top:2px; font-size:12.5px; font-weight:600; color:var(--text-tertiary); }
+  .hub-row-badge { flex-shrink:0; padding:3px 9px; border-radius:999px; background:rgba(var(--warn-rgb),0.16); color:var(--warn); font-size:11px; font-weight:800; }
+  .hub-row-chevron { flex-shrink:0; color:var(--text-tertiary); }
+  .hub-block { padding:16px; margin-bottom:14px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); box-shadow:var(--card-shadow); }
+  .hub-block-title { font-size:14.5px; font-weight:800; color:var(--white); }
+  .hub-block-desc { margin:4px 0 13px; font-size:12.5px; font-weight:600; line-height:1.5; color:var(--text-tertiary); }
+  /* Status callout at the top of Backup & Restore. Neutral by default; the warn variant is used
+     only when something is actually captured-but-not-exported, so an amber block on this screen
+     always means "there is work on this device you could still lose". */
+  .hub-note { padding:13px 14px; margin-bottom:14px; border-radius:var(--rl); background:var(--surface-sunken); border:1px solid var(--card-border); font-size:12.5px; font-weight:600; line-height:1.5; color:var(--text-secondary); }
+  .hub-note strong { color:var(--white); font-weight:800; }
+  .hub-note-warn { background:rgba(var(--warn-rgb),0.12); border-color:rgba(var(--warn-rgb),0.4); color:var(--text-primary); }
+  .hub-note-warn strong { color:var(--warn); }
+  .hub-block .btn-pill-outline { margin-top:10px; }
+  .hub-block .btn-pill:first-of-type { margin-top:0; }
+  /* Stacked proportional bar: one segment per project, so "what is actually taking up the space"
+     is answerable at a glance before reading the per-project rows underneath. */
+  .storage-bar { display:flex; height:10px; margin:2px 0 16px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--card-border); overflow:hidden; }
+  .storage-bar-seg { height:100%; }
+  .storage-row { display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--card-border); }
+  .storage-row:last-child { border-bottom:none; }
+  .storage-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .storage-row-name { flex:1; min-width:0; font-size:13.5px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .storage-row-size { flex-shrink:0; font-size:12.5px; font-weight:700; color:var(--text-tertiary); }
+
+  /* Collapsible card sections (Collect tab) — lets a crew collapse a step they've already filled
+     in (e.g. Feature Type, Attributes) to cut down scrolling on a long feature type, without
+     losing the values underneath: this only toggles visibility, nothing is cleared or unmounted,
+     so validation/save logic downstream still reads the same fields regardless of collapse state. */
+  .card-title.collapsible-title { cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card-title.collapsible-title:active { opacity:0.7; }
+  .collapse-chevron { flex-shrink:0; transition:transform 0.2s ease; color:var(--text-tertiary); }
+  .card-title.is-collapsed .collapse-chevron { transform:rotate(-90deg); }
+  /* ══ VERTICAL STEPPER BADGES ══
+     Each step card carries its own status chip, replacing the state that used to live in the
+     removed horizontal pill bar. margin-left:auto pushes the chip to the right edge regardless of
+     how much title text or hint text precedes it, and keeps it left of the collapse chevron. */
+  /* .card-title::after is a flex:1 divider rule and, being a pseudo-element, is always the last
+     flex child. Left at default order the badge and chevron would render BEFORE that rule, i.e.
+     stranded in the middle of the header. Giving them order:2 moves both past it, so the row
+     reads: title · divider · badge · chevron, with the badge and chevron flush right. */
+  .step-badge, .collapse-chevron { order:2; }
+  .step-badge {
+    margin-left:auto; flex-shrink:0;
+    font-size:9px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
+    padding:3px 8px; border-radius:999px;
+    border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--text-tertiary);
+    transition:background 0.2s, border-color 0.2s, color 0.2s;
+  }
+  .step-badge[data-state="active"] { border-color:rgba(var(--accent-rgb),0.45); background:rgba(var(--accent-rgb),0.14); color:var(--accent-hover); }
+  .step-badge[data-state="done"]   { border-color:rgba(34,197,94,0.40);        background:rgba(34,197,94,0.14);        color:var(--success); }
+  .card-body { overflow:hidden; }
+  .card-body.collapsed { display:none; }
+  /* A closed step should cost a list row, not a card. Without this the padding and bottom margin
+     of a full card survive the collapse, so four closed steps still eat ~200px of the screen the
+     accordion exists to give back. The class is toggled in JS rather than using :has(), which is
+     not available on the older Android WebView builds this app still ships to. */
+  #panel-collect .card.step-collapsed { padding:13px 16px; margin-bottom:8px; }
+  #panel-collect .card.step-collapsed .card-title { margin-bottom:0; }
+  /* A closed step still needs to be obviously tappable — the chevron alone is easy to miss at a
+     glance on a bright screen. */
+  #panel-collect .card.step-collapsed:active { background:var(--surface-sunken); }
+
+  /* The horizontal Collect step-nav pill bar was removed in favour of the per-card
+     .step-badge vertical stepper; its styles went with it. */
+
+  /* THEME TOGGLE */
+  .theme-toggle { width:36px; height:36px; border-radius:50%; background:var(--card-bg); border:1px solid var(--card-border); color:var(--white); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.15s; flex-shrink:0; }
+  /* Units toggle — cycles metric/imperial for on-screen distance & area readouts (raw stored data
+     always stays metric/SI for exports; this only changes what's displayed). */
+  .units-toggle { width:36px; height:36px; border-radius:50%; background:var(--card-bg); border:1px solid var(--card-border); color:var(--text-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.15s,color 0.15s; flex-shrink:0; font-size:11px; font-weight:800; font-family:var(--font); text-transform:uppercase; }
+  .units-toggle:active { background:var(--surface-sunken); }
+
+  /* Expanded (invisible) touch targets — these icon buttons are visually compact by design (fit
+     tightly in headers, list rows, photo thumbnails), but a bare small icon is an easy-to-miss tap
+     target. A transparent ::before extends the actual hit area toward the 44x44/48dp minimum
+     without changing how the button looks. Sized down a bit (36-40px) for buttons that sit right
+     next to another tappable sibling (e.g. edit+delete pairs) so their hit areas don't overlap.
+
+     ══ THIS TRICK ONLY WORKS ON UNCLIPPED HOSTS ══
+     A ::before that extends past its host's padding box is clipped by overflow:hidden — and
+     clipping removes it from HIT TESTING too, not just from paint. So on any host that also
+     appears in the universal-ripple list in css/05-components.css (which sets overflow:hidden so
+     the ripple stays inside the button), this expansion silently does nothing and the real target
+     is whatever the icon's own box happens to be.
+     That is exactly what had happened to the back arrow: .icon-back was in both lists, so its
+     "44x44" hit area was really 32x32 — the inline width/height in index.html also overrode the
+     36px below. It looked deliberate in two places and was broken in effect.
+     Hosts in the ripple list are therefore sized natively (see .icon-back and .pt-* below) rather
+     than via ::before, and tests/nav-build.test.js fails the build if any selector ends up in both
+     lists again. */
+  .theme-toggle, .locate-btn, .feat-edit, .feat-del { position:relative; }
+  .theme-toggle::before, .locate-btn::before { content:''; position:absolute; top:50%; left:50%; width:44px; height:44px; transform:translate(-50%,-50%); }
+  .feat-edit::before, .feat-del::before { content:''; position:absolute; top:50%; left:50%; width:38px; height:38px; transform:translate(-50%,-50%); }
+  /* .pt-edit/.pt-del/.pt-move sit in the ripple list too, so the ::before they used to carry was
+     clipped away exactly like .icon-back's. They are given real boxes instead. 40px rather than 44:
+     these are adjacent siblings in a vertex row, and 44px targets 2px apart would overlap, which
+     turns "too small" into "hits the wrong one" — a worse failure. */
+  .pt-edit, .pt-del, .pt-move {
+    position:relative; min-width:40px; min-height:40px;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .photo-thumb .ph-del::before { content:''; position:absolute; top:50%; left:50%; width:44px; height:44px; transform:translate(-50%,-50%); }
+  .theme-toggle:active { background:var(--surface-sunken); }
+
+  /* OUTDOOR / HIGH-CONTRAST MODE TOGGLE — same shape as the theme toggle, sits beside it. Lights
+     up (orange fill) when outdoor mode is active so its state is obvious at a glance in bright sun. */
+  .contrast-toggle { width:40px; height:40px; border-radius:50%; background:var(--card-bg); border:1px solid var(--card-border); color:var(--white); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.15s,color 0.15s; flex-shrink:0; position:relative; }
+  /* .contrast-toggle's ::before was clipped by the ripple's overflow:hidden and did nothing; the
+     button is sized natively below instead. */
+  .contrast-toggle:active { background:var(--surface-sunken); }
+  .contrast-toggle.active { background:var(--accent-primary); color:var(--on-accent); border-color:var(--accent-primary); }
+
+  /* ══ OUTDOOR / HIGH-CONTRAST MODE ══
+     Toggled independently of light/dark theme (data-contrast="high" on <html>, alongside
+     data-theme). Punches up surface separation, bolds data-critical text, and gives map legends
+     and active buttons a hard border so they stay legible in direct sunlight. Kept as a small,
+     targeted override list rather than a full parallel palette — cheaper to maintain and easy to
+     reason about what changes. */
+  html[data-contrast="high"]:not([data-theme="light"]) {
+    --card-bg: #000000;
+    --surface-sunken: #0A0A0A;
+    --raised: #1A1A1A;
+    --card-border: #4A4A4A;
+    --text-secondary: rgba(255,255,255,0.78);
+    --text-tertiary: rgba(255,255,255,0.72);
+    --nav-inactive: rgba(255,255,255,0.72);
+  }
+  html[data-contrast="high"][data-theme="light"] {
+    --card-bg: #FFFFFF;
+    --surface-sunken: #FFFFFF;
+    --raised: #F7F4ED;
+    --card-border: #17130D;
+    --text-secondary: rgba(23,19,13,0.82);
+    --text-tertiary: rgba(23,19,13,0.78);
+    --nav-inactive: rgba(23,19,13,0.78);
+  }
+  html[data-contrast="high"] .card,
+  html[data-contrast="high"] .map-legend,
+  html[data-contrast="high"] .review-map-wrap,
+  html[data-contrast="high"] .gps-bar,
+  html[data-contrast="high"] .project-row,
+  html[data-contrast="high"] .dash-action,
+  html[data-contrast="high"] .tile,
+  html[data-contrast="high"] .coord-box { border:1.5px solid var(--text-primary) !important; }
+  html[data-contrast="high"] .btn-capture,
+  html[data-contrast="high"] .btn-pill { border:1.5px solid var(--text-primary); }
+  html[data-contrast="high"] .coord-box .cv,
+  html[data-contrast="high"] .gt-status,
+  html[data-contrast="high"] .project-row-name { font-weight:800; }
+  html[data-contrast="high"] .card-title,
+  html[data-contrast="high"] .cl { color:var(--text-primary); opacity:0.85; }
+
+  /* ══ COMPACT DENSITY ══ — trims padding/gaps on the highest-frequency containers so more of a
+     busy project (many feature types, a long Recent Activity list) fits on screen at once.
+     Originally this only touched the Dashboard tiles/widgets, which meant switching it on the
+     Collect/Review/Export/Projects screens (i.e. most of the app) looked identical to comfortable
+     — this now reaches every card, field, list row and button across all screens so the toggle is
+     visibly doing something no matter which tab you're on. Input font-size is deliberately left
+     at 16px even in compact — shrinking it would trigger iOS's auto-zoom-on-focus, which is worse
+     than a few extra px of padding. */
+  html[data-density="compact"] .tile { padding:10px 12px !important; }
+  html[data-density="compact"] .dash-action { padding:10px 12px !important; gap:10px !important; }
+  html[data-density="compact"] .panel { padding-top:10px !important; padding-left:12px !important; padding-right:12px !important; }
+  html[data-density="compact"] .dash-widget-card { padding:12px 14px !important; }
+  html[data-density="compact"] .dash-health-card { padding:12px 14px !important; margin-bottom:10px !important; }
+  html[data-density="compact"] .dash-map-slot { margin-bottom:10px !important; }
+  html[data-density="compact"] .dash-project-strip { margin-bottom:10px !important; }
+  html[data-density="compact"] .card { padding:13px 14px !important; margin-bottom:10px !important; }
+  html[data-density="compact"] .card-title { margin-bottom:10px !important; }
+  html[data-density="compact"] .field { margin-bottom:10px !important; }
+  html[data-density="compact"] label { margin-bottom:4px !important; }
+  html[data-density="compact"] input[type="text"], html[data-density="compact"] input[type="number"],
+  html[data-density="compact"] select, html[data-density="compact"] textarea { padding:9px 12px !important; }
+  html[data-density="compact"] textarea { height:52px !important; }
+  html[data-density="compact"] .btn, html[data-density="compact"] .btn-pill { padding:11px 14px !important; }
+  html[data-density="compact"] .btn-capture { padding:13px !important; }
+  html[data-density="compact"] .project-row { padding:11px 13px !important; gap:9px !important; }
+  html[data-density="compact"] .coords-grid, html[data-density="compact"] .stats-row,
+  html[data-density="compact"] .review-filter-row { margin-bottom:10px !important; gap:6px !important; }
+  html[data-density="compact"] .gps-bar { padding:10px 12px !important; margin-bottom:9px !important; }
+  html[data-density="compact"] .review-validation-bar, html[data-density="compact"] .persist-banner,
+  html[data-density="compact"] .edit-mode-banner, html[data-density="compact"] .install-banner { padding:8px 11px !important; margin-bottom:10px !important; }
+  html[data-density="compact"] .add-field-btn { padding:11px !important; margin-bottom:10px !important; }
+  html[data-density="compact"] .welcome-tools { top:calc(8px + var(--sat)) !important; right:16px !important; }
+  html[data-density="compact"] .empty-box, html[data-density="compact"] .empty-projects { padding:22px 16px !important; }
+  html[data-density="compact"] .photo-grid, html[data-density="compact"] .ft-swatch-row { gap:6px !important; }
+
+  .project-row { background:var(--card-bg); padding:16px 16px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:background 0.15s; }
+  .project-row:active { background:var(--surface-sunken); }
+  .project-row-icon { width:38px; height:38px; border-radius:12px; background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--text-secondary); }
+  .project-row-body { flex:1; min-width:0; }
+  .project-row-name { font-size:15px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .project-row-meta { font-size:12px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .project-row-arrow { color:var(--text-tertiary); flex-shrink:0; }
+  .project-row-inprogress { display:inline-block; margin-left:6px; color:var(--accent-hover); font-weight:800; }
+  .project-row-export { display:inline-block; margin-left:6px; color:var(--text-tertiary); }
+  .project-row-export.warn { color:var(--warn); font-weight:700; }
+  .project-row-del { background:none; border:none; color:var(--text-tertiary); font-size:20px; padding:4px 6px; cursor:pointer; flex-shrink:0; line-height:1; }
+  .project-row-del:active { color:var(--danger); }
+  .project-row-edit { background:none; border:none; color:var(--text-tertiary); padding:6px; cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-radius:8px; }
+  .project-row-edit:active { color:var(--accent-primary); background:var(--surface-sunken); }
+
+  /* ══════════════ PROJECT MANAGER (#view-projectmgr) ══════════════
+     A working screen, not an onboarding one: it is where a crew lands from the Projects tab once
+     at least one project exists, while #view-projects stays reserved for cold-launch / empty
+     state. Two structural consequences follow from that split and drive most of the rules below:
+       1. The bottom nav is docked here, so the scroll container carries --dock-h of bottom
+          padding the same way .panel does.
+       2. The header is sticky rather than part of the scroll, so search and filters stay
+          reachable while a long project list scrolls beneath them. */
+  #view-projectmgr { background:transparent; min-height:100vh; }
+  .pm-header {
+    position:sticky; top:0; z-index:30;
+    padding:calc(12px + var(--sat)) 16px 12px;
+    background:var(--card-bg);
+    background:color-mix(in srgb, var(--card-bg) 88%, transparent);
+    border-bottom:1px solid var(--card-border);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .pm-header { backdrop-filter:var(--glass-16); -webkit-backdrop-filter:var(--glass-16); }
+  }
+  .pm-header-top { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .pm-title { flex:1; min-width:0; font-family:var(--font-display); font-size:24px; font-weight:700; letter-spacing:-0.015em; color:var(--white); margin:0; }
+  .pm-count { font-size:12px; font-weight:700; color:var(--text-tertiary); }
+  /* Search + New Project share a row: the field flexes, the button is intrinsically sized so its
+     label never wraps on a narrow handset. */
+  .pm-search-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .pm-search { position:relative; flex:1; min-width:0; display:flex; align-items:center; }
+  .pm-search svg { position:absolute; left:11px; color:var(--text-tertiary); pointer-events:none; }
+  /* [type="text"] added purely for specificity, not matching precision (the markup is already
+     type="text") — the generic base input rule further down the stylesheet (input[type="text"],
+     input[type="number"], select, textarea { padding:13px 14px; ... }) has the exact same
+     specificity as a bare ".pm-search input" and sits later in source order, so with neither rule
+     marked !important the generic one was winning the cascade and collapsing this field's 34px
+     icon-clearance padding down to 14px in EVERY density mode, not just compact — the compact-only
+     fix applied earlier only patched one of the two rules actually fighting over this property.
+     Adding [type="text"] here raises this rule to (0,2,1) vs. the generic rule's (0,1,1), which
+     wins outright regardless of where either rule sits in the file. */
+  .pm-search input[type="text"] {
+    width:100%; box-sizing:border-box; padding:11px 34px 11px 34px;
+    background:var(--input-bg); border:1px solid var(--card-border); border-radius:999px;
+    color:var(--white); font-size:14px; font-family:var(--font); outline:none;
+  }
+  .pm-search input:focus { border-color:var(--accent-primary); }
+  .pm-search input::placeholder { color:var(--text-tertiary); }
+  .pm-search-clear { position:absolute; right:6px; background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:5px; display:none; line-height:0; border-radius:50%; }
+  .pm-search-clear.show { display:block; }
+  .pm-search-clear:active { background:var(--surface-sunken); color:var(--white); }
+  /* Compact density's blanket "shrink every text input" rule further down (input[type="text"]
+     { padding:9px 12px !important }) was clobbering this input's 34px left/right padding, which
+     exists to clear the absolutely-positioned search icon and the clear button — not decorative
+     spacing, so it can't just be allowed to shrink with everything else. Re-asserted here with a
+     selector specific enough to win: same !important, but .pm-search input beats the generic
+     input[type="text"] on specificity, so this always applies second regardless of source order. */
+  html[data-density="compact"] .pm-search input[type="text"] { padding:9px 34px 9px 34px !important; }
+  .pm-new-btn {
+    flex-shrink:0; display:flex; align-items:center; gap:5px; white-space:nowrap;
+    padding:11px 15px; border-radius:999px; border:none; cursor:pointer;
+    background:var(--accent-primary); color:var(--on-accent);
+    font-size:13.5px; font-weight:800; font-family:var(--font);
+    box-shadow:0 0 0 1px var(--accent-primary), 0 2px 10px rgba(var(--accent-rgb),0.3);
+  }
+  .pm-new-btn:active { transform:scale(0.97); }
+  /* Horizontally scrollable so extra filters can be added later without reflowing into a second
+     row; the scrollbar is hidden because on a phone this is a swipe, not a scroll affordance. */
+  .pm-filters { display:flex; gap:7px; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; }
+  .pm-filters::-webkit-scrollbar { display:none; }
+  .pm-chip {
+    flex-shrink:0; padding:6px 14px; border-radius:999px; cursor:pointer;
+    background:var(--surface-sunken); border:1px solid var(--card-border);
+    color:var(--text-secondary); font-size:12.5px; font-weight:700; font-family:var(--font);
+    transition:background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .pm-chip.active { background:var(--accent-primary); border-color:var(--accent-primary); color:var(--on-accent); }
+  .pm-body { padding:16px 16px calc(var(--dock-h) + 32px); max-width:600px; margin:0 auto; }
+  .pm-section-label { font-size:11.5px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin:20px 0 10px; }
+  .pm-section-label:first-child { margin-top:0; }
+
+  /* ══ PROJECT CARD — single unified row shape ══
+     One row shape for every project, active or not — the active project is distinguished only by
+     the accent border/tint and the "Active" pill next to its name, never by a different container
+     or a separate card above the list. That's what keeps this a single list instead of a card
+     nested inside another card. */
+  .pm-card {
+    position:relative; display:block; width:100%; text-align:left;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl);
+    padding:14px; margin-bottom:10px; cursor:pointer;
+    box-shadow:var(--card-shadow); transition:transform 0.12s ease, border-color 0.15s;
+    /* ══ STACKING (do not remove) ══
+       An explicit z-index makes every card its own stacking context *at all times*. Without it
+       the card only became one while `:active` applied its transform — and because the overflow
+       menu below hangs past the card's bottom edge, that mid-tap change in stacking dropped the
+       open menu underneath the NEXT card in the list. The finger went down on "Delete" and the
+       click came back up on the following card, so the confirm sheet never opened and the whole
+       menu read as dead on touch devices. Pinning the context here keeps paint order stable for
+       the entire gesture. */
+    z-index:0;
+  }
+  .pm-card:active { transform:scale(0.99); border-color:var(--accent-primary); }
+  /* The card holding the open menu is lifted above its siblings, so the menu can overhang the
+     card freely. Suppressing the :active squeeze while it's open also stops the menu shifting
+     under the finger between touchstart and click. */
+  .pm-card.menu-open { z-index:30; }
+  .pm-card.menu-open:active { transform:none; }
+  .pm-card.active {
+    border-color:var(--accent-primary);
+    background:linear-gradient(160deg, rgba(var(--accent-rgb),0.10) 0%, var(--card-bg) 55%);
+  }
+  .pm-card-top { display:flex; align-items:flex-start; gap:11px; }
+  .pm-card-icon { width:36px; height:36px; border-radius:11px; background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--text-secondary); }
+  .pm-card-head { flex:1; min-width:0; }
+  .pm-card-name { font-size:15px; font-weight:700; color:var(--white); line-height:1.3; word-break:break-word; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pm-card-desc { font-size:12px; color:var(--text-secondary); margin-top:3px; line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .pm-card-meta { display:flex; flex-wrap:wrap; gap:6px 10px; margin-top:11px; padding-top:11px; border-top:1px solid var(--card-border); }
+  .pm-meta-item { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--text-secondary); }
+  .pm-meta-item svg { flex-shrink:0; color:var(--text-tertiary); }
+  .pm-meta-item strong { color:var(--white); font-weight:700; font-family:var(--mono); font-size:11.5px; }
+  .pm-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:999px; font-size:10.5px; font-weight:800; letter-spacing:0.03em; }
+  .pm-badge.synced { background:rgba(34,197,94,0.14); color:var(--success-ink); }
+  .pm-badge.unsynced { background:rgba(245,158,11,0.14); color:var(--warn-ink); }
+  .pm-badge.progress { background:rgba(var(--accent-rgb),0.15); color:var(--accent-hover); }
+
+  /* "Active" pill sits inline with the project name rather than as a separate badge row above the
+     card — same treatment whichever filter/tab it's rendered under. */
+  .pm-active-pill {
+    display:inline-flex; align-items:center; gap:5px; flex-shrink:0;
+    padding:2px 8px; border-radius:999px;
+    background:var(--accent-primary); color:var(--on-accent);
+    font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+  }
+  .pm-active-pill .pm-dot { width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+  /* ══ INLINE QUICK ACTION BAR ══
+     Top 2-3 actions live directly on the row (bounded to 3 buttons) so a field crew wearing gloves
+     never has to tap through a popover to reach Open Map / Set Active / Settings / Export — those
+     are single-tap. Only the rarer Rename/Duplicate/Delete stay behind the overflow menu below. */
+  .pm-card-actions { display:flex; gap:8px; margin-top:11px; }
+  .pm-act-btn {
+    flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 6px; border-radius:11px; cursor:pointer;
+    font-size:12.5px; font-weight:700; font-family:var(--font);
+    border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--white);
+  }
+  .pm-act-btn.primary { background:var(--accent-primary); border-color:var(--accent-primary); color:var(--on-accent); }
+  .pm-act-btn:active { transform:scale(0.98); }
+
+  /* ══ QUICK ACTION MENU ══
+     Rendered inside the card it belongs to (position:absolute against .pm-card) rather than as a
+     single shared popover repositioned with JS — no measuring, no reflow on scroll, and it
+     travels with the card automatically. Only one is ever open at a time; openPmMenu() closes
+     any other first. */
+  .pm-menu-btn { flex-shrink:0; width:32px; height:32px; border-radius:9px; border:none; background:none; color:var(--text-tertiary); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .pm-menu-btn:active { background:var(--surface-sunken); color:var(--white); }
+  .pm-menu {
+    display:none; position:absolute; top:46px; right:12px; z-index:20; min-width:186px;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px;
+    padding:6px; box-shadow:0 10px 30px rgba(0,0,0,0.4);
+  }
+  .pm-menu.open { display:block; }
+  .pm-menu-item {
+    display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box;
+    padding:10px 11px; border:none; border-radius:9px; background:none; cursor:pointer;
+    color:var(--white); font-size:13.5px; font-weight:600; font-family:var(--font); text-align:left;
+  }
+  .pm-menu-item:active { background:var(--surface-sunken); }
+  .pm-menu-item svg { color:var(--text-tertiary); flex-shrink:0; }
+  .pm-menu-item.danger { color:var(--danger-ink); }
+  .pm-menu-item.danger svg { color:var(--danger-ink); }
+  .pm-menu-sep { height:1px; background:var(--card-border); margin:5px 4px; }
+  .pm-empty { text-align:center; padding:36px 20px; color:var(--text-secondary); font-size:13.5px; line-height:1.6; }
+  .pm-empty strong { display:block; color:var(--white); font-size:15px; margin-bottom:6px; }
+  html[data-density="compact"] .pm-card { padding:11px !important; margin-bottom:8px !important; }
+  html[data-density="compact"] .pm-body { padding-top:12px !important; }
+  html[data-contrast="high"] .pm-card { border-width:2px; }
+  html[data-contrast="high"] .pm-card-name { font-weight:800; }
+
+  .empty-projects { text-align:center; padding:34px 20px; color:var(--text-secondary); font-size:13px; line-height:1.6; border:1.5px dashed var(--card-border); border-radius:var(--rl); margin-bottom:18px; background:var(--card-bg); }
+  .empty-projects strong { display:block; color:var(--white); font-size:15px; margin-bottom:5px; font-weight:700; }
+
+  /* #projectsList on the Welcome screen (see renderProjectsList()): hidden entirely when there's
+     nothing to show, otherwise a stack of .project-row cards below New/Template/Restore. */
+  .projects-list-label { font-size:12px; font-weight:700; letter-spacing:0.02em; text-transform:uppercase; color:var(--text-tertiary); margin:20px 2px 8px; }
+  .projects-list { display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
+  .projects-list .project-row { border-radius:var(--rl); }
+
+  .btn-pill { width:100%; min-height:52px; padding:15px 17px; background:var(--cta); color:var(--on-cta); border:none; border-radius:var(--rl); font-size:15px; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:transform 0.1s, filter 0.15s, box-shadow 0.15s; box-shadow: var(--clay-shadow); }
+  .btn-pill:active { transform:scale(0.98); filter:brightness(0.92); box-shadow: var(--clay-shadow-active); }
+  .btn-pill-outline { background:var(--surface-sunken); color:var(--white); border:1.5px solid var(--card-border); margin-top:16px; box-shadow: var(--clay-shadow); }
+  .btn-pill-outline:active { filter:brightness(1.1); box-shadow: var(--clay-shadow-active); }
+
+
+  /* ══ INSTALL BANNER ══ */
+  .install-banner { display:flex; align-items:flex-start; gap:11px; background:var(--card-bg); border:1.5px solid var(--card-border); border-radius:var(--rl); padding:14px; margin-bottom:16px; box-shadow:var(--clay-shadow); position:relative; }
+  .install-banner-icon { width:34px; height:34px; border-radius:12px; background:rgba(var(--accent-rgb),0.14); border:1px solid rgba(var(--accent-rgb),0.3); color:var(--accent-primary); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .install-banner-body { flex:1; min-width:0; padding-right:4px; }
+  .install-banner-title { font-size:14px; font-weight:800; color:var(--white); }
+  .install-banner-sub { font-size:12px; color:var(--text-secondary); margin-top:2px; line-height:1.45; }
+  .install-banner-btn { background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:12px; padding:9px 14px; font-size:12.5px; font-weight:800; font-family:var(--font); cursor:pointer; flex-shrink:0; align-self:center; white-space:nowrap; }
+  .install-banner-btn:active { filter:brightness(0.92); }
+  .install-banner-close { background:none; border:none; color:var(--text-tertiary); padding:6px; margin:-6px -6px -6px 0; cursor:pointer; display:flex; align-items:center; justify-content:center; align-self:flex-start; flex-shrink:0; }
+  .install-banner.ios .install-banner-btn { display:none; }
+
+  /* ══ SUBPAGE (New Project) ══ */
+  .subpage-header { display:flex; align-items:center; gap:14px; padding:18px 16px; padding-top:calc(18px + var(--sat)); border-bottom:1px solid var(--card-border); position:sticky; top:0; background:var(--grad-1); z-index:10; }
+  /* 44x44 — the WCAG 2.5.5 / Material 48dp target, and now the button's REAL box rather than a
+     pseudo-element that overflow:hidden was throwing away. It sits alone at the left end of
+     .header-top with a 10px gap before the title, so there is room for the full size without
+     crowding anything or overlapping a neighbouring target. */
+  .icon-back { width:44px; height:44px; border-radius:50%; background:var(--card-bg); border:1px solid var(--card-border); color:var(--white); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .icon-back:active { background:var(--surface-sunken); }
+  /* Weight 800 + margin:0, matching .pm-title and .modal-title. It is an <h2>, so without an
+     explicit margin the UA stylesheet's default 0.83em top/bottom margin was pushing it off the
+     header's vertical centre relative to the back button beside it — a small misalignment that
+     was present on every subpage. min-width:0 lets a long title ellipsize instead of shoving the
+     trailing action button (Export on PlotLens) off the row. */
+  .subpage-header h2 {
+    flex:1; min-width:0; margin:0;
+    font-family:var(--font-display); font-size:20px; font-weight:800; letter-spacing:-0.012em;
+    line-height:1.25; color:var(--white);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* These screens have no docked bottom nav to reserve the gesture-bar inset, so the final
+     control was sitting under the home indicator on devices with one. */
+  .subpage-body { padding:20px 16px calc(40px + var(--sab)); max-width:600px; margin:0 auto; }
+  /* ── MEDIA GALLERY ── filter row (type + date) above a filmstrip grid reusing .photo-grid/
+       .photo-thumb from the Collect vertex photo grid, just without the delete/angle-label UI
+       that only makes sense mid-capture. */
+  .media-filter-row { display:flex; gap:8px; margin-bottom:14px; }
+  .media-filter-select { flex:1; min-width:0; }
+  .media-filter-select select { width:100%; padding:10px 30px 10px 12px; border-radius:10px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--white); font-size:12.5px; font-weight:700; font-family:var(--font); appearance:none; }
+  .media-count { font-size:11.5px; font-weight:700; color:var(--text-secondary); margin-bottom:10px; }
+  .media-grid .photo-thumb { cursor:pointer; }
+  .media-thumb-cap { position:absolute; bottom:0; left:0; right:0; padding:4px 6px 3px; font-size:9.5px; font-weight:700; color:#fff; background:linear-gradient(to top, rgba(0,0,0,0.75), transparent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .quick-notes-saved { font-size:11px; color:var(--text-tertiary); min-height:14px; }
+
+  /* ══ APP HEADER ══ */
+  /* PERF: the backdrop-filter here was doing nothing. --grad-1 is a fully opaque colour in both
+     themes (#0B0F19 dark / #F8FAFC light), so there is never anything visible behind the header
+     to blur — but the browser still had to snapshot and re-rasterise the region underneath it on
+     every scroll frame, and blurring a full-width sticky element is one of the more expensive
+     things you can ask an Android WebView to do. Removing it is a pure win: byte-identical
+     rendering, one less per-frame raster pass. (The bottom nav no longer blurs either: since it
+     was docked it uses a solid --card-bg fill, so there is nothing to frost. --nav-bg now only
+     serves the floating map controls, which genuinely do sit over live tiles.)
+     will-change:transform went too: this element is sticky and never transforms, so it was
+     pinning a compositor layer for no reason. */
+  header { background:var(--grad-1); color:var(--white); padding:0 16px; padding-top:var(--sat); position:sticky; top:0; z-index:20; border-bottom:1px solid var(--card-border); }
+  .header-top { display:flex; align-items:center; gap:10px; padding:14px 0; }
+  /* ══ PREMIUM CONTROL PILL ══ — units/density/outdoor/theme toggles grouped into one frosted,
+     segmented capsule instead of four loose circles floating in the header. Reads as a single
+     deliberate control surface (the way iOS/Android system toolbars group quick-toggles) rather
+     than a row of afterthought icon buttons. */
+  .control-pill { display:flex; align-items:center; gap:2px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:999px; padding:3px; box-shadow:var(--card-shadow); flex-shrink:0; }
+  .control-pill .units-toggle, .control-pill .contrast-toggle, .control-pill .theme-toggle { background:transparent; border:none; box-shadow:none; }
+  /* ── PILL CLUSTER TARGETS ──
+     Home / Contrast / Settings were 32x32 via inline styles in index.html, with no hit expansion
+     at all — the smallest targets in the app, in the corner people reach for most.
+     40x40, not 44: three buttons at 44 with the pill's 2px gaps and 3px padding come to 138px,
+     which crowds the title and the session badge on a 360px header, and their hit areas would
+     overlap each other. 40 is a 56% area increase over 32 with no overlap and no reflow. */
+  .control-pill .contrast-toggle, .control-pill .theme-toggle, .control-pill .units-toggle,
+  .pill-icon-btn {
+    width:40px; height:40px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pill-icon-btn { background:transparent; border:none; box-shadow:none; color:var(--text-tertiary); cursor:pointer; }
+  .control-pill .units-toggle:active, .control-pill .contrast-toggle:active, .control-pill .theme-toggle:active { background:var(--surface-sunken); }
+  .control-pill .contrast-toggle.active { background:var(--accent-primary); color:var(--on-accent); box-shadow:0 0 0 1px var(--accent-primary), 0 0 14px 1px rgba(var(--grad-tint2),0.55); }
+  .header-title { flex:1; min-width:0; }
+  .header-title h1 { font-family:var(--font-display); font-size:20px; font-weight:700; letter-spacing:-0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .header-title p  { font-size:11px; color:var(--text-secondary); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .session-badge { background:rgba(var(--accent-rgb),0.14); border:1px solid rgba(var(--accent-rgb),0.4); color:var(--accent-hover); font-size:11px; font-weight:700; padding:5px 10px; border-radius:999px; white-space:nowrap; flex-shrink:0; }
+  /* Live in-progress-feature strip — sticks to the bottom of the header (which is itself sticky)
+     so it stays visible while scrolling through a long capture, e.g. "Fence · 3 vertices · 2 photos". */
+  .capture-strip { display:none; align-items:center; gap:7px; padding:8px 2px 11px; margin-top:-3px; font-size:12px; font-weight:700; color:var(--accent-hover); cursor:pointer; }
+  .capture-strip.show { display:flex; }
+  .capture-strip .cs-dot { width:6px; height:6px; border-radius:50%; background:var(--accent-primary); flex-shrink:0; box-shadow:0 0 0 3px rgba(var(--accent-rgb),0.18); }
+  .capture-strip .cs-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* ══ PANELS ══ */
+  #view-app { background:transparent; min-height:100vh; }
+  /* Scroll buffer. The brief specified a flat 100px, which clears the docked bar (76px) but NOT
+     the capture FAB that floats above it — the FAB's top edge sits ~148px up, so a flat 100px
+     would leave the last full-width control (Clear current feature) underneath it, which is the
+     exact overlap bug this padding exists to prevent. The 100px is therefore applied as clearance
+     ABOVE the dock rather than from the viewport edge: --dock-h + 100px satisfies the intent and
+     clears the FAB with room to spare. */
+  /* Bottom buffer so buttons and form fields at the end of a panel are never sitting under the
+     docked nav. Expressed as an offset from --dock-h rather than a flat 110px for two reasons: it
+     stays correct when the bar is collapsed (--dock-h shrinks, the buffer shrinks with it), and
+     the safe-area inset is already folded into --dock-h. Expanded, this resolves to exactly the
+     110px + inset the spec calls for. */
+  .panel { display:none; padding:16px 16px calc(var(--dock-h) + 46px); max-width:600px; margin:0 auto; }
+  /* Collect swaps the bottom nav for its own action dock (see .capture-fab), so the reserved
+     strip is the dock's height, not the nav's — and it applies whether or not the nav happens to
+     be hidden at that instant, because the dock is present for the whole tab. */
+  #panel-collect { padding-bottom: calc(var(--collect-dock-h) + 20px); }
+  body.collect-nav-hidden #panel-collect { padding-bottom: calc(var(--collect-dock-h) + 20px); }
+  /* Each panel paints its own gradient (not just inherits view-app's) so its local --grad-tint /
+     --grad-tint2 override above actually shows up as a distinct color per screen.
+     background-attachment:fixed removed everywhere in this file: with a fixed attachment the
+     browser can't hand the background off to the compositor the way a normal scrolling background
+     is handled, so it repaints it on the main thread on every scroll frame — on mobile that's a
+     well-known, heavy source of scroll jank, and it was on every single screen here. Visually
+     nothing changes (these gradients already cover full-height, mostly-static view containers),
+     but scrolling no longer has to fight the background repaint. */
+  #panel-dashboard, #panel-collect, #panel-import, #panel-export { background:transparent; }
+  /* Map/legend screen: legend swatch colors are arbitrary and user-chosen (any hex, per feature
+     type), so this can't be color-coordinated against them like a fixed choropleth scale could.
+     Safest route is to keep this screen's ambient tint noticeably fainter than every other panel
+     (--app-gradient-subtle, ~half the alpha) so it reads as neutral shell, not a data color. */
+  /* Review keeps its quieter wash by damping the shared layer rather than painting its own. */
+  #panel-review { background:transparent; }
+  html[data-screen="map"] { --mesh-i: 0; }
+  .panel.active { display:block; }
+
+  /* ══ DASHBOARD ══ */
+  .dash-project-strip { font-size:12px; color:var(--text-secondary); margin-bottom:18px; line-height:1.6; }
+  .dash-project-strip strong { color:var(--white); font-weight:700; }
+  .dash-map-slot { margin-bottom:14px; }
+  .dash-map-slot:empty { display:none; }
+  /* Smaller preview height when the shared map is docked on the Dashboard instead of Review —
+     same #reviewMap element, same Leaflet instance, just a shorter box and a couple of controls
+     hidden that only make sense in the full Review context (type filter isn't shown here anyway,
+     but the basemap label is trimmed to save space). See dockReviewMap() in JS. */
+  .review-map-wrap.dash-preview #reviewMap { height:120px; }
+  .review-map-wrap.dash-preview .map-basemap-toggle span { display:none; }
+  .review-map-wrap.dash-preview .map-basemap-toggle { padding:7px; top:8px; right:8px; }
+  /* On the dashboard this is a glance-only mini-map, not a working map — the Review tab already
+     owns the full legend/connection-status/fullscreen controls, so repeating them here just made
+     the preview feel as heavy as the real thing. Hide that chrome and let the tiny map read as a
+     compact "here's your coverage" thumbnail instead. */
+  .review-map-wrap.dash-preview .map-layer-toggle,
+  .review-map-wrap.dash-preview .map-goto-toggle,
+  .review-map-wrap.dash-preview .map-fullscreen-toggle,
+  .review-map-wrap.dash-preview .map-legend,
+  .review-map-wrap.dash-preview .review-map-conn { display:none; }
+
+  .dash-inprogress-banner { display:flex; align-items:center; gap:10px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.32); color:var(--accent-hover); font-size:12.5px; font-weight:700; border-radius:12px; padding:12px 14px; margin-bottom:16px; cursor:pointer; }
+  .dash-inprogress-banner::before { content:'●'; flex-shrink:0; }
+  .dash-inprogress-banner:active { background:rgba(var(--accent-rgb),0.18); }
+  /* KPI tiles: an asymmetric "hero + row" layout instead of four identical boxes — Features is
+     the primary number on this screen, so it gets its own full-width tile with a signature left
+     accent bar; Vertices/Accuracy/Photos stay as a compact secondary row underneath. Each tile
+     carries a quiet radial glow in its corner (its own accent color) and the icon now sits in a
+     tinted badge rather than floating bare, so the row reads as considered rather than a stock
+     dashboard-kit tile. The number itself is set in the display face so it reads as part of the
+     app's own identity, not a UI-kit default.
+     Note: this row deliberately does NOT repeat a "Layers" count — that was the same number as
+     "N types defined" already shown in the Manage Feature Types row below, just under a different
+     label. Accuracy fills the fourth slot instead: a live field-quality read no other card on this
+     screen gives you. */
+  /* Per-stat identity color — an RGB triplet (for the corner glow + icon badge) alongside the
+     existing solid accent (for the icon/label), rather than four identical grey cards that only
+     differ by glyph. */
+  /* Each tile pairs a colour token with its own bare RGB triplet (the triplet feeds rgba() in the
+     tile glow, which cannot consume a hex custom property). The two MUST stay in sync — the warn
+     row below was still carrying the old rose 232,93,130 after the retint, so a warning tile drew
+     an amber icon inside a pink glow. Triplets now match their tokens. */

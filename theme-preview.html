@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-domain="geospatial" data-screen="home">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PlotEdge — Theme System Reference</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════════════════
+  WHAT THIS FILE IS
+  ══════════════════════════════════════════════════════════════════════════════════════════
+  A standalone, dependency-free reference implementation of the PlotEdge theme system: the full
+  token set, the animated ambient mesh, and one of each themed component (card, primary button,
+  status badge, modal + backdrop, focused input).
+
+  It is NOT shipped to users and is NOT loaded by the app. It exists so the palette can be
+  reviewed on a device without navigating the real app, and so the token contract has one
+  readable home. The token VALUES here are identical to the ones in index.html; if you change a
+  palette, change it in both or delete this file.
+
+  Two axes, both on <html>:
+      data-theme  = light | dark
+      data-domain = default | forestry | agric | survey | climate
+      data-screen = home | form | map | settings      (ambient intensity only)
+
+  NOTE ON THE BRIEF: the original spec asked for data-theme to carry the domain name and a
+  `.dark` class to carry the mode. The real app already uses data-theme for light/dark across
+  ~200 rules, its pre-paint boot script, its Android status-bar bridge and its PWA theme-color
+  meta tag, so the two concerns were split onto two attributes instead. Everything else in the
+  spec is implemented as written.
+  ══════════════════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+/* ════════════════════════════════════════════════════════════════════════════════════════
+   1. TOKENS — DARK BASE (OLED / night mapping)
+   ════════════════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --canvas-bg:            #0B0F17;
+  --field-bg:             #0B0F17;   /* flat: --canvas-bg is a gradient per pillar */
+  --surface-card:         #1E293B;
+  --surface-modal:        #1E293B;
+  --modal-backdrop:       rgba(0,0,0,0.65);
+  --text-primary:         #F8FAFC;
+  --text-secondary:       #94A3B8;
+  --text-on-accent:       #052E22;
+  --primary-accent:       #0D9488;
+  --primary-accent-hover: #14B8A6;
+  --border-subtle:        #334155;
+  --border-focus:         #14B8A6;
+  --badge-bg:             rgba(13,148,136,0.16);
+  --badge-text:           #5EEAD4;
+  --glow-1:               #064E3B;
+  --glow-2:               #0D9488;
+  --glow-3:               var(--primary-accent);
+  --accent-rgb:           13,148,136;
+
+  --radius:  16px;
+  --font:    'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --shadow:  0 1px 2px rgba(0,0,0,0.25);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+   2. TOKENS — LIGHT BASE (sunlight / glare optimised)
+   Cards and modals are 100% opaque white on purpose: any translucency loses contrast the
+   moment there is glare on the screen, which is the one condition this mode exists for.
+   ════════════════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="light"] {
+  --canvas-bg:            #F8FAFC;
+  --field-bg:             #FFFFFF;
+  --surface-card:         #FFFFFF;
+  --surface-modal:        #FFFFFF;
+  --modal-backdrop:       rgba(15,23,42,0.45);
+  --text-primary:         #0F172A;
+  --text-secondary:       #475569;
+  --text-on-accent:       #FFFFFF;
+  --primary-accent:       #0F766E;
+  --primary-accent-hover: #115E59;
+  --border-subtle:        #E2E8F0;
+  --border-focus:         #115E59;
+  --badge-bg:             rgba(15,118,110,0.10);
+  --badge-text:           #115E59;
+  --glow-1:               #D3EFEA;
+  --glow-2:               #E0F2FE;
+  --accent-rgb:           15,118,110;
+  --shadow:               0 1px 2px rgba(15,23,42,0.07);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+   3. THE SIX PILLARS
+   Generated from palette.json, the same source the app's css/01-tokens.css was generated from —
+   regenerate both together or this preview stops telling the truth.
+
+   Accents are spaced around the OKLCh wheel rather than picked by eye, and every pillar carries
+   its own canvas in both modes. Geospatial is deliberately the achromatic one — its mesh is
+   graphite and the cyan lives only in the accent — which is what stops it blurring into Water or
+   Environment.
+   ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. EARTH & LAND ── */
+html[data-domain="land"] {
+  --primary-accent:#F59E0B; --primary-accent-hover:#FBBF24; --border-focus:#FBBF24;
+  --text-on-accent:#3B1B02; --accent-rgb:245,158,11;
+  --badge-bg:rgba(245,158,11,0.16); --badge-text:#FBBF24;
+  --canvas-bg:linear-gradient(165deg, #160F07 0%, #241706 100%);
+  --glow-1:#7C3D05; --glow-2:#6B5202; --glow-3:#F59E0B; --glow-4:#5A2A06;
+}
+html[data-domain="land"][data-theme="light"] {
+  --primary-accent:#92400E; --primary-accent-hover:#78350F; --border-focus:#78350F;
+  --text-on-accent:#FFFFFF; --accent-rgb:146,64,14;
+  --badge-bg:rgba(146,64,14,0.10); --badge-text:#78350F;
+  --canvas-bg:linear-gradient(165deg, #FDEDD3 0%, #F2C77F 100%);
+  --glow-1:#F59E0B; --glow-2:#FB923C; --glow-3:#92400E; --glow-4:#FCD34D;
+}
+
+/* ── 2. WATER ── */
+html[data-domain="water"] {
+  --primary-accent:#60A5FA; --primary-accent-hover:#93C5FD; --border-focus:#93C5FD;
+  --text-on-accent:#0A1F44; --accent-rgb:96,165,250;
+  --badge-bg:rgba(96,165,250,0.16); --badge-text:#93C5FD;
+  --canvas-bg:linear-gradient(165deg, #060D1F 0%, #08152F 100%);
+  --glow-1:#1E3A8A; --glow-2:#0C4A6E; --glow-3:#60A5FA; --glow-4:#1E40AF;
+}
+html[data-domain="water"][data-theme="light"] {
+  --primary-accent:#1E40AF; --primary-accent-hover:#1E3A8A; --border-focus:#1E3A8A;
+  --text-on-accent:#FFFFFF; --accent-rgb:30,64,175;
+  --badge-bg:rgba(30,64,175,0.10); --badge-text:#1E3A8A;
+  --canvas-bg:linear-gradient(165deg, #DEEAFD 0%, #8FB8F3 100%);
+  --glow-1:#60A5FA; --glow-2:#38BDF8; --glow-3:#1E40AF; --glow-4:#93C5FD;
+}
+
+/* ── 3. CLIMATE ── */
+html[data-domain="climate"] {
+  --primary-accent:#E879F9; --primary-accent-hover:#F0ABFC; --border-focus:#F0ABFC;
+  --text-on-accent:#3B0B41; --accent-rgb:232,121,249;
+  --badge-bg:rgba(232,121,249,0.16); --badge-text:#F0ABFC;
+  --canvas-bg:linear-gradient(165deg, #1A0716 0%, #280A21 100%);
+  --glow-1:#86198F; --glow-2:#7E22CE; --glow-3:#E879F9; --glow-4:#9D174D;
+}
+html[data-domain="climate"][data-theme="light"] {
+  --primary-accent:#86198F; --primary-accent-hover:#701A75; --border-focus:#701A75;
+  --text-on-accent:#FFFFFF; --accent-rgb:134,25,143;
+  --badge-bg:rgba(134,25,143,0.10); --badge-text:#701A75;
+  --canvas-bg:linear-gradient(165deg, #F6E4FC 0%, #D6A2EE 100%);
+  --glow-1:#A855F7; --glow-2:#E879F9; --glow-3:#86198F; --glow-4:#A78BFA;
+}
+
+/* ── 4. ENVIRONMENT ── */
+html[data-domain="environment"] {
+  --primary-accent:#34D399; --primary-accent-hover:#6EE7B7; --border-focus:#6EE7B7;
+  --text-on-accent:#02231A; --accent-rgb:52,211,153;
+  --badge-bg:rgba(52,211,153,0.16); --badge-text:#6EE7B7;
+  --canvas-bg:linear-gradient(165deg, #05130D 0%, #072016 100%);
+  --glow-1:#065F46; --glow-2:#3F6212; --glow-3:#34D399; --glow-4:#064E3B;
+}
+html[data-domain="environment"][data-theme="light"] {
+  --primary-accent:#065F46; --primary-accent-hover:#064E3B; --border-focus:#064E3B;
+  --text-on-accent:#FFFFFF; --accent-rgb:6,95,70;
+  --badge-bg:rgba(6,95,70,0.10); --badge-text:#064E3B;
+  --canvas-bg:linear-gradient(165deg, #DFF6E9 0%, #84D2A8 100%);
+  --glow-1:#34D399; --glow-2:#A3E635; --glow-3:#065F46; --glow-4:#6EE7B7;
+}
+
+/* ── 5. PEOPLE & PLACES ── */
+html[data-domain="people"] {
+  --primary-accent:#FB7185; --primary-accent-hover:#FDA4AF; --border-focus:#FDA4AF;
+  --text-on-accent:#3F0517; --accent-rgb:251,113,133;
+  --badge-bg:rgba(251,113,133,0.16); --badge-text:#FDA4AF;
+  --canvas-bg:linear-gradient(165deg, #18070B 0%, #260B11 100%);
+  --glow-1:#9F1239; --glow-2:#86198F; --glow-3:#FB7185; --glow-4:#7F1D1D;
+}
+html[data-domain="people"][data-theme="light"] {
+  --primary-accent:#9F1239; --primary-accent-hover:#881337; --border-focus:#881337;
+  --text-on-accent:#FFFFFF; --accent-rgb:159,18,57;
+  --badge-bg:rgba(159,18,57,0.10); --badge-text:#881337;
+  --canvas-bg:linear-gradient(165deg, #FFEAEE 0%, #F7A3B4 100%);
+  --glow-1:#FB7185; --glow-2:#F472B6; --glow-3:#9F1239; --glow-4:#FDA4AF;
+}
+
+/* ── 6. GEOSPATIAL ── */
+html[data-domain="geospatial"] {
+  --primary-accent:#22D3EE; --primary-accent-hover:#67E8F9; --border-focus:#67E8F9;
+  --text-on-accent:#04222B; --accent-rgb:34,211,238;
+  --badge-bg:rgba(34,211,238,0.16); --badge-text:#67E8F9;
+  --canvas-bg:linear-gradient(165deg, #08090C 0%, #101216 100%);
+  --glow-1:#0F172A; --glow-2:#164E63; --glow-3:#22D3EE; --glow-4:#1E293B;
+}
+html[data-domain="geospatial"][data-theme="light"] {
+  --primary-accent:#155E75; --primary-accent-hover:#164E63; --border-focus:#164E63;
+  --text-on-accent:#FFFFFF; --accent-rgb:21,94,117;
+  --badge-bg:rgba(21,94,117,0.10); --badge-text:#164E63;
+  --canvas-bg:linear-gradient(165deg, #F2F4F6 0%, #D8DEE4 100%);
+  --glow-1:#22D3EE; --glow-2:#64748B; --glow-3:#155E75; --glow-4:#94A3B8;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+   4. AMBIENT MESH — GPU PATH
+   ════════════════════════════════════════════════════════════════════════════════════════ */
+* { box-sizing:border-box; margin:0; padding:0; }
+/* ══ THE PREVIEW USED TO SHOW NOTHING ══
+   body carried an opaque `background: var(--canvas-bg)` while .mesh-bg sat at z-index:-1. A block
+   background paints ABOVE z-index:-1 content, so the entire mesh was hidden behind the body — and
+   the screen-context buttons appeared dead because they were changing something that was never on
+   screen. The canvas colour belongs on .mesh-bg (which is what index.html does); body is
+   transparent so the mesh shows through. */
+body {
+  font-family:var(--font); background:transparent; color:var(--text-primary);
+  min-height:100vh; padding:24px 18px 60px; -webkit-font-smoothing:antialiased;
+  transition:color 0.3s ease;
+}
+.mesh-bg {
+  position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+  background:var(--canvas-bg);
+  transition:background 0.3s ease;
+  /* SCROLL ISOLATION — its own compositor layer, and a promise that nothing inside can affect
+     anything outside. Without this pair the browser repaints the whole viewport on every scroll
+     frame, because the content above is transparent and cannot be scrolled as an opaque blit. */
+  transform:translateZ(0);
+  contain:strict;
+}
+/* No opacity and no will-change here: either would create a stacking context, isolating the blend
+   group so the blobs blend against this wrapper's transparent backdrop instead of the canvas —
+   which silently turns mix-blend-mode into a no-op. Same reasoning as index.html. */
+.mesh-blobs { position:absolute; inset:0; }
+@property --mesh-i { syntax:'<number>'; inherits:true; initial-value:0.8; }
+html { --mesh-i:0.80; transition:--mesh-i 0.45s ease; }
+.mesh-blob {
+  position:absolute; width:58vmax; height:58vmax; border-radius:50%;
+  /* NO filter:blur(). A blurred layer re-rasterises whenever its size changes and the radius
+     inflates the layer well past the element's bounds — on a 1080p display that is a ~1500px
+     surface being re-blurred continuously, which produced visible scroll freezing. A radial
+     gradient bakes the softness into the paint: rasterised once, thereafter only translated. */
+  background:radial-gradient(circle at 50% 50%,
+    var(--blob) 0%,
+    color-mix(in srgb, var(--blob) 72%, transparent) 26%,
+    color-mix(in srgb, var(--blob) 38%, transparent) 48%,
+    color-mix(in srgb, var(--blob) 14%, transparent) 66%,
+    transparent 82%);
+  mix-blend-mode:screen;
+  will-change:transform, opacity;
+  transform:translate3d(0,0,0);
+  backface-visibility:hidden;
+}
+html[data-theme="light"] .mesh-blob { mix-blend-mode:multiply; }
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .mesh-blob { background:radial-gradient(circle at 50% 50%, var(--blob) 0%, rgba(0,0,0,0) 78%); }
+}
+@supports not (mix-blend-mode: screen) { .mesh-blob { mix-blend-mode:normal; } }
+.mesh-blob.b1 { --blob:var(--glow-1); top:-16vmax; left:-14vmax; opacity:calc(0.42 * var(--mesh-i)); animation:drift1 34s ease-in-out infinite alternate, breathe1 23s ease-in-out infinite alternate; }
+.mesh-blob.b2 { --blob:var(--glow-2); bottom:-20vmax; right:-16vmax; opacity:calc(0.38 * var(--mesh-i)); animation:drift2 41s ease-in-out infinite alternate, breathe2 29s ease-in-out infinite alternate; }
+.mesh-blob.b3 { --blob:var(--glow-3); top:16vmax; right:-26vmax; opacity:calc(0.18 * var(--mesh-i)); animation:drift3 47s ease-in-out infinite alternate, breathe3 31s ease-in-out infinite alternate; }
+.mesh-blob.b4 { --blob:var(--glow-4); width:48vmax; height:48vmax; top:28vmax; left:-12vmax; opacity:calc(0.20 * var(--mesh-i)); animation:drift4 43s ease-in-out infinite alternate, breathe4 37s ease-in-out infinite alternate; }
+/* Translate only — no scale(). Scaling changes a layer's rasterised size, which is exactly what
+   forces a repaint. The "breathing" is done with opacity, which is free on the compositor.
+   Periods are pairwise coprime so the four blobs never resynchronise into a visible loop. */
+@keyframes drift1 { 0%{transform:translate3d(0,0,0);} 100%{transform:translate3d(11vmax,15vmax,0);} }
+@keyframes drift2 { 0%{transform:translate3d(0,0,0);} 100%{transform:translate3d(-13vmax,-12vmax,0);} }
+@keyframes drift3 { 0%{transform:translate3d(0,0,0);} 100%{transform:translate3d(-15vmax,11vmax,0);} }
+@keyframes drift4 { 0%{transform:translate3d(0,0,0);} 100%{transform:translate3d(14vmax,-13vmax,0);} }
+@keyframes breathe1 { 0%{opacity:calc(0.42 * var(--mesh-i));} 100%{opacity:calc(0.24 * var(--mesh-i));} }
+@keyframes breathe2 { 0%{opacity:calc(0.38 * var(--mesh-i));} 100%{opacity:calc(0.21 * var(--mesh-i));} }
+@keyframes breathe3 { 0%{opacity:calc(0.18 * var(--mesh-i));} 100%{opacity:calc(0.10 * var(--mesh-i));} }
+@keyframes breathe4 { 0%{opacity:calc(0.20 * var(--mesh-i));} 100%{opacity:calc(0.11 * var(--mesh-i));} }
+
+/* Screen-adaptive intensity. Applied per blob through --mesh-i rather than as an opacity on the
+   wrapper, so the blend group is never isolated. */
+html[data-screen="home"]     { --mesh-i:0.80; }
+html[data-screen="form"]     { --mesh-i:0.28; }
+html[data-screen="settings"] { --mesh-i:0.40; }
+html[data-screen="map"]      { --mesh-i:0; }
+html[data-screen="form"] .mesh-blob { animation-duration:78s, 62s; }
+html[data-theme="light"][data-screen="home"]     { --mesh-i:0.86; }
+html[data-theme="light"][data-screen="settings"] { --mesh-i:0.50; }
+html[data-theme="light"][data-screen="form"]     { --mesh-i:0.30; }
+
+/* Low power / vestibular safety. Pause the drift, keep the colour. */
+@media (prefers-reduced-motion: reduce) { .mesh-blob { animation:none !important; } }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+   5. THEMED COMPONENTS
+   ════════════════════════════════════════════════════════════════════════════════════════ */
+.wrap { max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+h1 { font-size:22px; letter-spacing:-0.02em; margin-bottom:2px; }
+.sub { font-size:13px; color:var(--text-secondary); margin-bottom:8px; }
+
+.card {
+  background:var(--surface-card); border:1px solid var(--border-subtle);
+  border-radius:var(--radius); padding:18px; box-shadow:var(--shadow);
+}
+.card-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+.card-title { font-size:15px; font-weight:700; }
+.card-body { font-size:13px; color:var(--text-secondary); line-height:1.55; margin-bottom:14px; }
+
+.badge {
+  margin-left:auto; flex-shrink:0;
+  font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+  padding:4px 9px; border-radius:999px;
+  background:var(--badge-bg); color:var(--badge-text);
+  border:1px solid rgba(var(--accent-rgb),0.30);
+}
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  padding:12px 18px; border:none; border-radius:12px; cursor:pointer;
+  font-family:var(--font); font-size:14px; font-weight:700;
+  background:var(--primary-accent); color:var(--text-on-accent);
+  transition:background 0.15s ease, transform 0.1s ease;
+}
+.btn:hover  { background:var(--primary-accent-hover); }
+.btn:active { transform:scale(0.97); }
+.btn.secondary {
+  background:transparent; color:var(--text-primary); border:1px solid var(--border-subtle);
+}
+.btn.secondary:hover { background:rgba(var(--accent-rgb),0.08); }
+
+.field { margin-bottom:14px; }
+.field label { display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; }
+.field input, .field select {
+  width:100%; padding:12px 14px; border-radius:12px;
+  background:var(--field-bg); color:var(--text-primary);
+  border:1.5px solid var(--border-subtle);
+  font-family:var(--font); font-size:15px; /* 15px+ stops iOS zooming the page on focus */
+  transition:border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field input:focus, .field select:focus {
+  outline:none;
+  border-color:var(--border-focus);
+  box-shadow:0 0 0 3.5px rgba(var(--accent-rgb),0.26);
+}
+
+/* Modal + backdrop */
+.modal-overlay {
+  position:fixed; inset:0; z-index:100;
+  background:var(--modal-backdrop);
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  display:flex; align-items:flex-end; justify-content:center;
+  opacity:0; pointer-events:none; transition:opacity 0.2s ease;
+}
+.modal-overlay.show { opacity:1; pointer-events:auto; }
+.modal-box {
+  width:100%; max-width:420px;
+  background:var(--surface-modal); border:1px solid var(--border-subtle);
+  border-radius:22px 22px 0 0; padding:22px 20px calc(20px + env(safe-area-inset-bottom));
+  transform:translateY(24px); transition:transform 0.22s cubic-bezier(0.34,1.56,0.64,1);
+}
+.modal-overlay.show .modal-box { transform:translateY(0); }
+@media (min-width:480px) {
+  .modal-overlay { align-items:center; }
+  .modal-box { border-radius:22px; }
+}
+.modal-title { font-size:16px; font-weight:700; margin-bottom:8px; }
+.modal-text  { font-size:13px; color:var(--text-secondary); line-height:1.55; margin-bottom:18px; }
+.modal-actions { display:flex; gap:10px; }
+.modal-actions .btn { flex:1; }
+
+/* Map-view frosted control — the one surface that stays glassy, because on the map screen the
+   ambient mesh is off and the thing behind the control is the basemap itself. */
+.map-control {
+  display:inline-flex; align-items:center; gap:8px;
+  padding:10px 14px; border-radius:12px;
+  background:color-mix(in srgb, var(--surface-card) 72%, transparent);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--border-subtle); color:var(--text-primary);
+  font-size:13px; font-weight:700;
+}
+.map-control .dot { width:8px; height:8px; border-radius:50%; background:var(--primary-accent); }
+
+/* Control strip */
+.controls { display:flex; flex-wrap:wrap; gap:7px; }
+.chip {
+  padding:8px 13px; border-radius:999px; cursor:pointer;
+  border:1px solid var(--border-subtle); background:var(--surface-card); color:var(--text-secondary);
+  font-family:var(--font); font-size:12px; font-weight:700;
+}
+.chip[aria-pressed="true"] { background:var(--primary-accent); color:var(--text-on-accent); border-color:transparent; }
+.group-label { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-secondary); margin:10px 0 4px; }
+</style>
+</head>
+<body>
+
+<div class="mesh-bg" aria-hidden="true">
+  <div class="mesh-blobs">
+    <div class="mesh-blob b1"></div>
+    <div class="mesh-blob b2"></div>
+    <div class="mesh-blob b3"></div>
+    <div class="mesh-blob b4"></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div>
+    <h1>PlotEdge theme system</h1>
+    <p class="sub">Every control below is driven purely by CSS custom properties. Change a palette and nothing else moves.</p>
+  </div>
+
+  <div class="card">
+    <div class="group-label">Mode</div>
+    <div class="controls" id="modeRow">
+      <button class="chip" aria-pressed="false" onclick="toggleDarkMode('light')">Light</button>
+      <button class="chip" aria-pressed="true"  onclick="toggleDarkMode('dark')">Dark</button>
+    </div>
+
+    <div class="group-label">Theme</div>
+    <div class="controls" id="domainRow">
+      <button class="chip" data-domain="land"        aria-pressed="false" onclick="setDomainTheme('land')">Earth &amp; Land</button>
+      <button class="chip" data-domain="water"       aria-pressed="false" onclick="setDomainTheme('water')">Water</button>
+      <button class="chip" data-domain="climate"     aria-pressed="false" onclick="setDomainTheme('climate')">Climate</button>
+      <button class="chip" data-domain="environment" aria-pressed="false" onclick="setDomainTheme('environment')">Environment</button>
+      <button class="chip" data-domain="people"      aria-pressed="false" onclick="setDomainTheme('people')">People &amp; Places</button>
+      <button class="chip" data-domain="geospatial"  aria-pressed="true"  onclick="setDomainTheme('geospatial')">Geospatial</button>
+    </div>
+
+    <div class="group-label">Screen context</div>
+    <div class="controls" id="screenRow">
+      <button class="chip" data-screen="home"     aria-pressed="true"  onclick="setScreenState('home')">Home</button>
+      <button class="chip" data-screen="form"     aria-pressed="false" onclick="setScreenState('form')">Form</button>
+      <button class="chip" data-screen="map"      aria-pressed="false" onclick="setScreenState('map')">Map</button>
+      <button class="chip" data-screen="settings" aria-pressed="false" onclick="setScreenState('settings')">Settings</button>
+      <span class="chip-readout" id="meshReadout" title="Live value of --mesh-i">&mdash;</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Beacon SW-014</span>
+      <span class="badge">Unsynced</span>
+    </div>
+    <p class="card-body">Polygon · 6 vertices · 0.48 ha · captured 14:22. Fix quality was ±2.4 m at the last vertex.</p>
+    <button class="btn" onclick="openModal()">Export feature</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px;">Attributes</div>
+    <div class="field">
+      <label for="pf-name">Feature name</label>
+      <input id="pf-name" type="text" placeholder="e.g. Marker 3, Junction 7">
+    </div>
+    <div class="field">
+      <label for="pf-ref">Reference ID</label>
+      <input id="pf-ref" type="text" value="SITE-014">
+    </div>
+    <div class="field" style="margin-bottom:0;">
+      <label for="pf-cond">Condition</label>
+      <select id="pf-cond"><option>Good</option><option>Fair</option><option>Damaged</option></select>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:12px;">Map overlay control</div>
+    <span class="map-control"><span class="dot"></span> Satellite · snap on</span>
+  </div>
+</div>
+
+<div class="modal-overlay" id="demoModal" role="dialog" aria-modal="true" aria-label="Export feature">
+  <div class="modal-box">
+    <div class="modal-title">Export this feature?</div>
+    <p class="modal-text">Writes a single GeoJSON containing the polygon, its attributes and any attached photo references. The feature stays on the device.</p>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="closeModal()">Export</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   HELPERS
+   All three do the same thing: write one attribute on <html> and persist it. No component
+   knows about themes; the cascade does all the work. That is the point of the token layer.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+const root = document.documentElement;
+
+function toggleDarkMode(mode){
+  // Called with no argument it flips; with 'light'/'dark' it sets explicitly.
+  const next = mode || (root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  root.setAttribute('data-theme', next);
+  try { localStorage.setItem('plotedge_preview_theme', next); } catch(e) {}
+  sync();
+}
+
+function setDomainTheme(name){
+  const valid = ['land','water','climate','environment','people','geospatial'];
+  root.setAttribute('data-domain', valid.includes(name) ? name : 'geospatial');
+  try { localStorage.setItem('plotedge_preview_domain', name); } catch(e) {}
+  sync();
+}
+
+function setScreenState(name){
+  const valid = ['home','form','map','settings'];
+  root.setAttribute('data-screen', valid.includes(name) ? name : 'home');
+  sync();
+}
+
+function sync(){
+  const ro = document.getElementById('meshReadout');
+  if (ro) {
+    // Read the COMPUTED value, not the rule we think applies. If the band ever
+    // stops taking effect, this stops moving — which is exactly the symptom that
+    // sent us looking (the mesh was hidden behind an opaque body background, so
+    // the buttons were changing something invisible).
+    const v = getComputedStyle(root).getPropertyValue('--mesh-i').trim();
+    ro.textContent = 'mesh ' + Math.round((parseFloat(v) || 0) * 100) + '%';
+  }
+  const theme  = root.getAttribute('data-theme');
+  const domain = root.getAttribute('data-domain');
+  const screen = root.getAttribute('data-screen');
+  document.querySelectorAll('#modeRow .chip').forEach((b,i) =>
+    b.setAttribute('aria-pressed', String((i === 0) === (theme === 'light'))));
+  document.querySelectorAll('#domainRow .chip').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.domain === domain)));
+  document.querySelectorAll('#screenRow .chip').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.screen === screen)));
+}
+
+function openModal(){ document.getElementById('demoModal').classList.add('show'); }
+function closeModal(){ document.getElementById('demoModal').classList.remove('show'); }
+document.getElementById('demoModal').addEventListener('click', e => {
+  if (e.target.id === 'demoModal') closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Restore whatever was last previewed.
+try {
+  const t = localStorage.getItem('plotedge_preview_theme');
+  const d = localStorage.getItem('plotedge_preview_domain');
+  if (t) root.setAttribute('data-theme', t);
+  if (d) root.setAttribute('data-domain', d);
+} catch(e) {}
+sync();
+</script>
+</body>
+</html>
