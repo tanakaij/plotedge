@@ -219,11 +219,13 @@ async function plotvaultLoadIntoMap(source) {
 
 // ══ UI ══
 function openPlotVault() {
+  plotwordsExplain('plotvault');
   renderPlotVault();
   document.getElementById('plotvaultModal').classList.add('show');
 }
 
 function closePlotVault() {
+  plotwordsDismissAll();
   dismissKeyboard();
   document.getElementById('plotvaultModal').classList.remove('show');
 }

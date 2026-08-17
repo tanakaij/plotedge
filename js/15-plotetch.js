@@ -104,6 +104,7 @@ function plResolve(b){
 
 function showPlotLens(){
   if (!plotLensEnabled()){ showToast('Enable PlotLens in Settings first'); return; }
+  plotwordsExplain('plotlens');
   activateView('view-plotlens');
   renderPlotLens();
   document.getElementById('scrollRoot').scrollTo(0, 0);
@@ -111,6 +112,7 @@ function showPlotLens(){
 }
 
 function closePlotLens(){
+  plotwordsDismissAll();
   plFlushNarration();
   stopPlotLens();
   destroyPlMap();
@@ -1195,6 +1197,7 @@ function plotEtchLocateMe(){
 // ══ OPEN / CLOSE ══
 function openPlotEtch(){
   if (!activeProjectId){ showToast('Open a project first'); return; }
+  plotwordsExplain('plotetch');
   setScreenState('map'); // full-bleed satellite tracing — the mesh must not tint the imagery
   activateView('view-plotetch');
   pushNavState('plotetch', { projectId: activeProjectId });
@@ -1223,6 +1226,7 @@ function openPlotEtch(){
 // activateView() isn't called here — popstate does it, so the screen swap happens exactly once
 // whether you leave via this button or via the hardware back.
 function closePlotEtch(){
+  plotwordsDismissAll();
   closePeToolsSheet();
   // No setScreenState() here. It used to force 'home' before leaving, which was wrong twice: it
   // changed the band while the confirm dialog was still over PlotEtch, and it guessed 'home' when

@@ -1243,6 +1243,20 @@
   /* Active state is a 2px accent rule pinned to the tab's top edge, drawn as a pseudo-element so
      it sits flush against the nav's own border-top rather than inset by the button's padding. */
   .nav-btn.active { color:var(--accent-primary); }
+  /* The texture. A vertical gradient rather than a flat tint: flat would read as a second button
+     state (pressed), where a wash that fades downward reads as the cell being lit from the accent
+     bar above it — the same light source the top bar implies. Sits in ::after at z-index 0 with
+     the icon and label above it, so it tints the cell without washing out the glyph. */
+  .nav-btn.active::after {
+    content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background:linear-gradient(to bottom,
+      rgba(var(--accent-rgb),0.16) 0%,
+      rgba(var(--accent-rgb),0.06) 55%,
+      rgba(var(--accent-rgb),0) 100%);
+  }
+  /* Both children have to be lifted above the wash explicitly — ::after is painted after them in
+     the absence of a stacking order, which would put the tint over the icon. */
+  .nav-btn svg, .nav-btn span { position:relative; z-index:1; }
   .nav-btn.active::before {
     content:''; position:absolute; top:0; left:0; right:0; height:2px;
     background:var(--accent-primary); border-radius:0 0 2px 2px;
@@ -2052,7 +2066,8 @@
      globally so it never clips something that's meant to overflow elsewhere (glow halos, badges). */
   .ripple { position:absolute; border-radius:50%; background:rgba(255,255,255,0.35); transform:scale(0); animation:ripple 0.5s linear; pointer-events:none; }
   .btn, .btn-pill, .dash-action, .ft-row, .project-row, .icon-back, .contrast-toggle,
-  .ext-gps-btn, .gps-detail-toggle, .vertex-map-toggle, .pt-edit, .pt-del, .pt-move, .nav-btn {
+  .ext-gps-btn, .gps-detail-toggle, .vertex-map-toggle, .pt-edit, .pt-del, .pt-move, .nav-btn,
+  .plotwords-strip-x, .plotwords-row-open {
     position:relative; overflow:hidden;
   }
   /* A dark ink-blot reads better than a light bloom on the app's own bright/filled surfaces (the

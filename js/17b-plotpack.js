@@ -39,6 +39,7 @@
 //   features.geojson    plain GeoJSON, so unzipping gives QGIS something to open
 //   notes.md            project notes as real Markdown
 //   sketches.json       PlotEtch
+//   tombstones.json     deletes, so a handoff cannot silently undo them
 //   photos/<id>.jpg     original bytes
 //   README.txt          explains the layout to whoever opens it in three years
 //
@@ -131,7 +132,13 @@ async function exportPlotpack(){
       'features.json': JSON.stringify(features, null, 2),
       'features.geojson': JSON.stringify(plotpackGeoJSON(), null, 2),
       'notes.md': projectNotes || '',
-      'sketches.json': JSON.stringify(plotetchSketches || [], null, 2)
+      'sketches.json': JSON.stringify(plotetchSketches || [], null, 2),
+      // Deletes travel with the bundle, or a handoff silently undoes them. If a crew deletes a
+      // duplicate septic and then sends the project on, the receiving device has no record that
+      // the deletion happened — and on the eventual merge back, the sender's own delete looks
+      // like missing data and the feature returns. Tombstones are tiny ({uid, rev}); the cost of
+      // carrying them is nothing against the cost of resurrected records in a deliverable.
+      'tombstones.json': JSON.stringify(plotmateTombstones(activeProjectId) || [], null, 2)
     };
     for (const name in parts) zip.file(name, parts[name]);
 
@@ -227,6 +234,7 @@ function plotpackReadme(project, nFeatures, nPhotos){
     '  features.geojson   plain GeoJSON — open this one in QGIS or geojson.io',
     '  notes.md           project notes',
     '  sketches.json      PlotEtch sketches',
+    '  tombstones.json    records of deleted features, so a merge cannot resurrect them',
     '  photos/            the original photo files, named by id',
     '',
     'To restore the whole project, open PlotEdge and use Import.',
@@ -276,7 +284,7 @@ const DEVICE_SETTING_KEYS = [
   'plotedge_theme', 'plotedge_domain', 'plotedge_density', 'plotedge_units',
   'plotedge_basemap', 'plotedge_maplayout_basemap', 'plotedge_snap',
   'plotedge_watermark', 'plotedge_quickactions', 'plotedge_export_format_default',
-  'plotedge_plotlens_enabled', 'plotedge_plotmate_clock', 'plotedge_plotmate_device',
+  'plotedge_plotlens_enabled', 'plotedge_plotwords_seen', 'plotedge_plotmate_clock', 'plotedge_plotmate_device',
   'plotedge_plotvault_sources', 'plotedge_atlas_tools_open', 'plotedge_insights_open',
   'plotedge_recent_assignees', 'plotedge-save-to-device', 'plotedge-autoexport-device',
   'plotedge-cloud-endpoint', 'plotedge-ai-endpoint',
@@ -436,7 +444,10 @@ async function preparePlotpackImport(file){
       'schema.json': await readPart('schema.json'),
       'features.json': await readPart('features.json'),
       'notes.md': await readPart('notes.md'),
-      'sketches.json': await readPart('sketches.json')
+      'sketches.json': await readPart('sketches.json'),
+      // Absent in bundles written before this existed — read as an empty list rather than an
+      // error, same tolerance the checksum loop below already applies to missing parts.
+      'tombstones.json': await readPart('tombstones.json')
     };
     if (parts['features.json'] == null || parts['schema.json'] == null){
       showToast('Bundle is incomplete — features or schema missing');
@@ -464,6 +475,7 @@ async function preparePlotpackImport(file){
       features: JSON.parse(parts['features.json']),
       notes: parts['notes.md'] || '',
       sketches: parts['sketches.json'] ? JSON.parse(parts['sketches.json']) : [],
+      tombstones: parts['tombstones.json'] ? JSON.parse(parts['tombstones.json']) : [],
       fileName: file.name
     };
     renderPlotpackImportWizard();
@@ -555,7 +567,8 @@ async function importPlotpackBundle(){
       notes: p.notes,
       notesUpdatedAt: new Date().toISOString(),
       sketches: p.sketches,
-      suspended: []
+      suspended: [],
+      tombstones: Array.isArray(p.tombstones) ? p.tombstones : []
     };
     // persistStore(), not persist(): persist() writes only the ACTIVE project and
     // returns early when none is open — which is exactly the state someone is in

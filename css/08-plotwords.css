@@ -1,0 +1,203 @@
+/* ══ PLOTWORDS ══
+   The first-open explainer strip and the glossary screen. See the header of js/21a-plotwords.js
+   for why these exist: the Plot* names are kept, and made to explain themselves once.
+
+   Everything here uses the existing tokens from css/01-tokens.css — no new colours are introduced,
+   because an explainer that does not look like part of the app reads as an advertisement and gets
+   dismissed without being read. */
+
+/* ── The strip ──
+   Lives in one fixed layer (#plotwordsLayer) rather than inside each module, because half the
+   modules are full-screen maps with no content column to sit in. Deliberately NOT a modal: a
+   modal has to be dealt with before you can see the thing it describes, which is backwards.
+   This sits over the top of the screen, is readable at a glance, and is gone forever after one
+   tap. */
+.plotwords-layer {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  /* Above the map overlays and modals it explains, below toasts — a toast is a response to
+     something you just did and must never be covered by help text you have already read. */
+  z-index: 1500;
+  pointer-events: none;
+}
+
+.plotwords-layer > * { pointer-events: auto; }
+
+.plotwords-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: var(--radius-md, 12px);
+  /* Opaque, not translucent: this sits over satellite imagery, and a frosted panel over aerial
+     photography is unreadable in sunlight. */
+  background: var(--surface-1, #16191F);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-left: 3px solid var(--accent, #F59E0B);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.38);
+  animation: plotwords-in 260ms ease-out;
+}
+
+@keyframes plotwords-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plotwords-strip { animation: none; }
+}
+
+.plotwords-strip-body { flex: 1; min-width: 0; }
+
+.plotwords-strip-name {
+  font-weight: 650;
+  font-size: 0.95rem;
+  color: var(--text, #fff);
+  margin-bottom: 3px;
+  letter-spacing: 0.01em;
+}
+
+.plotwords-strip-text {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-dim, rgba(255,255,255,0.68));
+}
+
+/* "Got it" rather than an × — a cross reads as "close this thing I have not read yet", where a
+   worded button reads as an acknowledgement. It is also a much larger tap target, which matters
+   because this is being dismissed with a thumb, outdoors, possibly in gloves. */
+.plotwords-strip-x {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(255,255,255,0.14));
+  background: transparent;
+  color: var(--text-dim, rgba(255,255,255,0.7));
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  /* 44px, matching every other button in the app. Written at 34 first, which is below the tap
+     target a thumb can reliably hit outdoors — and this is the one button a first-time user is
+     guaranteed to press. */
+  min-height: 44px;
+}
+
+.plotwords-strip-x:active {
+  background: var(--surface-3, rgba(255,255,255,0.07));
+  transform: scale(0.96);
+}
+
+/* ── Descriptor subtitles ──
+   For the permanent second layer: a name with its function underneath, wherever the name appears
+   as a button or tile. Kept small and dim so the NAME stays the thing being read — the descriptor
+   is there to be available, not to compete. */
+.plotwords-sub {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--text-dim, rgba(255,255,255,0.55));
+  margin-top: 2px;
+}
+
+/* ── The glossary screen ── */
+.plotwords-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: var(--bg, #0B0D10);
+  display: none;
+  flex-direction: column;
+}
+
+.plotwords-screen.show { display: flex; }
+
+.plotwords-screen-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  flex: 0 0 auto;
+}
+
+.plotwords-screen-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--text, #fff);
+}
+
+.plotwords-screen-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.plotwords-note {
+  font-size: 0.8rem;
+  color: var(--text-dim, rgba(255,255,255,0.6));
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+
+.plotwords-row {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.07));
+}
+
+.plotwords-row:last-child { border-bottom: 0; }
+
+.plotwords-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
+
+.plotwords-row-name {
+  font-weight: 650;
+  font-size: 0.95rem;
+  color: var(--text, #fff);
+}
+
+/* The four-word version, shown inline beside the name. This is the pairing the whole approach
+   rests on: the name is what you say, the descriptor is what it means, and they are always
+   adjacent until the name alone is enough. */
+.plotwords-row-short {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--accent, #F59E0B);
+}
+
+.plotwords-row-long {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-dim, rgba(255,255,255,0.68));
+}
+
+.plotwords-row-open {
+  margin-top: 9px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(255,255,255,0.14));
+  background: transparent;
+  color: var(--text, #fff);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.plotwords-row-open:active {
+  background: var(--surface-2, rgba(255,255,255,0.05));
+  transform: scale(0.98);
+}
+
+/* Both share the app's press transition so they decelerate like every other button rather than
+   snapping — an inconsistent press curve is the kind of thing nobody names but everybody feels. */
+.plotwords-strip-x, .plotwords-row-open { transition: background 0.15s, transform 0.12s; }

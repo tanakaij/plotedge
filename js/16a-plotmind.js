@@ -88,11 +88,13 @@ function pmModifiedZ(values){
 // ══ THE SHEET ══
 function openPlotMind(){
   if (!activeProjectId){ showToast('Open a project first'); return; }
+  plotwordsExplain('plotmind');
   renderPlotMind();
   document.getElementById('plotMindModal').classList.add('show');
 }
 
 function closePlotMind(){
+  plotwordsDismissAll();
   document.getElementById('plotMindModal').classList.remove('show');
 }
 

@@ -522,7 +522,15 @@ function persist(opts) {
   // paused part-way to go and collect something else. It rides along here for the
   // same reason currentVertices does: it is real unsaved work, including photos,
   // and a WebView the OS reclaims must not take it with it.
-  projectData[activeProjectId] = { savedFeatures, currentVertices, featureTypes, notes: projectNotes, notesUpdatedAt: projectNotesUpdatedAt, sketches: plotetchSketches, suspended: captureStackForStore() };
+  // Tombstones are read forward off the existing record rather than rebuilt from a global,
+  // because there is no global holding them — they live only in projectData (deliberately, so no
+  // render/export/stats code has to learn to skip them). This assignment REPLACES the project
+  // record wholesale, so without carrying them over, every delete's tombstone would be discarded
+  // by the very persist() call that saved the delete. Silent, and it would have resurrected
+  // deleted features on the first merge.
+  const prior = projectData[activeProjectId];
+  const tombstones = (prior && Array.isArray(prior.tombstones)) ? prior.tombstones : [];
+  projectData[activeProjectId] = { savedFeatures, currentVertices, featureTypes, notes: projectNotes, notesUpdatedAt: projectNotesUpdatedAt, sketches: plotetchSketches, suspended: captureStackForStore(), tombstones };
   // Stamp the project record too, so the Project Manager's "Modified" figure reflects every
   // capture, edit and schema change — not just the ones that happen to touch a saved feature.
   const p = projects.find(x=>x.id === activeProjectId);
@@ -539,6 +547,12 @@ function persist(opts) {
 // photo set into the first vertex so old data keeps displaying/exporting exactly as it used to
 // (single-point-single-photo is just the simplest case of the new vertex model).
 function migrateFeatureToVertices(f) {
+  // PlotMate identity is stamped here rather than in a separate pass: this is already the single
+  // funnel every stored feature passes through on load (both call sites in js/05-projects.js), and
+  // a second pass would be one more place to forget. plotmateMigrateFeature is idempotent and
+  // derives the revision from the record's own savedAt/editedAt, so a project's real edit history
+  // keeps its ordering instead of collapsing to "whenever the migration ran".
+  if (typeof plotmateMigrateFeature === 'function') plotmateMigrateFeature(f);
   if (f.vertices) return f;
   const photos = f.photos || [];
   const pts = f.points || [];

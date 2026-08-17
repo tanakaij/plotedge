@@ -257,7 +257,13 @@ async function exportGeoJSON(){
 function geoJSONFeaturesFor(f, label){
   const verts=f.vertices||[];
   const geo=f.geometryType||'point';
-  const baseProps={feature_name:f.name,reference_id:f.ref||'',feature_type:label,assigned_to:f.assignedTo||'',...flattenAttrs(f.attrs),feature_saved_at:f.savedAt,notes:f.notes||''};
+  // crsStatement() (js/16b-plotgrid.js) is stamped onto every feature rather than only into a
+  // file header: a GeoJSON layer loaded into somebody's QGIS alongside four others loses its
+  // header context immediately, and a projected coordinate with no CRS statement is a guess with
+  // decimals. Geometry itself stays WGS84 per the GeoJSON spec — this records the project's
+  // WORKING grid and, importantly, whether its datum was actually applied.
+  const baseProps={feature_name:f.name,reference_id:f.ref||'',feature_type:label,assigned_to:f.assignedTo||'',...flattenAttrs(f.attrs),feature_saved_at:f.savedAt,notes:f.notes||'',
+    working_crs:(typeof crsStatement==='function'?crsStatement():null)};
   const coordsOf=v=>(v.alt!==null&&v.alt!==undefined)?[+v.lon.toFixed(7),+v.lat.toFixed(7),+v.alt.toFixed(2)]:[+v.lon.toFixed(7),+v.lat.toFixed(7)];
 
   // Embeds each photo's actual image data (base64 data: URI), not just a count/filename, so the
@@ -271,7 +277,7 @@ function geoJSONFeaturesFor(f, label){
     return verts.map((v,vi)=>({
       type:'Feature',
       geometry:{type:'Point',coordinates:coordsOf(v)},
-      properties:{...baseProps,...flattenAttrs(v.attrs),vertex_index:vi+1,total_vertices:verts.length,accuracy_m:(v.acc!=null?+v.acc.toFixed(2):null),captured_at:v.time,photo_count:(v.photos||[]).length,photo_angle_labels:(v.photos||[]).map(p=>p.angleLabel).filter(Boolean).join(';'),photo_cloud_urls:(v.photos||[]).map(p=>p.cloudUrl).filter(Boolean).join(';'),photos_data_uris:(v.photos||[]).map(p=>p.dataUrl).filter(Boolean).join(';')}
+      properties:{...baseProps,...flattenAttrs(v.attrs),vertex_index:vi+1,total_vertices:verts.length,accuracy_m:(v.acc!=null?+v.acc.toFixed(2):null),captured_at:v.time,...(v.fix||{}),photo_count:(v.photos||[]).length,photo_angle_labels:(v.photos||[]).map(p=>p.angleLabel).filter(Boolean).join(';'),photo_cloud_urls:(v.photos||[]).map(p=>p.cloudUrl).filter(Boolean).join(';'),photos_data_uris:(v.photos||[]).map(p=>p.dataUrl).filter(Boolean).join(';')}
     }));
   }
   const ring=verts.map(coordsOf);

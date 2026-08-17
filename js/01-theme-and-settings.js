@@ -377,6 +377,70 @@ function dismissKeyboard(freezeMs){
 window.dismissKeyboard = dismissKeyboard;
 
 
+// ══ DISMISSAL ON CLOSE — CENTRALLY, NOT PER SHEET ══
+// focusWhenSettled() above solved the OPEN half of this properly. The close half was never
+// finished: of twenty-three close*() functions in the app, exactly one (closePlotVault) called
+// dismissKeyboard(). Every other sheet went straight to classList.remove('show') with its input
+// still focused.
+//
+// What that produces is the reported roughness. The blur never happens, so the IME collapses on
+// the platform's own ~250ms schedule, which starts at an arbitrary offset into the sheet's 0.22s
+// exit. Android streams the shrinking ime() inset the whole way down; --kbh follows it; the
+// overlay's padding-bottom and top are bound to --kbh — so the sheet is being re-laid-out on
+// every frame of a journey it is simultaneously animating out of. The card appears to shudder,
+// or to snap upward just as it leaves.
+//
+// Fixing it at each call site would work today and rot immediately: the next sheet somebody adds
+// is a sheet somebody forgets. So it is done once here, by watching for the class that every
+// dismissal ultimately removes. Any sheet, present or future, gets correct behaviour with no
+// call-site change and nothing to remember.
+//
+// MutationObserver rather than wrapping classList: it fires as a microtask, before the browser
+// paints the frame in which .show was removed, so the blur still lands ahead of the exit. And it
+// cannot be bypassed the way a helper function can.
+const KEYBOARD_HOST_SELECTOR = '.modal-overlay, .plotwords-screen, .plot-atlas, .view';
+
+function installKeyboardDismissOnClose(){
+  if (!window.MutationObserver) return;
+  const obs = new MutationObserver(muts => {
+    // Only care when the keyboard is actually up. Checked once for the whole batch rather than
+    // per mutation, since a single close can mutate several elements.
+    if (!document.documentElement.classList.contains('kb-open')) return;
+    for (const m of muts){
+      if (m.attributeName !== 'class') continue;
+      const el = m.target;
+      if (!el.matches || !el.matches(KEYBOARD_HOST_SELECTOR)) continue;
+      // Tokenised rather than substring-matched: a class list containing "shown" or "no-show"
+      // would satisfy a raw indexOf and make every unrelated class change look like a close.
+      const before = (m.oldValue || '').split(' ').filter(Boolean);
+      const had = before.indexOf('show') !== -1 || before.indexOf('active') !== -1;
+      const has = el.classList.contains('show') || el.classList.contains('active');
+      // Closing only. A sheet gaining .show must not blur the field focusWhenSettled just gave it.
+      if (!had || has) continue;
+      // Nothing to dismiss unless the thing being closed is what held the focus. Blurring on the
+      // close of an unrelated container would kill the keyboard under a sheet still using it —
+      // which happens for real, since a confirm can be raised over an open form.
+      const active = document.activeElement;
+      if (!active || !active.matches || !active.matches('input, textarea, select')) continue;
+      if (!el.contains(active)) continue;
+      dismissKeyboard();
+      return;
+    }
+  });
+  obs.observe(document.body, {
+    subtree: true, attributes: true,
+    attributeFilter: ['class'], attributeOldValue: true
+  });
+}
+
+// Installed from here rather than from js/22-boot.js. Hanging it off boot made the guarantee
+// depend on boot reaching that particular line — the same kind of ordering dependency the
+// observer exists to remove. document.body is checked because this file loads in <head> on a
+// cold start but is re-entered from the cache on a warm one.
+if (document.body) installKeyboardDismissOnClose();
+else document.addEventListener('DOMContentLoaded', installKeyboardDismissOnClose, { once: true });
+
+
 // ══ DEFERRED FOCUS — \"THE KEYBOARD OPENS, THEN INSTANTLY CLOSES AGAIN\" ══
 // Every sheet in this app used to focus its first field on a bare timer:
 //     setTimeout(() => document.getElementById('gotoCoordInput').focus(), 80);

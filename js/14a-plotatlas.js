@@ -113,6 +113,9 @@ function openPlotAtlas(){
   const el = document.getElementById('plotAtlas');
   if (!el) return;
   if (!activeProjectId){ showToast('Open a project first'); return; }
+  // First open only — see js/21a-plotwords.js. After the guards, so the explainer does not appear
+  // on a tap that then bounces the user back with "Open a project first".
+  plotwordsExplain('plotatlas');
   const current = document.querySelector('.view.active');
   _viewBeforeAtlas = current ? current.id : 'view-app';
   el.classList.add('show');
@@ -141,6 +144,7 @@ function openPlotAtlas(){
 }
 
 function closePlotAtlas(){
+  plotwordsDismissAll();
   const el = document.getElementById('plotAtlas');
   if (!el) return;
   el.classList.remove('show');

@@ -98,7 +98,26 @@ let lastExtFix = null;
 
 function handleNmeaLine(line){
   line = line.trim();
+
+  // ══ EVERY sentence goes to PlotFix first ══
+  // js/17d-plotfix.js parses GGA, GST, GSA, GSV and RMC, and — unlike the GGA-only path below —
+  // VERIFIES THE NMEA CHECKSUM before believing anything. That matters more than it sounds: this
+  // function used to split on '*' and throw the checksum away, so a sentence corrupted over a
+  // flaky Bluetooth link would parse into a plausible-looking wrong position and be captured as
+  // real. Feeding PlotFix everything also picks up GST, which is the only sentence carrying
+  // MEASURED position error rather than HDOP (a geometry multiplier, not a distance), plus the
+  // DOP and satellites-in-view figures the GGA-only path never saw.
+  //
+  // Both run for now rather than the old path being deleted: onPos() and the whole capture,
+  // averaging and warning stack are driven from the shape below, and swapping their input is a
+  // separate change from starting to parse properly. PlotFix is the source of truth for quality
+  // and provenance; this remains the source of position.
+  if (typeof plotfixIngest === 'function') plotfixIngest(line);
+
   if (!line.startsWith('$') || !/GGA/.test(line.slice(0,6))) return; // only GGA carries fix quality + HDOP
+  // Refuse a sentence whose checksum does not verify. Previously absent, which meant a mangled
+  // latitude reached onPos() and could be captured as a vertex.
+  if (typeof plotfixChecksumOk === 'function' && !plotfixChecksumOk(line)) return;
   const body = line.split('*')[0];
   const fields = body.split(',');
   const fix = parseGGA(fields);
@@ -111,7 +130,13 @@ function handleNmeaLine(line){
   if (statusEl) {
     const label = NMEA_FIX_LABELS[fix.fixQuality] || 'Fix';
     statusEl.className = 'ext-gps-status' + (fix.fixQuality>=4?' fix-rtk':fix.fixQuality===2?' fix-dgps':'');
-    statusEl.textContent = `${label} · HDOP ${fix.hdop!=null?fix.hdop.toFixed(1):'—'} · ±${fix.accuracy.toFixed(2)}m`;
+    // plotfixAccuracy() prefers GST's measured standard deviation over HDOP × a nominal UERE, and
+    // says which it used. A figure the receiver measured and one this app estimated should never
+    // be shown in the same format — the old pill presented both as "±N m".
+    const pf = (typeof plotfixAccuracy === 'function') ? plotfixAccuracy() : null;
+    statusEl.textContent = (pf && pf.m != null)
+      ? `${label} · HDOP ${fix.hdop!=null?fix.hdop.toFixed(1):'—'} · ${pf.label}`
+      : `${label} · HDOP ${fix.hdop!=null?fix.hdop.toFixed(1):'—'} · ±${fix.accuracy.toFixed(2)}m`;
     statusEl.style.display = 'inline-block';
   }
   // Same shape as a browser GeolocationPosition, so onPos()/currentPos/capture logic need no
@@ -464,6 +489,11 @@ const INDOOR_WEAK_ACCURACY_M = 30;
 let weakFixStreak = 0;
 
 function onPos(pos) {
+  // The device provider has no fix metadata, so PlotFix records it as source:'system' with the
+  // quality fields explicitly null rather than stale. This is also the path that carries a
+  // receiver feeding Android's mock location provider — genuinely better coordinates with no
+  // metadata, which the gate has to be able to tell apart from a real NMEA link.
+  if (typeof plotfixFromGeolocation === 'function' && !extGpsActive) plotfixFromGeolocation(pos);
   currentPos=pos;
   const {latitude:lat,longitude:lon,altitude:alt,accuracy:acc}=pos.coords;
   document.getElementById('latVal').textContent=lat.toFixed(7);
@@ -594,7 +624,16 @@ function commitVertex(lat, lon, alt, acc, weak, manual){
   // digitizing-correction tap map are the same code path (see ensureVertexMap in js/09-geometry.js)
   // but mean different things: correcting an outdoor point vs. placing an indoor one from scratch.
   const captureMethod = !manual ? 'gps_fix' : (currentEnvironment === 'PlotIn' ? 'satellite_footprint_tap' : 'manual_tap');
-  const vertex = {lat,lon,alt,acc,time:new Date().toISOString(), attrs:{}, photos:[], manual:!!manual, capture_method:captureMethod};
+  // ══ FIX PROVENANCE ══
+  // Recorded at capture because it is not reconstructible afterwards. A survey where you cannot
+  // later tell which marks were RTK-fixed and which were autonomous is a survey you cannot
+  // defend — and that distinction is the difference between a boundary corner and an estimate.
+  // Carries fix type, satellites used and in view, DOP, the measured standard deviations where
+  // the receiver sent GST, correction age and base station id. Spread into `fix` rather than onto
+  // the vertex root so it cannot collide with an existing key and so exports can decide whether
+  // to flatten it.
+  const fix = (typeof plotfixVertexMeta === 'function') ? plotfixVertexMeta() : null;
+  const vertex = {lat,lon,alt,acc,time:new Date().toISOString(), attrs:{}, photos:[], manual:!!manual, capture_method:captureMethod, fix};
   // If a reference raster is loaded (see sampleRasterAt above), pull the pixel value under this
   // vertex and stash it as a plain attribute — e.g. an elevation DEM auto-fills a height value
   // instead of relying on GPS altitude, which is usually the least accurate part of a fix.

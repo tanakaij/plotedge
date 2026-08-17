@@ -418,6 +418,11 @@ function closeTopOverlay(){
   if (isReallyOpen(onboardOverlay)) { dismissOnboarding(); return true; }
   const lightbox = document.getElementById('photoLightbox');
   if (isReallyOpen(lightbox)) { closeLightbox(); return true; }
+  // The glossary (js/21a-plotwords.js) is a fixed full-screen panel opened from Settings — which
+  // is itself a modal — so it has to be checked ABOVE the modal block below, or Back would close
+  // Settings underneath it and leave the glossary floating over whatever was behind.
+  const plotWords = document.getElementById('plotWordsScreen');
+  if (isReallyOpen(plotWords)) { closePlotWords(); return true; }
   // PlotAtlas sits above the tab content but below the lightbox and the story
   // player (both of which can be opened from inside it), which is why it is
   // checked here rather than first. Its own sub-surfaces go before it: a Back

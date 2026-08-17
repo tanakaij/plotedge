@@ -1015,6 +1015,11 @@ function switchTab(name) {
   if (name !== 'collect') exitCollectDataEntry();
   const tabs = ['dashboard','collect','review','import','export'];
   document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id==='navBtn-'+name));
+  // A first-open explainer belongs to the module that raised it. Switching tabs abandons that
+  // module without necessarily running its close function, and the strip is fixed to the viewport
+  // rather than to the module — so it is cleared here, centrally, rather than relying on every
+  // exit path remembering.
+  if (typeof plotwordsDismissAll === 'function') plotwordsDismissAll();
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id==='panel-'+name));
   // Collect is a full-screen capture workflow — the bottom nav bar should stay out of the way for
   // the whole tab, not just once a field is focused. enterCollectDataEntry() is idempotent (it

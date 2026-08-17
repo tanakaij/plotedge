@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v11';   // bumped: js/17c-plotcad.js added to the precache list
+const SW_VERSION = 'v13';   // bumped: js/21a-plotwords.js and css/08-plotwords.css added
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -38,6 +38,7 @@ const APP_ASSETS = [
   'css/05-components.css',
   'css/06-plotatlas.css',
   'css/07-analytics.css',
+  'css/08-plotwords.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
@@ -62,15 +63,18 @@ const APP_ASSETS = [
   'js/15-plotetch.js',
   'js/16-geometry-math.js',
   'js/16a-plotmind.js',
+  'js/16b-plotgrid.js',
   'js/17-export.js',
   'js/17a-plansheet.js',
   'js/17b-plotpack.js',
   'js/17c-plotcad.js',
+  'js/17d-plotfix.js',
   'js/18-import.js',
   'js/19-sync.js',
   'js/19a-plotvault.js',
   'js/20-ui-feedback.js',
   'js/21-webmap.js',
+  'js/21a-plotwords.js',
   'js/22-boot.js',
   // ══ IMAGES ══
   // These were base64 data URLs inline in index.html and the manifest until

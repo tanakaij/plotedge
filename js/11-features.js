@@ -213,7 +213,10 @@ function saveFeature(){
     if (missingV){ showToast(`Vertex ${vi+1}: "${missingV.label}" is required`); editVertex(vi); return; }
   }
 
-  const vertices = currentVertices.map(v=>({ lat:v.lat, lon:v.lon, alt:v.alt, acc:v.acc, time:v.time, attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix' }));
+  // `fix` carries the GNSS provenance captured at the mark (js/17d-plotfix.js). Copied through
+  // explicitly rather than by spread so an edit of an existing feature preserves the ORIGINAL
+  // fix quality — re-stamping it with today's would claim an accuracy the mark never had.
+  const vertices = currentVertices.map(v=>({ lat:v.lat, lon:v.lon, alt:v.alt, acc:v.acc, time:v.time, attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix', fix:v.fix||null }));
   // Auto-computed length/area/perimeter — always recalculated from the current vertices so an
   // edited feature's geometry attrs stay in sync with whatever shape it ends up with.
   Object.assign(attrs, computeGeometryAttrs(ft, vertices, saveGeo));
@@ -285,17 +288,20 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
     if (idx === -1) {
       // Original entry vanished (e.g. deleted or "Clear all" elsewhere) while this edit was open —
       // save as a new feature instead of silently losing the edit.
-      savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
+      savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
       successMsg = 'Original feature no longer exists. Saved as a new feature.';
     } else {
       const original = savedFeatures[idx];
       // Update in place: keep the original id and savedAt, add editedAt as a record that this was
       // modified after initial capture.
-      savedFeatures[idx] = { ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() };
+      // plotmateTouch AFTER the spread, so the edit gets a fresh revision while keeping the
+      // original's uid — the uid is the record's identity across devices and must never change,
+      // or an edit becomes an unrelated second feature on merge.
+      savedFeatures[idx] = plotmateTouch({ ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() }, 'ft');
       successMsg = `"${name}" updated ✓`;
     }
   } else {
-    savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
+    savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
     successMsg = `"${name}" saved ✓`;
   }
 
@@ -388,10 +394,18 @@ function deleteFeature(id){
   const idx = savedFeatures.findIndex(f=>f.id===id);
   if (idx===-1) return;
   const [removed] = savedFeatures.splice(idx,1);
+  // An absence is not a fact. Without a tombstone, a device that deleted this feature meeting one
+  // that merely still has it reads the delete as missing data, and the feature returns from the
+  // dead. Recorded BEFORE persist() so the tombstone and the removal reach disk together — a
+  // crash between the two would otherwise resurrect it on next load. See js/03a-plotmate.js.
+  plotmateRecordDelete(activeProjectId, removed);
   persist({ destructive: true }); renderFeatures(); updateStats(); if (reviewMap) renderReviewMap();
   maybeAutoExportToDevice();
   showUndoToast(`"${removed.name||'Feature'}" deleted`, () => {
     savedFeatures.splice(idx,0,removed);
+    // The tombstone has to go, or the feature the crew just restored is deleted again by the next
+    // sync — minutes later, with no visible cause. The most alarming way this could fail.
+    plotmateWithdrawDelete(activeProjectId, removed);
     persist(); renderFeatures(); updateStats(); if (reviewMap) renderReviewMap();
     maybeAutoExportToDevice();
     showToast('Feature restored');
@@ -430,7 +444,7 @@ function editFeature(id){
     resetCaptureEndPreference();
     currentVertices = (f.vertices||[]).map(v=>({
       lat:v.lat, lon:v.lon, alt:v.alt, acc:v.acc, time:v.time,
-      attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix'
+      attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix', fix:v.fix||null
     }));
     openVertexIndex = currentVertices.length ? 0 : null;
 
