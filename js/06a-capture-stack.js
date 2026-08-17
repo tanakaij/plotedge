@@ -69,7 +69,9 @@ function captureSnapshot(){
     at: Date.now(),
     ftId: ft.id,
     ftName: ft.name,
-    geometryType: ft.geometryType,
+    // The geometry this capture is being built as, not the type's default — a parked polygon
+    // must come back as a polygon even if the type also permits points.
+    geometryType: activeGeometryType && ftAllowsGeometry(ft, activeGeometryType) ? activeGeometryType : ftDefaultGeometry(ft),
     name: val('featureName'),
     ref: val('featureRef'),
     assignedTo: val('featureAssignedTo'),
@@ -247,6 +249,9 @@ function restoreCaptureSnapshot(snap){
   const ft = getFeatureType(snap.ftId);
   if (sel && ft){
     sel.value = ft.id;
+    // Set before onFeatureTypeChange() so the attribute panes are built against the right scope
+    // resolution first time — rebuilding them afterwards would discard the values applied below.
+    activeGeometryType = ftAllowsGeometry(ft, snap.geometryType) ? snap.geometryType : ftDefaultGeometry(ft);
     onFeatureTypeChange();
     // onFeatureTypeChange() resets repeatGroupState and rebuilds every pane, so
     // the group entries and the field values both go back in afterwards.
@@ -292,7 +297,7 @@ function restoreCaptureSnapshot(snap){
 // calculated is absent too: it is derived, and refreshFieldConditionsAndCalcs()
 // recomputes it from the values this function has just put back.
 function applyAttrValues(ft, attrs){
-  (ft.fields || []).filter(a => a.scope !== 'vertex').forEach(a => {
+  (ft.fields || []).filter(a => effectiveFieldScope(a, currentCaptureGeometry()) !== 'vertex').forEach(a => {
     if (a.type === 'repeat_group' || a.type === 'calculated') return;
     const el = document.getElementById('attr_' + a.id);
     if (!el) return;

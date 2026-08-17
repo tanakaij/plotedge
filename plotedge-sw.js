@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v10';   // bumped: js/17b-plotpack.js added to the precache list
+const SW_VERSION = 'v11';   // bumped: js/17c-plotcad.js added to the precache list
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -65,6 +65,7 @@ const APP_ASSETS = [
   'js/17-export.js',
   'js/17a-plansheet.js',
   'js/17b-plotpack.js',
+  'js/17c-plotcad.js',
   'js/18-import.js',
   'js/19-sync.js',
   'js/19a-plotvault.js',

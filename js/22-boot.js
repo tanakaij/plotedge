@@ -374,7 +374,15 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-(function(){ const sel=document.getElementById('exportFormatSelect'); if(sel) sel.value = defaultExportFormat(); })();
+(function(){
+  // Build both format pickers from EXPORT_FORMATS first, then apply the stored default — the
+  // options have to exist before a value can be assigned to them.
+  if (typeof buildExportFormatSelects === 'function') buildExportFormatSelects();
+  const sel=document.getElementById('exportFormatSelect');
+  if(sel){ sel.value = defaultExportFormat(); if (typeof updateExportFormatUI === 'function') updateExportFormatUI(); }
+  const ssel=document.getElementById('settingsExportFormat');
+  if(ssel) ssel.value = defaultExportFormat();
+})();
 
 updateExportFormatUI();
 

@@ -210,13 +210,10 @@ async function exportGeoJSON(){
   // photos_data_uris, so they have to be read back before the properties are
   // built. See hydrateExportPhotos() at the top of this file.
   const _photos = await hydrateExportPhotos(savedFeatures);
-  const byType={}; const typeLabels={};
-  savedFeatures.forEach(f=>{
-    const info=resolveFeatureType(f);
-    const key=f.featureTypeId||f.layer||'unclassified';
-    typeLabels[key]=info.label;
-    (byType[key]=byType[key]||[]).push(f);
-  });
+  // Split by feature type AND geometry — see featureLayerKey() below for why a mixed-geometry
+  // type cannot go out as one .geojson layer even though GeoJSON itself would allow it.
+  const byType={}; const typeLabels=layerLabelMap(savedFeatures);
+  savedFeatures.forEach(f=>{ (byType[featureLayerKey(f)]=byType[featureLayerKey(f)]||[]).push(f); });
   const types=Object.keys(byType); const stamp=ts();
   const status=document.getElementById('exportStatus');
   if(types.length>1 && status) status.textContent=`Saving ${types.length} files…`;
@@ -308,20 +305,52 @@ function flattenAttrs(attrs){
 }
 
 
-// Groups savedFeatures into one GeoJSON FeatureCollection per feature type — the same grouping
+// ══ LAYER IDENTITY UNDER MULTI-GEOMETRY ══
+// A feature type is one semantic class in the app but may hold captures of more than one
+// geometry (see the block comment in js/02-state.js). A layer in a GIS file is not allowed that
+// freedom: a shapefile and an Esri feature class permit exactly one geometry each, a FlatGeobuf
+// header names exactly one, and while GeoPackage tolerates a generic GEOMETRY column, a QGIS
+// user opening it gets one symbology for points and polygons together — which is not what
+// anybody wants from a septic layer.
+//
+// So the split happens here, at the file boundary, and only where the type actually has mixed
+// captures: "Septic" stays one layer called Septic while every capture is a polygon, and becomes
+// Septic_point / Septic_polygon the moment both exist. One type in the app, conformant files out.
+function featureLayerKey(f){
+  const base = f.featureTypeId || f.layer || 'unclassified';
+  return base + '::' + (f.geometryType || 'point');
+}
+
+// Labels are only suffixed when the suffix is doing work. Deciding that needs the whole set, so
+// it is computed once per export rather than per feature.
+function layerLabelMap(features){
+  const geosPerBase = {}; const baseLabel = {};
+  features.forEach(f=>{
+    const base = f.featureTypeId || f.layer || 'unclassified';
+    baseLabel[base] = resolveFeatureType(f).label;
+    (geosPerBase[base] = geosPerBase[base] || new Set()).add(f.geometryType || 'point');
+  });
+  const out = {};
+  features.forEach(f=>{
+    const base = f.featureTypeId || f.layer || 'unclassified';
+    const geo = f.geometryType || 'point';
+    out[base + '::' + geo] = geosPerBase[base].size > 1 ? `${baseLabel[base]}_${geo}` : baseLabel[base];
+  });
+  return out;
+}
+
+// Groups savedFeatures into one GeoJSON FeatureCollection per layer — the same grouping
 // exportGeoJSON() uses — so GeoPackage/FlatGeobuf/PostGIS can share one code path instead of
 // re-deriving layers three different ways.
 function collectFeatureCollectionsByType(){
-  const byType={}; const typeLabels={};
+  const byType={};
+  const labels=layerLabelMap(savedFeatures);
   savedFeatures.forEach(f=>{
-    const info=resolveFeatureType(f);
-    const key=f.featureTypeId||f.layer||'unclassified';
-    typeLabels[key]=info.label;
-    (byType[key]=byType[key]||[]).push(f);
+    (byType[featureLayerKey(f)]=byType[featureLayerKey(f)]||[]).push(f);
   });
   return Object.keys(byType).map(key=>({
-    key, label:typeLabels[key],
-    fc:{type:'FeatureCollection', name:typeLabels[key], features:byType[key].flatMap(f=>geoJSONFeaturesFor(f,typeLabels[key]))}
+    key, label:labels[key],
+    fc:{type:'FeatureCollection', name:labels[key], features:byType[key].flatMap(f=>geoJSONFeaturesFor(f,labels[key]))}
   }));
 }
 
@@ -905,7 +934,12 @@ async function exportGeoPackage(){
     for (const g of groups){
       const feats=g.fc.features;
       const tableName=sanitizeTableName(g.label);
-      const geomTypeGpkg=feats[0].geometry.type.toUpperCase();
+      // Every layer reaching here is single-geometry by construction (featureLayerKey splits on
+      // geometry), so feats[0] is representative. The defensive GEOMETRY fallback stays because a
+      // mis-declared gpkg_geometry_columns row is the kind of corruption that only surfaces once
+      // the file is in somebody else's QGIS — cheap insurance against a future grouping change.
+      const geomKinds=new Set(feats.map(x=>x.geometry.type.toUpperCase()));
+      const geomTypeGpkg=geomKinds.size===1 ? feats[0].geometry.type.toUpperCase() : 'GEOMETRY';
       const hasZ=feats.some(f=>geomCoordHasZ(f.geometry));
       const propKeys=[]; const seen=new Set();
       feats.forEach(f=>Object.keys(f.properties||{}).forEach(k=>{
@@ -1393,6 +1427,12 @@ function handleBackupImportFile(event){
 
 // ══ EXPORT FORMAT DROPDOWN — one card, one button; the select just swaps which underlying
 // export*() function the button calls and updates its description/note/color to match. ══
+// Each entry also carries `group` (which optgroup it belongs in) and `short` (its label in the
+// Settings default-format picker, where there is no room for the full button text). Those two
+// exist so both <select>s can be BUILT from this object at boot — see buildExportFormatSelects()
+// at the bottom of this file. They used to be hand-written in index.html, and had drifted: the
+// Settings picker was missing PlotPack, Device Settings and the legacy JSON backup entirely, so
+// three formats could be exported but never set as the default.
 const EXPORT_FORMATS = {
   // ── The native bundle. Supersedes the .plotedge.json backup below rather than
   // replacing it: same completeness, but a ZIP with the photos as real JPEGs
@@ -1405,45 +1445,107 @@ const EXPORT_FORMATS = {
   // something they can open. See js/17b-plotpack.js.
   plotpack: { label:'Download PlotPack', btnClass:'btn-geo', run:()=>exportPlotpack(),
     desc:'A single <code>.plotpack</code> file holding the entire project — every feature, photo, per-vertex reading, feature type definition, note and sketch. This is the format to send to a colleague or move to a new phone: PlotEdge restores it exactly as it was.',
-    note:'A .plotpack is a ZIP: rename it to .zip and you can read the schema, the notes and a plain GeoJSON copy with ordinary tools, and the photos are in there as normal .jpg files. Tapping one on a phone with PlotEdge installed opens it here.' },
+    note:'A .plotpack is a ZIP: rename it to .zip and you can read the schema, the notes and a plain GeoJSON copy with ordinary tools, and the photos are in there as normal .jpg files. Tapping one on a phone with PlotEdge installed opens it here.',
+    group:'plotedge', short:'PlotPack (whole project)', selectLabel:'PlotPack (.plotpack — whole project, photos included)' },
   plotedge: { label:'Download Backup (legacy JSON)', btnClass:'btn-geo', run:exportProjectBackup,
     desc:'The older single-file <code>.plotedge.json</code> backup, kept so bundles exported by earlier versions still have a matching writer. Prefer the Project Bundle above for anything new. Use it for device-to-device transfers or as a true backup; everything else below is a one-way export for other software.',
-    note:'Photos are embedded as base64, so this file can be noticeably larger than the GIS formats below. To back up every project at once, use "Backup all projects" on the Projects screen instead of repeating this per project.' },
+    note:'Photos are embedded as base64, so this file can be noticeably larger than the GIS formats below. To back up every project at once, use "Backup all projects" on the Projects screen instead of repeating this per project.',
+    group:'plotedge', short:'Backup (.json — older format)', selectLabel:'Backup (.json — older format)' },
   geojson: { label:'Download GeoJSON', btnClass:'btn-geo', run:exportGeoJSON,
-    desc:'Each layer as a separate <code>.geojson</code> file. All attributes included as properties. Load directly in QGIS or ArcGIS.', note:null },
+    desc:'Each layer as a separate <code>.geojson</code> file. All attributes included as properties. Load directly in QGIS or ArcGIS.', note:null,
+    group:'vector', short:'GeoJSON', selectLabel:'GeoJSON (1 file per layer)' },
   gpkg: { label:'Download GeoPackage', btnClass:'btn-gpkg', run:exportGeoPackage,
     desc:'All layers in one <code>.gpkg</code> (SQLite) file, grouped by feature type as separate tables. Opens directly in QGIS/ArcGIS with no format conversion.',
-    note:'First tap loads a small SQLite engine from a CDN (needs network signal once). GeoPackage and FlatGeobuf files are heavier to build than GeoJSON/CSV, so on datasets over ~500 features the status line below the button shows live progress rather than appearing frozen.' },
+    note:'First tap loads a small SQLite engine from a CDN (needs network signal once). GeoPackage and FlatGeobuf files are heavier to build than GeoJSON/CSV, so on datasets over ~500 features the status line below the button shows live progress rather than appearing frozen.',
+    group:'vector', short:'GeoPackage', selectLabel:'GeoPackage (single .gpkg file)' },
   fgb: { label:'Download FlatGeobuf', btnClass:'btn-fgb', run:exportFlatGeobuf,
     desc:'Each layer as a compact, streamable <code>.fgb</code> file. Good for large datasets and fast partial loading in web maps or QGIS.',
-    note:'First tap loads a small serializer from a CDN (needs network signal once).' },
+    note:'First tap loads a small serializer from a CDN (needs network signal once).',
+    group:'vector', short:'FlatGeobuf', selectLabel:'FlatGeobuf (1 file per layer)' },
   geoparquet: { label:'Download GeoParquet', btnClass:'btn-fgb', run:exportGeoParquet,
     desc:'Each layer as a columnar <code>.parquet</code> file (GeoParquet 1.1, WKB geometry). Compact, fast to query with DuckDB/GeoPandas, and opens directly in QGIS 3.28+ or ArcGIS Pro.',
-    note:'First tap loads a small parquet-writer engine from a CDN (needs network signal once).' },
+    note:'First tap loads a small parquet-writer engine from a CDN (needs network signal once).',
+    group:'vector', short:'GeoParquet', selectLabel:'GeoParquet (1 file per layer)' },
   csv: { label:'Download CSV', btnClass:'btn-csv', run:exportCSV,
-    desc:'One row per point. All layer attributes included as columns. Sort by <code>reference_id</code> to compare with your other app.', note:null },
+    desc:'One row per point. All layer attributes included as columns. Sort by <code>reference_id</code> to compare with your other app.', note:null,
+    group:'tables', short:'CSV', selectLabel:'CSV (flat table, all features)' },
   xlsx: { label:'Download Excel', btnClass:'btn-csv', run:exportExcel,
     desc:'Same table as CSV, as a native <code>.xlsx</code> workbook — opens directly in Excel with no import step.',
-    note:'First tap loads a small spreadsheet engine from a CDN (needs network signal once). Embedded photos are included as base64 text in the photo_data_uris column, not as viewable images in the cell — free spreadsheet libraries can\'t render inline images, only paid ones can. Use "Download Photos" or GeoJSON/GPKG/FlatGeobuf if you need openable image files.' },
+    note:'First tap loads a small spreadsheet engine from a CDN (needs network signal once). Embedded photos are included as base64 text in the photo_data_uris column, not as viewable images in the cell — free spreadsheet libraries can\'t render inline images, only paid ones can. Use "Download Photos" or GeoJSON/GPKG/FlatGeobuf if you need openable image files.',
+    group:'tables', short:'Excel (.xlsx)', selectLabel:'Excel workbook (.xlsx)' },
   // Wrapped in an arrow rather than referenced directly: these two live in
   // js/17a-plansheet.js, which loads AFTER this file, so a bare reference here
   // would be evaluated while that file's declarations are still in their
   // temporal dead zone. The arrow defers the lookup to the moment it is tapped.
   pdf: { label:'Download Survey Register (PDF)', btnClass:'btn-csv', run:()=>exportPDF(),
     desc:'An issued document, not a data dump: a masthead carrying the project, client, site and coordinate system, the full feature schedule paginated with a running header and page numbers, and a closing basis-and-limitations statement. For review, sign-off and the project file.',
-    note:'First tap loads a small PDF engine from a CDN (needs network signal once). Photos aren\'t included in this table — use "Download Photos" for those, or "Download Map Layout" for a printable page with the actual plotted points, legend, and scale.' },
+    note:'First tap loads a small PDF engine from a CDN (needs network signal once). Photos aren\'t included in this table — use "Download Photos" for those, or "Download Map Layout" for a printable page with the actual plotted points, legend, and scale.',
+    group:'tables', short:'PDF report', selectLabel:'PDF report (.pdf)' },
   maplayout: { label:'Download Plan Sheet (PDF)', btnClass:'btn-gpkg', run:()=>exportMapLayout(),
     desc:'A landscape A4 plan sheet laid out the way a survey drawing is: bordered frame, a coordinate graticule over the map, and a full title block down the right edge — project and client, coordinate reference, a true drafting scale (1:500, 1:1000 …) with a segmented scale bar, north arrow, legend, survey totals, issue date and limitations.',
-    note:'First tap loads a small PDF engine from a CDN (needs network signal once). The plot is fitted, then rounded to a conventional drafting scale so the printed sheet really is at the ratio it states. A raster basemap is optional and drawn behind the vectors; without one the sheet is a clean schematic that needs no network at all.' },
+    note:'First tap loads a small PDF engine from a CDN (needs network signal once). The plot is fitted, then rounded to a conventional drafting scale so the printed sheet really is at the ratio it states. A raster basemap is optional and drawn behind the vectors; without one the sheet is a clean schematic that needs no network at all.',
+    group:'tables', short:'Map layout', selectLabel:'Map layout (.pdf, legend + scale)' },
   // Preferences, not data. Separate from the project bundle on purpose: importing
   // a colleague's survey must never silently repaint your app or change your
   // units. See the DEVICE SETTINGS PACK section of js/17b-plotpack.js.
   settings: { label:'Download Device Settings', btnClass:'btn-csv', run:()=>exportDeviceSettings(),
     desc:'Your preferences only — theme, units, basemap, quick actions, export defaults and publishing targets — as a small <code>.plotpack</code> file. Restore it after a reinstall or on a new phone instead of setting everything up again.',
-    note:'No survey data and no photos. Access tokens are never included: if you publish web maps you will need to re-enter yours after restoring. Android\'s own backup does not cover a sideloaded APK, which is why this exists.' },
+    note:'No survey data and no photos. Access tokens are never included: if you publish web maps you will need to re-enter yours after restoring. Android\'s own backup does not cover a sideloaded APK, which is why this exists.',
+    group:'plotedge', short:'Device settings (preferences only)', selectLabel:'Device settings (.plotpack — preferences only)' },
   photos: { label:'Download Photos', btnClass:'btn-photos', run:exportPhotos,
-    desc:'Saves each photo as <code>Layer_FeatureName_photo1.jpg</code> into your exports folder.', note:null }
+    desc:'Saves each photo as <code>Layer_FeatureName_photo1.jpg</code> into your exports folder.', note:null,
+    group:'tables', short:'Photos' },
+  // Wrapped in an arrow for the same temporal-dead-zone reason as pdf/maplayout above:
+  // exportCAD lives in js/17c-plotcad.js, which loads after this file.
+  cad: { label:'Download CAD Drawing (DXF)', btnClass:'btn-gpkg', run:()=>exportCAD(),
+    desc:'A <code>.dxf</code> drawing in true metres, one layer per feature type and geometry, with feature names and reference IDs on parallel annotation layers. Opens directly in AutoCAD, Civil 3D, BricsCAD, ZWCAD, DraftSight and LibreCAD.',
+    note:'Coordinates are projected to WGS84 / UTM (zone detected from your survey) because CAD has no coordinate system of its own — the zone and its EPSG code are written into the drawing header. DXF carries no attribute table, so export CSV or GeoJSON alongside and join on reference_id. This is the one export that needs no network at all. A CAD office asking for DWG will open a DXF; if one insists, any of the packages above converts it in one step.',
+    group:'cad', short:'CAD drawing (DXF)' }
 };
+
+// Which optgroup each format sits in, and the heading text for each. Order here is the order
+// both selects render in.
+const EXPORT_FORMAT_GROUPS = [
+  { id:'plotedge', label:'PlotEdge (re-importable)' },
+  { id:'vector',   label:'Vector layers' },
+  { id:'cad',      label:'CAD' },
+  { id:'tables',   label:'Tables & media' }
+];
+
+// ══ SELECT GENERATION ══
+// Both the Export tab's format picker and Settings' default-format picker are built from
+// EXPORT_FORMATS so a new format cannot be added to one and forgotten in the other. Every
+// exportable format is offered as a default, including the three that were previously missing:
+// there is no format you can run but cannot pre-select.
+function buildExportFormatSelects(){
+  const keysIn = gid => Object.keys(EXPORT_FORMATS).filter(k => (EXPORT_FORMATS[k].group||'tables') === gid);
+
+  const exportSel = document.getElementById('exportFormatSelect');
+  if (exportSel){
+    const keep = exportSel.value;
+    exportSel.innerHTML = EXPORT_FORMAT_GROUPS.map(g => {
+      const keys = keysIn(g.id);
+      if (!keys.length) return '';
+      return `<optgroup label="${escapeHtml(g.label)}">` + keys.map(k =>
+        `<option value="${k}">${escapeHtml(EXPORT_FORMATS[k].selectLabel || EXPORT_FORMATS[k].short || EXPORT_FORMATS[k].label)}</option>`
+      ).join('') + '</optgroup>';
+    }).join('');
+    if (keep && EXPORT_FORMATS[keep]) exportSel.value = keep;
+  }
+
+  const settingsSel = document.getElementById('settingsExportFormat');
+  if (settingsSel){
+    const keep = settingsSel.value;
+    settingsSel.innerHTML = EXPORT_FORMAT_GROUPS.map(g => {
+      const keys = keysIn(g.id);
+      if (!keys.length) return '';
+      return `<optgroup label="${escapeHtml(g.label)}">` + keys.map(k =>
+        `<option value="${k}">${escapeHtml(EXPORT_FORMATS[k].short || EXPORT_FORMATS[k].label)}</option>`
+      ).join('') + '</optgroup>';
+    }).join('');
+    if (keep && EXPORT_FORMATS[keep]) settingsSel.value = keep;
+  }
+}
 
 // ── Map Layout basemap mode ── 'none' | 'street' | 'satellite', remembered across sessions the
 // same way the Review tab's own basemap preference is (separate key though — this one governs

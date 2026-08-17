@@ -145,7 +145,83 @@ let currentVertices = [], openVertexIndex = null, savedFeatures = [];
 // setCollectEnvironment() in js/06-collect.js.
 let currentEnvironment = 'PlotOut';
 
-let featureTypes = [];     // [{id,name,geometryType,fields:[{id,label,type,options,required,placeholder}]}] — active project's custom schema
+let featureTypes = [];     // [{id,name,geometryType,geometryTypes,fields:[{id,label,type,options,required,placeholder}]}] — active project's custom schema
+
+// ══ MULTI-GEOMETRY FEATURE TYPES ══
+// A feature type is a semantic class ("Septic Tank"), not a geometry. The same class is
+// legitimately captured at different fidelity depending on what the field crew can see: a
+// point when all you can reach is the lid, a polygon when the footprint is exposed. Rather
+// than forcing two near-identical types with duplicated attribute schemas, a type now
+// declares which geometries it PERMITS, and each capture records which one it USED.
+//
+// `geometryTypes` is the new array; `geometryType` is kept in sync as its first entry so
+// every existing reader (exports, PlotAtlas, PlotMind, analytics, the legacy .plotedge.json
+// backup) keeps working unchanged against types that only allow one geometry — which is
+// every type that existed before this change. Nothing needs migrating on load.
+//
+// Note what is deliberately NOT allowed: a single FEATURE with several geometries. That
+// would be a GeometryCollection, which ArcGIS refuses outright, QGIS handles poorly, and
+// which has no meaningful length or area. A septic with both a footprint and a lid is two
+// features sharing a reference id.
+const GEOMETRY_KINDS = ['point','line','polygon'];
+
+function ftGeometries(ft){
+  if (!ft) return ['point'];
+  const list = Array.isArray(ft.geometryTypes) ? ft.geometryTypes.filter(g=>GEOMETRY_KINDS.includes(g)) : [];
+  if (list.length) return GEOMETRY_KINDS.filter(g=>list.includes(g)); // canonical order, deduped
+  return [GEOMETRY_KINDS.includes(ft.geometryType) ? ft.geometryType : 'point'];
+}
+
+function ftDefaultGeometry(ft){
+  const list = ftGeometries(ft);
+  // The stored singular wins when it is still permitted, so a type that allowed only
+  // polygons before and has since gained point capture still opens on polygon.
+  return list.includes(ft && ft.geometryType) ? ft.geometryType : list[0];
+}
+
+function ftAllowsGeometry(ft, geo){ return ftGeometries(ft).includes(geo); }
+
+function ftIsMultiGeometry(ft){ return ftGeometries(ft).length > 1; }
+
+// Human label for a type's geometry capability, used anywhere the old code printed
+// `ft.geometryType` straight into the UI.
+function ftGeometryLabel(ft){
+  const list = ftGeometries(ft);
+  return list.length > 1 ? list.join(' / ') : list[0];
+}
+
+// ── Session geometry ──
+// Which geometry the capture currently in progress is building. For a single-geometry type
+// this is just that type's geometry and nothing observable changes. For a multi-geometry
+// type it is what the crew picked on the Collect screen, and it is what gets written onto
+// the saved feature — the feature type's own list only ever says what was permitted.
+let activeGeometryType = 'point';
+
+function currentCaptureGeometry(){
+  const ft = (typeof getFeatureType === 'function' && document.getElementById('featureTypeSelect'))
+    ? getFeatureType(document.getElementById('featureTypeSelect').value) : null;
+  if (!ft) return activeGeometryType || 'point';
+  return ftAllowsGeometry(ft, activeGeometryType) ? activeGeometryType : ftDefaultGeometry(ft);
+}
+
+// A field scoped per-vertex is meaningless on a point capture (one vertex — "per vertex" and
+// "once per feature" would be the same question asked twice). Under multi-geometry the scope
+// can no longer be resolved when the type is DEFINED, because the same type may be captured
+// as both. So the schema keeps 'vertex' and it collapses here, at capture time, against the
+// geometry actually in use.
+// The saved-feature counterpart to effectiveFieldScope: resolves a field's scope against the
+// geometry the feature was actually captured as, which is what decides whether its value lives
+// in f.attrs or in each vertex's own attrs. Anything reading back a stored feature must use this
+// rather than field.scope, or a point capture of a multi-geometry type has its per-vertex fields
+// looked for in the wrong place and they render as missing.
+function featureFieldScope(field, f){
+  return effectiveFieldScope(field, (f && f.geometryType) || 'point');
+}
+
+function effectiveFieldScope(field, geo){
+  const scope = (field && field.scope === 'vertex') ? 'vertex' : 'feature';
+  return (scope === 'vertex' && geo === 'point') ? 'feature' : scope;
+}
 
 let projectNotes = '';     // freeform per-project scratchpad text (Quick Notes), saved with everything else in persist()
 
@@ -324,7 +400,10 @@ function hexToRgba(hex,alpha){
 function resolveFeatureType(f) {
   if (f.featureTypeId) {
     const ft = getFeatureType(f.featureTypeId);
-    if (ft) return { label: ft.name, fields: ft.fields, isLegacy:false, key: ft.id, geometryType: ft.geometryType };
+    // geometryType here is the type's DEFAULT/declared geometry, kept for callers that only
+    // want a glyph. Anything describing a specific saved feature must read f.geometryType,
+    // which records what that capture actually was.
+    if (ft) return { label: ft.name, fields: ft.fields, isLegacy:false, key: ft.id, geometryType: ftDefaultGeometry(ft), geometryTypes: ftGeometries(ft) };
     // feature type was since deleted — fall back to whatever was saved on the feature
     return { label: f.featureTypeName || 'Deleted type', fields: [], isLegacy:false, key: f.featureTypeId, geometryType: f.geometryType||'point' };
   }

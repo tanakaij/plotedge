@@ -564,11 +564,16 @@ try {
       </div>
       <div class="field">
         <label>Geometry Type</label>
-        <div class="geo-toggle" id="ftGeoToggle">
-          <div class="geo-opt" data-geo="point" onclick="setFtGeo('point')">● Point</div>
-          <div class="geo-opt" data-geo="line" onclick="setFtGeo('line')">— Line</div>
-          <div class="geo-opt" data-geo="polygon" onclick="setFtGeo('polygon')">▱ Polygon</div>
+        <!-- Multi-select, not one-of-three: a feature type is a semantic class, and the same
+             class is captured at whatever fidelity the site allows (a septic as a lid point
+             when that is all you can reach, as a footprint polygon when it is exposed). Tap
+             more than one to permit both; the crew then picks per feature on Collect. -->
+        <div class="geo-toggle" id="ftGeoToggle" data-multi="1">
+          <div class="geo-opt" data-geo="point" onclick="toggleFtGeo('point')">● Point</div>
+          <div class="geo-opt" data-geo="line" onclick="toggleFtGeo('line')">— Line</div>
+          <div class="geo-opt" data-geo="polygon" onclick="toggleFtGeo('polygon')">▱ Polygon</div>
         </div>
+        <div class="hint" id="ftGeoHint" style="margin-top:6px;"></div>
       </div>
       <div class="field" style="margin-bottom:0;">
         <label>Color</label>
@@ -1036,6 +1041,18 @@ try {
         </button>
         <select id="featureTypeSelect" onchange="onFeatureTypeChange()" style="display:none;"></select>
       </div>
+      <!-- Only shown for a feature type that permits more than one geometry. It governs THIS
+           capture, not the type: what gets written onto the saved feature is whatever is
+           selected here at Save. Hidden entirely for single-geometry types, so the Collect
+           screen is unchanged for every project that predates multi-geometry. -->
+      <div class="field" id="collectGeoField" style="display:none;">
+        <label>Capture as <span class="hint" id="collectGeoHint"></span></label>
+        <div class="geo-toggle" id="collectGeoToggle">
+          <div class="geo-opt" data-geo="point" onclick="setCaptureGeometry('point')">● Point</div>
+          <div class="geo-opt" data-geo="line" onclick="setCaptureGeometry('line')">— Line</div>
+          <div class="geo-opt" data-geo="polygon" onclick="setCaptureGeometry('polygon')">▱ Polygon</div>
+        </div>
+      </div>
       <div class="field">
         <label>Reference ID <span class="hint">(matches your other app's ID)</span></label>
         <input type="text" id="featureRef" placeholder="e.g. SITE-003" autocomplete="off" autocorrect="off" spellcheck="false">
@@ -1439,29 +1456,10 @@ try {
       <div class="field">
         <label>Choose a format</label>
         <div class="select-wrap">
-          <select id="exportFormatSelect" onchange="updateExportFormatUI()">
-            <!-- The two formats PlotEdge can read back. Kept at the top and in their own
-                 group because they answer a different question from everything below: those
-                 hand data to other software, these move a project or a device. -->
-            <optgroup label="PlotEdge (re-importable)">
-              <option value="plotpack">PlotPack (.plotpack — whole project, photos included)</option>
-              <option value="settings">Device settings (.plotpack — preferences only)</option>
-              <option value="plotedge">Backup (.json — older format)</option>
-            </optgroup>
-            <optgroup label="Vector layers">
-              <option value="geojson">GeoJSON (1 file per layer)</option>
-              <option value="gpkg">GeoPackage (single .gpkg file)</option>
-              <option value="fgb">FlatGeobuf (1 file per layer)</option>
-              <option value="geoparquet">GeoParquet (1 file per layer)</option>
-            </optgroup>
-            <optgroup label="Tables &amp; media">
-              <option value="csv">CSV (flat table, all features)</option>
-              <option value="xlsx">Excel workbook (.xlsx)</option>
-              <option value="pdf">PDF report (.pdf)</option>
-              <option value="maplayout">Map layout (.pdf, legend + scale)</option>
-              <option value="photos">Photos (original images)</option>
-            </optgroup>
-          </select>
+          <!-- Options are generated from EXPORT_FORMATS at boot (buildExportFormatSelects in
+               js/17-export.js) so this picker and the Settings default-format picker can never
+               again disagree about which formats exist. -->
+          <select id="exportFormatSelect" onchange="updateExportFormatUI()"></select>
         </div>
       </div>
       <div class="field" id="maplayoutBasemapField" style="display:none;">
@@ -2371,21 +2369,8 @@ try {
         <div class="settings-row-label">Default export format</div>
         <div class="settings-row-sub">Pre-selected when you open Export</div>
       </div>
-      <select class="settings-select" id="settingsExportFormat" onchange="setExportFormatDefault(this.value)">
-        <optgroup label="Vector layers">
-          <option value="geojson">GeoJSON</option>
-          <option value="gpkg">GeoPackage</option>
-          <option value="fgb">FlatGeobuf</option>
-          <option value="geoparquet">GeoParquet</option>
-        </optgroup>
-        <optgroup label="Tables &amp; media">
-          <option value="csv">CSV</option>
-          <option value="xlsx">Excel (.xlsx)</option>
-          <option value="pdf">PDF report</option>
-          <option value="maplayout">Map layout</option>
-          <option value="photos">Photos</option>
-        </optgroup>
-      </select>
+      <!-- Generated from EXPORT_FORMATS — see the note on #exportFormatSelect. -->
+      <select class="settings-select" id="settingsExportFormat" onchange="setExportFormatDefault(this.value)"></select>
     </div>
     <div class="settings-row">
       <div>
@@ -2470,6 +2455,7 @@ try {
 <script src="js/17-export.js"></script>
 <script src="js/17a-plansheet.js"></script>
 <script src="js/17b-plotpack.js"></script>
+<script src="js/17c-plotcad.js"></script>
 <script src="js/18-import.js"></script>
 <script src="js/19-sync.js"></script>
 <script src="js/19a-plotvault.js"></script>

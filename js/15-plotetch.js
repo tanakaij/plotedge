@@ -1319,7 +1319,7 @@ function plotEtchSendToCollect(){
   const s = peSelected();
   if (!s){ showToast('Select a sketch first'); return; }
   if (!featureTypes.length){ showToast('Add a feature type first'); return; }
-  const matching = featureTypes.filter(ft=>ft.geometryType===s.type);
+  const matching = featureTypes.filter(ft=>ftAllowsGeometry(ft, s.type));
   if (!matching.length){
     showToast(`No ${s.type} feature type exists yet — create one first`);
     return;

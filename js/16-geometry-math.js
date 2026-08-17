@@ -514,7 +514,7 @@ function openInspect(id){
   const attrs = f.attrs || {};
   const rows = [];
   const seen = new Set();
-  if (ft) ft.fields.filter(fl=>fl.scope!=='vertex').forEach(fl=>{
+  if (ft) ft.fields.filter(fl=>featureFieldScope(fl,f)!=='vertex').forEach(fl=>{
     seen.add(fl.id);
     rows.push([fl.label, formatAttrValue(attrs[fl.id], fl)]);
   });

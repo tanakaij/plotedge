@@ -111,10 +111,10 @@ function openFeatureTypePicker(){
   list.innerHTML = featureTypes.map(t => {
     const isSel = t.id === sel.value;
     return `<div class="ft-picker-row ${isSel?'sel':''}" onclick="selectFeatureTypeFromPicker('${t.id}')">
-      <div class="ft-picker-row-glyph">${ftPickerGlyph[t.geometryType]||''}</div>
+      <div class="ft-picker-row-glyph">${ftGeometries(t).map(g=>ftPickerGlyph[g]||'').join('')}</div>
       <div class="ft-picker-row-text">
         <div class="ft-picker-row-name">${escapeHtml(t.name)}</div>
-        <div class="ft-picker-row-meta">${escapeHtml(t.geometryType)} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
+        <div class="ft-picker-row-meta">${escapeHtml(ftGeometryLabel(t))} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
       </div>
       <div class="ft-picker-row-check">✓</div>
     </div>`;
@@ -139,8 +139,72 @@ function selectFeatureTypeFromPicker(id){
 }
 
 function updateFeatureTypePickerTrigger(ft){
-  document.getElementById('featureTypePickerGlyph').textContent = ftPickerGlyph[ft.geometryType] || '';
+  document.getElementById('featureTypePickerGlyph').textContent = ftGeometries(ft).map(g=>ftPickerGlyph[g]||'').join('');
   document.getElementById('featureTypePickerLabel').textContent = ft.name;
+}
+
+
+// ══ PER-CAPTURE GEOMETRY ══
+// Sets which geometry the capture in progress is building. Refuses a switch that would throw
+// away vertices already captured: dropping from polygon to point after five vertices is walked
+// is not something to do on a mis-tap, so it asks first. Switching UP (point -> line/polygon)
+// is always safe — the vertices are the same list, only reinterpreted, which is the whole
+// reason this is cheap: a point capture with four vertices already contains a polygon.
+function setCaptureGeometry(geo, silent){
+  const sel = document.getElementById('featureTypeSelect');
+  const ft = sel ? getFeatureType(sel.value) : null;
+  if (!ft || !ftAllowsGeometry(ft, geo)) return;
+  if (activeGeometryType === geo) return;
+
+  const minFor = g => g==='polygon' ? 3 : g==='line' ? 2 : 1;
+  const losing = geo === 'point' && currentVertices.length > 1;
+  const apply = () => {
+    // onFeatureTypeChange() rebuilds every attribute pane from scratch, which would blank
+    // anything already typed for this feature. The values are read out first and put back
+    // after — the same collectAttrs/applyAttrValues pair the capture stack uses to park and
+    // resume a capture, so a geometry switch can't disagree with what Save would have written.
+    const carried = collectAttrs(ft);
+    const carriedGroups = JSON.parse(JSON.stringify(repeatGroupState || {}));
+    activeGeometryType = geo;
+    // Per-vertex fields appear or vanish with the geometry (they collapse to feature-scope on a
+    // point), so the panes have to be rebuilt against the new scope resolution.
+    // onFeatureTypeChange() does that and ends by calling updateGeometryUI + renderVertexEditor.
+    onFeatureTypeChange();
+    (ft.fields || []).filter(a => a.type === 'repeat_group').forEach(a => {
+      repeatGroupState[a.id] = Array.isArray(carriedGroups[a.id]) ? carriedGroups[a.id].map(i=>({...i})) : [];
+      if (typeof rerenderRepeatGroupPane === 'function') rerenderRepeatGroupPane(a.id);
+    });
+    if (typeof applyAttrValues === 'function') applyAttrValues(ft, carried);
+    refreshFieldConditionsAndCalcs();
+    renderPoints();
+    if (!silent) showToast('Capturing as ' + geo + (currentVertices.length < minFor(geo) ? ` — needs ${minFor(geo)}+ vertices` : ''));
+  };
+  if (losing && !silent){
+    // Nothing is actually deleted by the switch — the extra vertices stay in currentVertices and
+    // come back if they switch geometry again before saving. What IS lost is what gets written:
+    // a point capture exports one feature per vertex, so the crew should know that is the shape
+    // they are choosing rather than discovering it in QGIS.
+    showConfirm(`This capture has ${currentVertices.length} vertices. As a point feature each one is saved as its own point rather than a single shape. Continue?`, apply, 'Capture as point');
+    return;
+  }
+  apply();
+}
+
+// Reflects the current session geometry onto the Collect pills, and hides the whole control for
+// a type that only permits one geometry.
+function syncCaptureGeometryUI(ft){
+  const field = document.getElementById('collectGeoField');
+  if (!field) return;
+  const allowed = ftGeometries(ft);
+  if (allowed.length < 2){ field.style.display = 'none'; return; }
+  field.style.display = '';
+  document.querySelectorAll('#collectGeoToggle .geo-opt').forEach(el=>{
+    const ok = allowed.includes(el.dataset.geo);
+    el.style.display = ok ? '' : 'none';
+    el.classList.toggle('sel', ok && el.dataset.geo === activeGeometryType);
+  });
+  const hint = document.getElementById('collectGeoHint');
+  if (hint) hint.textContent = '(this feature only)';
 }
 
 
@@ -149,12 +213,20 @@ function onFeatureTypeChange() {
   const ft = getFeatureType(sel.value);
   if (!ft) return;
   updateFeatureTypePickerTrigger(ft);
+  // Carry the session geometry over if the newly-picked type also permits it (switching between
+  // two types that both do polygons shouldn't silently reset to point), otherwise fall to the
+  // type's own default.
+  if (!ftAllowsGeometry(ft, activeGeometryType)) activeGeometryType = ftDefaultGeometry(ft);
+  syncCaptureGeometryUI(ft);
+  const geo = activeGeometryType;
   const tag = document.getElementById('geoTag');
-  tag.textContent = ft.geometryType.charAt(0).toUpperCase() + ft.geometryType.slice(1);
+  tag.textContent = geo.charAt(0).toUpperCase() + geo.slice(1);
   autofillReferenceId(ft);
 
-  const featureFields = ft.fields.filter(f => f.scope !== 'vertex');
-  activeVertexFields = ft.fields.filter(f => f.scope === 'vertex');
+  // Scope is resolved against the geometry being captured, not the one declared on the type —
+  // a per-vertex field folds back to feature-scope on a point capture. See effectiveFieldScope.
+  const featureFields = ft.fields.filter(f => effectiveFieldScope(f, geo) !== 'vertex');
+  activeVertexFields = ft.fields.filter(f => effectiveFieldScope(f, geo) === 'vertex');
 
   const container = document.getElementById('attrFields');
   const noMsg = document.getElementById('noFeatureAttrsMsg');
@@ -211,26 +283,31 @@ function onFeatureTypeChange() {
 
 // Capture/Save button labels, "needs N vertices" hint, and Finish-button gating all depend on geometry type
 function updateGeometryUI(ft) {
-  const geoWord = ft.geometryType === 'line' ? 'Line' : ft.geometryType === 'polygon' ? 'Polygon' : 'Point';
-  const min = ft.geometryType === 'polygon' ? 3 : ft.geometryType === 'line' ? 2 : 1;
-  document.getElementById('captureBtnLabel').textContent = ft.geometryType === 'point'
+  // The session geometry, not ft.geometryType: for a multi-geometry type the same feature type
+  // can be mid-capture as a point on one feature and a polygon on the next.
+  const geo = ftAllowsGeometry(ft, activeGeometryType) ? activeGeometryType : ftDefaultGeometry(ft);
+  activeGeometryType = geo;
+  syncCaptureGeometryUI(ft);
+  const geoWord = geo === 'line' ? 'Line' : geo === 'polygon' ? 'Polygon' : 'Point';
+  const min = geo === 'polygon' ? 3 : geo === 'line' ? 2 : 1;
+  document.getElementById('captureBtnLabel').textContent = geo === 'point'
     ? 'Capture Point' : `Capture Vertex ${currentVertices.length + 1}`;
   document.getElementById('saveFeatureBtnLabel').textContent = editingFeatureId
     ? 'Save Changes'
-    : (ft.geometryType === 'point' ? 'Save Feature' : `Finish ${geoWord}`);
+    : (geo === 'point' ? 'Save Feature' : `Finish ${geoWord}`);
   // Live length/area preview while capturing — same computeGeometryAttrs() used at save time, so
   // what's shown here always matches what actually gets written to the feature.
   let measureText = '';
-  if (ft.geometryType==='line' && currentVertices.length>=2){
+  if (geo==='line' && currentVertices.length>=2){
     measureText = ` · ${formatLength(lineLengthM(currentVertices))}`;
-  } else if (ft.geometryType==='polygon' && currentVertices.length>=3){
+  } else if (geo==='polygon' && currentVertices.length>=3){
     measureText = ` · ${formatArea(polygonAreaAndPerimeterM(currentVertices).area)}`;
   }
-  document.getElementById('geoMinHint').textContent = ft.geometryType === 'point' ? '' : `(needs ${min}+ vertices)${measureText}`;
+  document.getElementById('geoMinHint').textContent = geo === 'point' ? '' : `(needs ${min}+ vertices)${measureText}`;
   document.getElementById('saveFeatureBtn').disabled = currentVertices.length < min;
   // Reinforce what Start/End mean geometrically for a polygon once there's enough of a ring
   // forming (2+ vertices) that "closing" it is a meaningful next step.
-  document.getElementById('closeRingHint').classList.toggle('show', ft.geometryType === 'polygon' && currentVertices.length >= 2);
+  document.getElementById('closeRingHint').classList.toggle('show', geo === 'polygon' && currentVertices.length >= 2);
   document.getElementById('swipeHint').style.display = currentVertices.length ? '' : 'none';
   updateCaptureStrip();
   // Whether a capture can be paused turns on whether one is in progress, and this
@@ -432,7 +509,7 @@ let hiddenAttrIds = new Set();
 // calculation checking the same field can never disagree about what its current value is.
 function currentFeatureFieldValues(ft){
   const vals = {};
-  (ft.fields||[]).filter(a=>a.scope!=='vertex').forEach(a=>{
+  (ft.fields||[]).filter(a=>effectiveFieldScope(a, currentCaptureGeometry())!=='vertex').forEach(a=>{
     const el = document.getElementById('attr_'+a.id);
     if (!el) return;
     if (a.type==='calculated'){ const dv = el.dataset.value; vals[a.id] = (dv===undefined||dv==='') ? null : Number(dv); return; }
@@ -529,7 +606,7 @@ function refreshFieldConditionsAndCalcs(){
   const sel = document.getElementById('featureTypeSelect');
   const ft = sel && getFeatureType(sel.value);
   if (!ft) return;
-  const featureFields = ft.fields.filter(f=>f.scope!=='vertex');
+  const featureFields = ft.fields.filter(f=>effectiveFieldScope(f, currentCaptureGeometry())!=='vertex');
   if (!featureFields.length) return;
   const vals = currentFeatureFieldValues(ft);
   hiddenAttrIds = new Set();
@@ -672,7 +749,7 @@ function closeAttrSheet(){
 function collectAttrs(ft) {
   const attrs = {};
   if (!ft) return attrs;
-  ft.fields.filter(a => a.scope !== 'vertex').forEach(a => {
+  ft.fields.filter(a => effectiveFieldScope(a, currentCaptureGeometry()) !== 'vertex').forEach(a => {
     // A field hidden by unmet skip-logic never had a chance to be answered — persisting whatever
     // was typed into it before its condition flipped would save an answer to a question the form
     // never actually asked this time.

@@ -149,7 +149,7 @@ function renderFeatureTypesList() {
       <div class="ft-row-icon" style="background:${hexToRgba(color,0.14)};border-color:${hexToRgba(color,0.35)};color:${color};">${escapeHtml((t.name||'?').charAt(0))}</div>
       <div class="ft-row-body">
         <div class="ft-row-name">${escapeHtml(t.name)}</div>
-        <div class="ft-row-meta">${geoGlyph[t.geometryType]||''} ${escapeHtml(t.geometryType)} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
+        <div class="ft-row-meta">${ftGeometries(t).map(g=>geoGlyph[g]||'').join(' ')} ${escapeHtml(ftGeometryLabel(t))} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
       </div>
       <div class="ft-row-actions">
         <button class="ft-icon-btn" title="Duplicate" aria-label="Duplicate feature type" onclick="event.stopPropagation();duplicateFeatureType('${t.id}')">
@@ -186,7 +186,7 @@ function editFeatureType(id) {
   editingFtColor = t.color || null;
   document.getElementById('ftEditorTitle').textContent = 'Edit feature type';
   document.getElementById('ftName').value = t.name;
-  setFtGeo(t.geometryType, true); // reflect stored geometry only — see setFtGeo's `silent` note
+  setFtGeo(ftGeometries(t), true); // reflect stored geometry only — see writeFtGeoSelection's `silent` note
   renderFtFieldsList();
   renderFtColorPicker();
   activateView('view-featuretype-edit');
@@ -206,7 +206,7 @@ function closeFeatureTypeEditor() {
 function duplicateFeatureType(id) {
   const t = featureTypes.find(x=>x.id===id);
   if (!t) return;
-  const copy = { id:'ft_'+Date.now(), name:t.name+' (copy)', geometryType:t.geometryType,
+  const copy = { id:'ft_'+Date.now(), name:t.name+' (copy)', geometryType:ftDefaultGeometry(t), geometryTypes:ftGeometries(t),
     fields:t.fields.map(f=>({...f, id:'f_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), options:[...(f.options||[])]})) };
   featureTypes.push(copy);
   persist();
@@ -235,9 +235,47 @@ function deleteFeatureType(id) {
 // looking at it — and pop a toast for something the user never did. The demotion belongs only on
 // an actual geometry change.
 function setFtGeo(geo, silent) {
-  document.querySelectorAll('#ftGeoToggle .geo-opt').forEach(el=>el.classList.toggle('sel', el.dataset.geo===geo));
-  document.getElementById('ftGeoToggle').dataset.val = geo;
-  if (!silent && geo === 'point' && typeof editingFtFields !== 'undefined' && editingFtFields){
+  // `geo` may be a single kind (new type, or an older stored type) or an array (a stored
+  // multi-geometry type). Both normalize to the same internal list.
+  const list = ftGeometries(Array.isArray(geo) ? { geometryTypes: geo } : { geometryType: geo });
+  writeFtGeoSelection(list, silent);
+}
+
+// Toggles one geometry in or out of the permitted set. The last remaining one can't be
+// switched off — a type with no geometry at all could never be captured, and silently
+// re-adding one behind the user's back is worse than refusing the tap.
+function toggleFtGeo(geo){
+  if (!GEOMETRY_KINDS.includes(geo)) return;
+  const current = currentFtGeoList();
+  const next = current.includes(geo) ? current.filter(g=>g!==geo) : current.concat([geo]);
+  if (!next.length){
+    showToast('A feature type needs at least one geometry');
+    return;
+  }
+  writeFtGeoSelection(GEOMETRY_KINDS.filter(g=>next.includes(g)), false);
+}
+
+// The single writer for the editor's geometry selection. `silent` is set when this is just
+// reflecting stored state into the UI (opening the editor on an existing type) — see the note
+// on the scope demotion below for why that distinction still matters.
+function writeFtGeoSelection(list, silent){
+  const toggle = document.getElementById('ftGeoToggle');
+  if (!toggle) return;
+  document.querySelectorAll('#ftGeoToggle .geo-opt').forEach(el=>el.classList.toggle('sel', list.includes(el.dataset.geo)));
+  toggle.dataset.val = list[0];             // kept: older callers read .dataset.val as the default geometry
+  toggle.dataset.geos = list.join(',');     // the real selection
+  const hint = document.getElementById('ftGeoHint');
+  if (hint){
+    hint.textContent = list.length > 1
+      ? 'Captured as ' + list.join(' or ') + ' — the crew picks per feature, attributes stay the same.'
+      : 'Every feature of this type is a ' + list[0] + '. Tap another to allow both.';
+  }
+  // Demotion only applies when point is the ONLY permitted geometry. Under multi-geometry a
+  // per-vertex field is still meaningful (it just collapses to feature-scope on the point
+  // captures — see effectiveFieldScope in js/02-state.js), so rewriting the saved schema here
+  // would destroy a setting the user will want back the moment they capture a polygon.
+  const pointOnly = list.length === 1 && list[0] === 'point';
+  if (!silent && pointOnly && typeof editingFtFields !== 'undefined' && editingFtFields){
     const demoted = editingFtFields.filter(f=>f.scope==='vertex');
     if (demoted.length){
       demoted.forEach(f=>f.scope='feature');
@@ -281,6 +319,20 @@ let ftFieldDraft = null, ftFieldIdx = null;
 
 
 function currentFtGeo(){ return document.getElementById('ftGeoToggle').dataset.val || 'point'; }
+
+// The full permitted set being edited. Falls back to the singular so the editor still behaves
+// if it is somehow opened before writeFtGeoSelection has run.
+function currentFtGeoList(){
+  const raw = (document.getElementById('ftGeoToggle').dataset.geos || '').split(',').filter(Boolean);
+  return raw.length ? GEOMETRY_KINDS.filter(g=>raw.includes(g)) : [currentFtGeo()];
+}
+
+// True only when point is the sole permitted geometry — the case where "per vertex" genuinely
+// cannot mean anything different from "once per feature".
+function currentFtIsPointOnly(){
+  const list = currentFtGeoList();
+  return list.length === 1 && list[0] === 'point';
+}
 
 
 function openFtFieldSheet(idx){
@@ -356,20 +408,26 @@ function syncFtFieldSheet(){
     renderFtSubfieldsList();
   }
 
-  // A point has exactly one vertex, so "per vertex" and "once per feature" would mean the same
-  // thing — the option is disabled rather than removed so the control keeps its shape, and any
-  // scope carried over from a line/polygon is folded back to 'feature'.
-  const pointGeo = currentFtGeo() === 'point';
-  if (pointGeo && f.scope === 'vertex') f.scope = 'feature';
+  // A point capture has one vertex, so "per vertex" and "once per feature" ask the same
+  // question — but that is only a reason to disable the option when point is the type's ONLY
+  // permitted geometry. If the type can also be captured as a line or polygon, per-vertex is a
+  // real choice and stays available; it simply collapses to feature-scope on the point captures
+  // (effectiveFieldScope, js/02-state.js). The option is disabled rather than removed so the
+  // control keeps its shape.
+  const pointOnly = currentFtIsPointOnly();
+  const multiGeo = currentFtGeoList().length > 1;
+  if (pointOnly && f.scope === 'vertex') f.scope = 'feature';
   document.querySelectorAll('#ftfScopeToggle .geo-opt').forEach(el=>{
     const isVertex = el.dataset.scope === 'vertex';
     el.classList.toggle('sel', el.dataset.scope === (f.scope==='vertex'?'vertex':'feature'));
-    el.classList.toggle('is-disabled', isVertex && pointGeo);
-    el.setAttribute('aria-disabled', String(isVertex && pointGeo));
+    el.classList.toggle('is-disabled', isVertex && pointOnly);
+    el.setAttribute('aria-disabled', String(isVertex && pointOnly));
   });
-  document.getElementById('ftfScopeHint').textContent = pointGeo
+  document.getElementById('ftfScopeHint').textContent = pointOnly
     ? 'Point features have a single vertex, so every field is captured once per feature.'
-    : 'Per-vertex fields are asked again at each captured point along the geometry.';
+    : multiGeo
+      ? 'Per-vertex fields are asked again at each captured point. On this type’s point captures they fall back to once per feature.'
+      : 'Per-vertex fields are asked again at each captured point along the geometry.';
 
   // ══ Skip logic (condition) ══
   const depOptions = ftEligibleDependencies();
@@ -533,7 +591,7 @@ function renderFtSubfieldsList(){
 
 function updateFtDraft(key, value){
   if (!ftFieldDraft) return;
-  if (key === 'scope' && value === 'vertex' && currentFtGeo() === 'point'){
+  if (key === 'scope' && value === 'vertex' && currentFtIsPointOnly()){
     showToast('Point features have only one vertex');
     return;
   }
@@ -691,7 +749,11 @@ function renderFtFieldsList() {
 
 function saveFeatureType() {
   const name = document.getElementById('ftName').value.trim();
-  const geo = document.getElementById('ftGeoToggle').dataset.val || 'point';
+  const geos = currentFtGeoList();
+  // geometryType stays written as the first permitted geometry: it is what every pre-existing
+  // reader in the app (and every already-exported .plotpack) treats as "the" geometry of a type,
+  // and for the single-geometry types that is still exactly right.
+  const geo = geos[0];
   if (!name) { showToast('Enter a feature type name'); return; }
   const badField = editingFtFields.find(f=>!f.label.trim());
   if (badField) { showToast('Every field needs a label'); return; }
@@ -711,10 +773,11 @@ function saveFeatureType() {
   if (editingFt) {
     editingFt.name = name;
     editingFt.geometryType = geo;
+    editingFt.geometryTypes = geos;
     editingFt.fields = fields;
     editingFt.color = editingFtColor || null;
   } else {
-    featureTypes.push({ id:'ft_'+Date.now(), name, geometryType:geo, fields, color: editingFtColor || null });
+    featureTypes.push({ id:'ft_'+Date.now(), name, geometryType:geo, geometryTypes:geos, fields, color: editingFtColor || null });
   }
   persist();
   populateFeatureTypeSelect();

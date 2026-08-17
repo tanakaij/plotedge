@@ -581,7 +581,7 @@ function atlasOpenSheet(featureId, vertexIndex){
 
   const attrs = (v ? v.attrs : f.attrs) || {};
   const ft = getFeatureType(f.featureTypeId);
-  const rows = (typeof popupAttrRows === 'function') ? popupAttrRows(ft, attrs, v ? 'vertex' : 'feature', 6) : '';
+  const rows = (typeof popupAttrRows === 'function') ? popupAttrRows(ft, attrs, v ? 'vertex' : 'feature', 6, f.geometryType || 'point') : '';
 
   atlasSheetPhotos = photos;
   sheet.innerHTML = `

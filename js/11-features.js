@@ -40,12 +40,17 @@ function polygonAreaAndPerimeterM(vertices){
   return { area: Math.abs(area/2), perimeter: perim };
 }
 
-function computeGeometryAttrs(ft, vertices){
+// `geo` is the geometry actually being saved. It is passed explicitly rather than read off the
+// feature type because a multi-geometry type has no single answer — the same "Septic Tank" type
+// yields a length for its line captures and an area for its polygon ones. Callers that omit it
+// fall back to the type's default, which is correct for every single-geometry type.
+function computeGeometryAttrs(ft, vertices, geo){
   if (!ft) return {};
-  if (ft.geometryType==='line' && vertices.length>=2){
+  const g = geo || (typeof ftDefaultGeometry === 'function' ? ftDefaultGeometry(ft) : ft.geometryType);
+  if (g==='line' && vertices.length>=2){
     return { geom_length_m: +lineLengthM(vertices).toFixed(2) };
   }
-  if (ft.geometryType==='polygon' && vertices.length>=3){
+  if (g==='polygon' && vertices.length>=3){
     const {area,perimeter}=polygonAreaAndPerimeterM(vertices);
     return { geom_area_sqm: +area.toFixed(2), geom_perimeter_m: +perimeter.toFixed(2) };
   }
@@ -176,16 +181,19 @@ function saveFeature(){
     if (!floorLevel){ showToast('Floor Level is required for PlotIn'); document.getElementById('collectFloorLevel')?.focus(); return; }
   }
 
-  const minVerts = ft.geometryType==='polygon' ? 3 : ft.geometryType==='line' ? 2 : 1;
+  // The geometry this capture is being saved as — resolved once here and used for the vertex
+  // minimum, the scope resolution below, the geometry attrs, and what lands on the feature.
+  const saveGeo = ftAllowsGeometry(ft, activeGeometryType) ? activeGeometryType : ftDefaultGeometry(ft);
+  const minVerts = saveGeo==='polygon' ? 3 : saveGeo==='line' ? 2 : 1;
   if(currentVertices.length < minVerts){
-    const geoWord = ft.geometryType==='line'?'A line':ft.geometryType==='polygon'?'A polygon':'This feature';
+    const geoWord = saveGeo==='line'?'A line':saveGeo==='polygon'?'A polygon':'This feature';
     showToast(`${geoWord} needs at least ${minVerts} vertex${minVerts===1?'':'es'}. Capture ${minVerts-currentVertices.length} more.`);
     return;
   }
   // hiddenAttrIds (js/06-collect.js) is fields currently hidden by unmet skip-logic — collectAttrs
   // already excludes them, so without the exclusion here a required-but-hidden field would block
   // saving over an answer the form never actually asked for this capture.
-  const missingFeature=ft.fields.filter(a=>a.scope!=='vertex' && !hiddenAttrIds.has(a.id)).find(a=>a.required && (attrs[a.id]===''||attrs[a.id]==null||(Array.isArray(attrs[a.id])&&!attrs[a.id].length)));
+  const missingFeature=ft.fields.filter(a=>effectiveFieldScope(a, saveGeo)!=='vertex' && !hiddenAttrIds.has(a.id)).find(a=>a.required && (attrs[a.id]===''||attrs[a.id]==null||(Array.isArray(attrs[a.id])&&!attrs[a.id].length)));
   if(missingFeature){showToast(`"${missingFeature.label}" is required`);return;}
   // A repeating group's own "required" (checked above) only means "at least one entry" — each
   // entry can still have its own required sub-fields (e.g. every occupant needs a name even if
@@ -198,7 +206,7 @@ function saveFeature(){
       if (missingSub){ showToast(`"${a.label}" entry ${ei+1}: "${missingSub.label}" is required`); return; }
     }
   }
-  const vertexReqFields = ft.fields.filter(a=>a.scope==='vertex' && a.required);
+  const vertexReqFields = ft.fields.filter(a=>effectiveFieldScope(a, saveGeo)==='vertex' && a.required);
   for (let vi=0; vi<currentVertices.length; vi++){
     const va = currentVertices[vi].attrs || {};
     const missingV = vertexReqFields.find(a=> va[a.id]===''||va[a.id]==null||(Array.isArray(va[a.id])&&!va[a.id].length));
@@ -208,17 +216,17 @@ function saveFeature(){
   const vertices = currentVertices.map(v=>({ lat:v.lat, lon:v.lon, alt:v.alt, acc:v.acc, time:v.time, attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix' }));
   // Auto-computed length/area/perimeter — always recalculated from the current vertices so an
   // edited feature's geometry attrs stay in sync with whatever shape it ends up with.
-  Object.assign(attrs, computeGeometryAttrs(ft, vertices));
+  Object.assign(attrs, computeGeometryAttrs(ft, vertices, saveGeo));
 
   // Same name already used elsewhere in this project — easy to do by accident (retyping "Marker 3"
   // without realizing it's already logged), so ask before silently creating a second feature
   // with the identical name.
   const isDuplicateName = savedFeatures.some(f => f.id!==editingFeatureId && (f.name||'').trim().toLowerCase()===name.toLowerCase());
   if (isDuplicateName){
-    showConfirm(`A feature named "${name}" already exists in this project. Save anyway?`, ()=>finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel), 'Save anyway', 'default');
+    showConfirm(`A feature named "${name}" already exists in this project. Save anyway?`, ()=>finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo), 'Save anyway', 'default');
     return;
   }
-  finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel);
+  finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo);
 }
 
 
@@ -250,7 +258,12 @@ function newFeatureId(){
 // Now the write happens first and the clean-up only runs if the bytes actually landed. If they
 // did not, every part of the capture is put back exactly as it was so it can be retried or
 // exported — nothing is thrown away on the strength of a save that did not happen.
-function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel){
+// `saveGeo` is the geometry this capture is being written as, resolved once in saveFeature() and
+// handed down rather than re-derived here: the two must agree, and re-reading activeGeometryType
+// at this point would let a geometry switch made while the duplicate-name confirm was open change
+// what gets saved out from under the validation that already ran against it.
+function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo){
+  saveGeo = saveGeo || ftDefaultGeometry(ft);
   const wasEditing = !!editingFeatureId;
   environment = environment === 'PlotIn' ? 'PlotIn' : 'PlotOut';
   // Only meaningful for PlotIn — kept as null rather than '' for PlotOut features so a query like
@@ -272,17 +285,17 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
     if (idx === -1) {
       // Original entry vanished (e.g. deleted or "Clear all" elsewhere) while this edit was open —
       // save as a new feature instead of silently losing the edit.
-      savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:ft.geometryType, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
+      savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
       successMsg = 'Original feature no longer exists. Saved as a new feature.';
     } else {
       const original = savedFeatures[idx];
       // Update in place: keep the original id and savedAt, add editedAt as a record that this was
       // modified after initial capture.
-      savedFeatures[idx] = { ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:ft.geometryType, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() };
+      savedFeatures[idx] = { ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() };
       successMsg = `"${name}" updated ✓`;
     }
   } else {
-    savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:ft.geometryType, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
+    savedFeatures.push({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() });
     successMsg = `"${name}" saved ✓`;
   }
 
@@ -422,6 +435,11 @@ function editFeature(id){
     openVertexIndex = currentVertices.length ? 0 : null;
 
     let ft = f.featureTypeId ? getFeatureType(f.featureTypeId) : null;
+    // Editing resumes in the geometry the feature was SAVED as, not the type's default — opening
+    // a polygon septic for a correction must not silently re-save it as a point. If the type has
+    // since been narrowed and no longer permits that geometry, fall back to its default and the
+    // pills show what it is now.
+    if (ft) activeGeometryType = ftAllowsGeometry(ft, f.geometryType || 'point') ? (f.geometryType || 'point') : ftDefaultGeometry(ft);
     if (!ft){
       if (featureTypes.length){
         ft = featureTypes[0];
@@ -515,7 +533,7 @@ function clearCurrent(){
     resetCollectEnvironmentFields();
     // Reset all feature-wide attr fields to blank / unselected
     const ft=getFeatureType(document.getElementById('featureTypeSelect').value);
-    (ft?ft.fields.filter(a=>a.scope!=='vertex'):[]).forEach(a=>{
+    (ft?ft.fields.filter(a=>effectiveFieldScope(a, currentCaptureGeometry())!=='vertex'):[]).forEach(a=>{
       if (a.type === 'repeat_group'){ repeatGroupState[a.id] = []; rerenderRepeatGroupPane(a.id); return; }
       const el=document.getElementById('attr_'+a.id);
       if(!el) return;

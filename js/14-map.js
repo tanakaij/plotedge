@@ -165,10 +165,14 @@ function popupPhotoStrip(photos){
 // Attribute rows, in the feature type's own schema order first (matching openInspect), then any
 // extra keys present on the record. Capped because a popup is a glance, not the Details sheet —
 // the "Details" button is right there for the full list.
-function popupAttrRows(ft, attrs, scope, limit){
+// `geo` is the geometry of the feature these attrs belong to — needed because a per-vertex field
+// collapses to feature-scope on a point capture, so which bucket a field's value sits in depends
+// on the feature, not on the schema alone. Defaults to the type's declared geometry when omitted.
+function popupAttrRows(ft, attrs, scope, limit, geo){
   const rows = [];
   const seen = new Set();
-  if (ft) ft.fields.filter(fl => scope === 'vertex' ? fl.scope === 'vertex' : fl.scope !== 'vertex').forEach(fl => {
+  const resolved = fl => effectiveFieldScope(fl, geo || (ft ? ftDefaultGeometry(ft) : 'point'));
+  if (ft) ft.fields.filter(fl => scope === 'vertex' ? resolved(fl) === 'vertex' : resolved(fl) !== 'vertex').forEach(fl => {
     seen.add(fl.id);
     const v = formatAttrValue(attrs[fl.id], fl);
     if (v && v !== '—') rows.push([fl.label, v]);
@@ -209,7 +213,7 @@ function featurePopupHtml(f, info, color){
     <div class="pe-popup-type" style="color:${color};">${escapeHtml(info.label)}</div>
     <div class="pe-popup-name">${escapeHtml(f.name || '(unnamed)')}${f.ref?` <span class="pe-popup-ref">#${escapeHtml(f.ref)}</span>`:''}</div>
     <div class="pe-popup-meta">${escapeHtml(meta)}</div>
-    ${popupAttrRows(ft, f.attrs || {}, 'feature', 5)}
+    ${popupAttrRows(ft, f.attrs || {}, 'feature', 5, geo)}
     ${popupPhotoStrip(photos)}
     ${geo !== 'point' && verts.length ? `<div class="pe-popup-hint">Tap any vertex marker for its own readings and photos.</div>` : ''}
     <button class="pe-popup-btn" style="background:${color};color:${contrastText(color)};" onclick="openInspect(${JSON.stringify(f.id)})">Details</button>
@@ -237,7 +241,7 @@ function vertexPopupHtml(f, v, idx, total, info, color){
     <div class="pe-popup-meta">${escapeHtml(info.label)}</div>
     <div class="pe-popup-coord">${v.lat.toFixed(6)}, ${v.lon.toFixed(6)}</div>
     ${bits.length ? `<div class="pe-popup-meta">${escapeHtml(bits.join(' · '))}</div>` : ''}
-    ${popupAttrRows(ft, v.attrs || {}, 'vertex', 4)}
+    ${popupAttrRows(ft, v.attrs || {}, 'vertex', 4, f.geometryType || 'point')}
     ${photos.length ? popupPhotoStrip(photos) : '<div class="pe-popup-hint">No photos at this vertex.</div>'}
     <button class="pe-popup-btn" style="background:${color};color:${contrastText(color)};" onclick="openInspect(${JSON.stringify(f.id)})">Feature details</button>
   </div>`;

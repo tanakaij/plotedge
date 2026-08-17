@@ -388,8 +388,8 @@ function computeValidationIssues(){
     if (verts.some(v=>v.acc!=null && v.acc>15)) lowacc.push(f.id);
     if (!verts.reduce((s,v)=>s+(v.photos||[]).length,0)) nophotos.push(f.id);
     const info = resolveFeatureType(f);
-    const reqFeature = (info.fields||[]).filter(a=>a.scope!=='vertex' && a.required);
-    const reqVertex = (info.fields||[]).filter(a=>a.scope==='vertex' && a.required);
+    const reqFeature = (info.fields||[]).filter(a=>featureFieldScope(a,f)!=='vertex' && a.required);
+    const reqVertex = (info.fields||[]).filter(a=>featureFieldScope(a,f)==='vertex' && a.required);
     const missingF = reqFeature.some(a=>{ const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
     const missingV = reqVertex.length && verts.some(v=>reqVertex.some(a=>{ const val=(v.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); }));
     if (missingF || missingV) missingreq.push(f.id);
@@ -409,8 +409,8 @@ function featureQualityScore(f){
   if (!accOk) issues.push('low GPS accuracy');
   const photosOk = verts.reduce((s,v)=>s+(v.photos||[]).length,0) > 0;
   if (!photosOk) issues.push('no photos');
-  const reqFeature = (info.fields||[]).filter(a=>a.scope!=='vertex' && a.required);
-  const reqVertex = (info.fields||[]).filter(a=>a.scope==='vertex' && a.required);
+  const reqFeature = (info.fields||[]).filter(a=>featureFieldScope(a,f)!=='vertex' && a.required);
+  const reqVertex = (info.fields||[]).filter(a=>featureFieldScope(a,f)==='vertex' && a.required);
   const missingF = reqFeature.some(a=>{ const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
   const missingV = reqVertex.length && verts.some(v=>reqVertex.some(a=>{ const val=(v.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); }));
   const fieldsOk = !missingF && !missingV;

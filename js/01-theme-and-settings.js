@@ -622,7 +622,12 @@ function syncSettingsModalUI(){
   const dc = document.getElementById('settingsDensityComfortable'), dk = document.getElementById('settingsDensityCompact');
   if (dc && dk) { dc.classList.toggle('active', !compact); dk.classList.toggle('active', compact); }
   const sel = document.getElementById('settingsExportFormat');
-  if (sel) sel.value = defaultExportFormat();
+  if (sel){
+    // Rebuilt on open rather than only at boot: cheap, and it means the picker is correct even if
+    // the modal's markup was rendered before js/17-export.js had defined the registry.
+    if (!sel.options.length && typeof buildExportFormatSelects === 'function') buildExportFormatSelects();
+    sel.value = defaultExportFormat();
+  }
   const snapToggle = document.getElementById('settingsSnapToggle');
   if (snapToggle) snapToggle.checked = snapPref();
   // Reflect the stored PlotLens preference whenever Settings opens, and keep the Review entry
@@ -683,5 +688,7 @@ function setExportFormatDefault(fmt){
   try { localStorage.setItem(EXPORT_FORMAT_DEFAULT_KEY, fmt); } catch(e) {}
   const sel = document.getElementById('exportFormatSelect');
   if (sel) { sel.value = fmt; if (typeof updateExportFormatUI==='function') updateExportFormatUI(); }
+  const ssel = document.getElementById('settingsExportFormat');
+  if (ssel) ssel.value = fmt;
   showToast('Default export format saved');
 }

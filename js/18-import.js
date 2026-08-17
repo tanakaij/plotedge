@@ -45,10 +45,22 @@ function detectCol(headers, key){
 // or a multi-layer GeoPackage don't spawn duplicate types every run. Unrecognized columns become
 // new text fields so nothing from the source file is silently dropped.
 function findOrCreateImportFeatureType(label, geometryType, extraColumns){
-  let ft = featureTypes.find(t=>t.name.toLowerCase()===String(label).toLowerCase() && (!geometryType || t.geometryType===geometryType));
+  // Matched on name plus "permits this geometry" rather than name plus "declares this geometry":
+  // a multi-layer GeoPackage carrying Septic as both a point layer and a polygon layer now folds
+  // into ONE type that allows both, instead of spawning "Septic" twice with duplicate schemas.
+  let ft = featureTypes.find(t=>t.name.toLowerCase()===String(label).toLowerCase() && (!geometryType || ftAllowsGeometry(t, geometryType)));
   if(!ft){
-    ft = { id:'ft_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:String(label), geometryType:geometryType||'point', fields:[], color:null };
-    featureTypes.push(ft);
+    // No geometry match, but the name may still exist as a single-geometry type — widen that one
+    // rather than creating a near-duplicate. Same reasoning as above, one import round later.
+    const byName = geometryType ? featureTypes.find(t=>t.name.toLowerCase()===String(label).toLowerCase()) : null;
+    if (byName){
+      byName.geometryTypes = GEOMETRY_KINDS.filter(g=>ftGeometries(byName).concat([geometryType]).includes(g));
+      ft = byName;
+    } else {
+      const geos = [geometryType||'point'];
+      ft = { id:'ft_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:String(label), geometryType:geos[0], geometryTypes:geos, fields:[], color:null };
+      featureTypes.push(ft);
+    }
   }
   const existing = new Set(ft.fields.map(f=>f.label.toLowerCase()));
   (extraColumns||[]).forEach(col=>{

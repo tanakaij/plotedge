@@ -372,7 +372,7 @@ function pmFindFillableGaps(){
   byType.forEach(list=>{
     if (list.length < 4) return;
     const ft = getFeatureType(list[0].featureTypeId);
-    const fields = ((ft && ft.fields) || []).filter(fl=>fl.scope !== 'vertex');
+    const fields = ((ft && ft.fields) || []).filter(fl=>featureFieldScope(fl, list[0]) !== 'vertex');
     fields.forEach(fl=>{
       const withVal = list.filter(f=>{ const v=(f.attrs||{})[fl.id]; return v!=='' && v!=null && !(Array.isArray(v)&&!v.length); });
       if (withVal.length < 3) return;
