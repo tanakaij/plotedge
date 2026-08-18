@@ -371,6 +371,8 @@ function syncFtFieldSheet(){
   document.getElementById('ftfType').value = f.type;
   const ph = document.getElementById('ftfPlaceholder');
   if (ph.value !== (f.placeholder||'')) ph.value = f.placeholder||'';
+  const dv = document.getElementById('ftfDefault');
+  if (dv && dv.value !== (f.defaultValue||'')) dv.value = f.defaultValue||'';
   document.getElementById('ftfRequired').checked = !!f.required;
 
   const needsOptions = f.type==='single_select' || f.type==='multi_select';

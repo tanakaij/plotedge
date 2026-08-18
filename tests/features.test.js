@@ -572,13 +572,17 @@ check('PlotAtlas and the Review map no longer keep separate basemap keys', () =>
 
 // ── quick actions ────────────────────────────────────────────────────────────
 check('PlotAtlas and PlotMind are both reachable as quick actions', () => {
+  // They are no longer on the DEFAULT grid — it holds four now, and these are one tap away in the
+  // More drawer, which has search. What still matters is that they are registered at all: an
+  // action missing from the registry is unreachable from this section entirely, not merely
+  // demoted. That distinction is the whole point of the check.
   const ids = JSON.parse(w.eval('JSON.stringify(QA_REGISTRY.map(a=>a.id))'));
   ['plotatlas', 'plotmind', 'analytics'].forEach(id =>
     assert(ids.includes(id), `${id} is not in the quick-action registry`));
   const def = JSON.parse(w.eval('JSON.stringify(QA_DEFAULT)'));
-  assert(def.includes('plotatlas') && def.includes('plotmind'),
-    `a fresh install would not see them on the dashboard — defaults are ${def.join(', ')}`);
   assert(def.length <= w.eval('QA_MAX'), 'the default grid is over its own maximum');
+  // And the drawer must actually be reachable, or demoting them would have hidden them.
+  assert(/openMoreActions\(\)/.test(html), 'nothing on the dashboard opens the More drawer');
 });
 
 check('a device that had already customised its grid still gets the new actions', () => {

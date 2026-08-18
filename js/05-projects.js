@@ -370,15 +370,52 @@ function useCurrentLocationForSite() {
       try {
         const ctrl = new AbortController();
         const timeout = setTimeout(() => ctrl.abort(), 8000);
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=12&addressdetails=1`, { signal: ctrl.signal });
+        // ══ ZOOM 16, NOT 12 ══
+        // zoom=12 is a city/district query: Nominatim does not return suburbs at that level at
+        // all, it returns the nearest thing it ranks as a settlement. Standing in Hatfield — a
+        // Harare suburb — that resolved outward to Chitungwiza, a separate town 20 km away with
+        // its own OSM entry. The coordinates were always right; only the name was wrong, which is
+        // the worst kind of wrong because nothing looks broken.
+        // 16 is suburb/neighbourhood level, which is the granularity a site field actually wants.
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`, { signal: ctrl.signal });
         clearTimeout(timeout);
         if (!res.ok) throw new Error('geocoder unavailable');
         const data = await res.json();
         const a = data && data.address;
-        const place = a && (a.town || a.village || a.city || a.municipality || a.county || a.state);
-        if (place) {
+        // ══ SPECIFIC FIRST ══
+        // The old chain was town || village || city || municipality || county || state — `suburb`
+        // and `neighbourhood` were not in it at all, so even at a fine zoom a suburb name would
+        // have been discarded in favour of a town. And `town` came before `city`, which is
+        // backwards for anywhere inside a city: it is exactly how a neighbouring town wins over
+        // the city you are standing in.
+        const local = a && (a.suburb || a.neighbourhood || a.quarter || a.residential ||
+                            a.hamlet || a.village || a.city_district);
+        const wider = a && (a.city || a.town || a.municipality || a.county || a.state);
+        // "Hatfield, Harare" rather than either alone. A bare suburb is ambiguous on a job sheet
+        // and a bare city is useless — the pair is what somebody reading the project later needs.
+        const place = (local && wider && local !== wider) ? `${local}, ${wider}` : (local || wider);
+
+        // Sanity check against the fix. Nominatim returns the centre of whatever it matched, so a
+        // result far from where we actually are means it reached outward for something larger —
+        // the failure above, caught rather than trusted. 25 km comfortably contains any legitimate
+        // suburb-to-city-centre distance while still catching a jump to the next town.
+        const centreLat = data && parseFloat(data.lat), centreLon = data && parseFloat(data.lon);
+        let farAway = false;
+        if (Number.isFinite(centreLat) && Number.isFinite(centreLon)){
+          const dLat = (centreLat - lat) * 111320;
+          const dLon = (centreLon - lon) * 111320 * Math.cos(lat * Math.PI / 180);
+          farAway = Math.sqrt(dLat * dLat + dLon * dLon) > 25000;
+        }
+
+        if (place && !farAway) {
           input.value = place;
           hint.textContent = `Located · ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        } else if (place) {
+          // Named, but the name is for somewhere else. Coordinates are never wrong, so they win —
+          // and the name is offered in the hint rather than silently dropped, because it is
+          // sometimes still the right answer and the crew can retype it.
+          useRawCoords(lat, lon);
+          hint.textContent = `Located. Nearest named place (${place}) is far from here — used coordinates.`;
         } else {
           useRawCoords(lat, lon);
           hint.textContent = 'Located. No place name found nearby, used coordinates.';

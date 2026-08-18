@@ -596,16 +596,16 @@ check('exactly one nav tab is active at a time', () => {
 });
 
 check('the active tab is distinguishable by more than colour', () => {
-  // Colour alone fails in direct sunlight, which is the app's normal working condition, and fails
+  // Colour alone fails in direct sunlight, which is this app's normal working condition, and fails
   // outright for a colour-blind user. The active tab needs a surface treatment the eye reads as a
   // different material.
   const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
-  assert(/\.nav-btn\.active::after/.test(css), 'the active tab has no background texture, only a tint');
+  assert(/\.nav-pill \{/.test(css), 'there is no active-tab indicator surface');
   assert(/\.nav-btn\.active::before/.test(css), 'the active tab has no accent bar');
   assert(/\.nav-btn\.active svg/.test(css), 'the active tab icon is not differentiated');
-  // The wash must sit behind the glyph, or it tints the icon instead of the cell.
+  // The indicator must sit behind the glyph, or it tints the icon instead of the cell.
   assert(/\.nav-btn svg, \.nav-btn span \{ position:relative; z-index:1/.test(css),
-    'the icon and label are not lifted above the active wash — the tint would wash over them');
+    'the icon and label are not lifted above the indicator — it would wash over them');
 });
 
 check('a floating explainer cannot outlive a tab change', () => {
@@ -751,18 +751,35 @@ check('no stylesheet references a CSS variable that does not exist', () => {
   assert(!orphans.length, `CSS variables referenced but never defined:\n        ${[...new Set(orphans)].join('\n        ')}`);
 });
 
-check('the active nav tab fades in rather than popping', () => {
-  // A pseudo-element declared only under .active is created when the class lands and destroyed
-  // when it leaves — there is no prior state to interpolate from, so it snaps while colour, icon
-  // scale and label weight all ease. One part of the tab jumping while the rest glides is exactly
-  // what reads as a glitch on switching tabs.
+check('the active indicator glides between tabs instead of flickering', () => {
+  // The reported "re-render flash" was never a re-render: it was five independent per-tab washes
+  // fading in and out across each other. One shared element that MOVES cannot flicker, because it
+  // is never created or destroyed — the browser interpolates its transform. Same idea as a shared
+  // layoutId in Framer Motion, done with a transform because this app is classic scripts.
   const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
-  ['::before', '::after'].forEach(pseudo => {
-    const base = new RegExp('\\.nav-btn' + pseudo + '\\s*\\{[^}]*opacity\\s*:\\s*0[^}]*transition', 's');
-    assert(base.test(css), `.nav-btn${pseudo} is only declared under .active — it will pop instead of fading`);
-    assert(new RegExp('\\.nav-btn\\.active' + pseudo + '\\s*\\{\\s*opacity\\s*:\\s*1').test(css),
-      `.nav-btn.active${pseudo} does not fade in`);
-  });
+  assert(/\.nav-pill\s*\{[^}]*transition:transform/s.test(css), 'the indicator does not animate its position');
+  assert(/cubic-bezier\(0\.22, 1\.28/.test(css), 'the indicator has no spring overshoot — it will feel mechanical');
+  assert(!/\.nav-btn\.active::after/.test(css),
+    'a per-tab wash is back alongside the shared indicator — the two will cross-fade against each other');
+
+  const js = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  assert(/function positionNavPill/.test(js), 'nothing positions the indicator');
+  // Measured, not computed from a tab count: tabs are not equal width once labels are translated
+  // or the device font scale is raised, and a hardcoded fraction drifts off the button.
+  assert(/getBoundingClientRect/.test(js), 'the indicator position is assumed rather than measured');
+  // The first placement must not animate from the corner — that animates a state nobody saw.
+  assert(/transition = 'none'/.test(js), 'the indicator flies in from the origin on first paint');
+  assert(/addEventListener\('resize'/.test(js), 'the indicator is not repositioned on rotation or font-scale change');
+});
+
+check('reduced motion removes the overshoot but keeps the movement', () => {
+  // Position is the information here, so it still has to move. The overshoot is the part that
+  // causes trouble for vestibular sensitivity, and that is what goes.
+  const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
+  // Every reduced-motion block in the file, not just the first — there are several, and slicing
+  // from index 0 was testing an unrelated one.
+  const blocks = [...css.matchAll(/@media\s*\(prefers-reduced-motion[^}]*\{[\s\S]{0,700}?\}\s*\}/g)].map(m => m[0]);
+  assert(blocks.some(b => /nav-pill/.test(b)), 'the indicator ignores the reduced-motion preference');
 });
 
 check('no stylesheet reaches for env(safe-area-inset) directly', () => {
@@ -1024,11 +1041,21 @@ check('the accuracy gate is enforced at the capture button', () => {
 });
 
 check('the coordinate system is selectable, not just implemented', () => {
-  assert(/id="projectCrsSelect"/.test(html), 'no way to choose a coordinate system');
+  // Both entry points open the SAME searchable sheet. Export briefly had a plain <select> while
+  // the project form had the picker — two interfaces for one setting, which is worse than either
+  // alone: the dropdown cannot search two dozen entries, and anyone who learns one has to learn
+  // the other.
+  const opens = (html.match(/openCrsPicker\(/g) || []).length;
+  assert(opens >= 2, `only ${opens} entry point(s) to the coordinate picker — expected the project form and Export`);
+  assert(!/id="projectCrsSelect"/.test(html), 'a second, non-searchable coordinate control is back');
   assert(/id="geoidOffsetInput"/.test(html), 'no way to set a height offset');
   const grid = fs.readFileSync(path.join(ROOT, 'js/16b-plotgrid.js'), 'utf8');
-  // The picker is built from the registry, so adding a grid stays a data edit.
-  assert(/Object\.keys\(PLOTGRID_REGISTRY\)\.map/.test(grid), 'the CRS picker is hand-written rather than generated');
+  // The picker list is built from the registry, so adding a grid stays a data edit.
+  // The list comes from crsSearch(), which enumerates the registry — so adding a grid stays a
+  // data edit. Asserted via the search function rather than a literal Object.keys call, since the
+  // enumeration moved there when the dropdown was replaced.
+  assert(/Object\.keys\(PLOTGRID_REGISTRY\)/.test(grid), 'the CRS list does not come from the registry');
+  assert(/host\.innerHTML = keys\.map/.test(grid), 'the picker rows are not generated from the search result');
   // The datum caveat must reach the screen, not only the export header.
   assert(/datum shift is NOT applied/.test(grid), 'a legacy datum is not flagged in the UI');
 });
@@ -1141,6 +1168,344 @@ check('the outlier message says how far outside, not just that it is', () => {
   const b = fs.readFileSync(path.join(ROOT, 'js/05a-plotbounds.js'), 'utf8');
   assert(/km|Math\.round\(d\)/.test(b), 'the distance outside is never computed for the message');
   assert(/outside the project area/i.test(b), 'no message is shown');
+});
+
+check('the dashboard shows four actions plus More, not eight', () => {
+  // The comment above the grid in index.html has said "only the top four" since it was written,
+  // while QA_MAX was 8 the whole time. Eight tiles rendered, and the dashboard ran off the bottom
+  // of a short screen — the clutter and the cut-off were the same bug.
+  const geo = fs.readFileSync(path.join(ROOT, 'js/16-geometry-math.js'), 'utf8');
+  const max = Number((geo.match(/const QA_MAX = (\d+)/) || [])[1]);
+  assert(max === 4, `QA_MAX is ${max}, so the dashboard renders ${max} tiles`);
+  const def = (geo.match(/const QA_DEFAULT = \[([^\]]*)\]/) || [])[1] || '';
+  assert(def.split(',').length <= 4, 'the default grid is over the maximum and would be silently truncated');
+});
+
+check('More is the fifth tile, not a footer, and opens the existing drawer', () => {
+  // It was a full-width row below the grid, which read as a footer and sat below the fold on a
+  // short screen — the dashboard's most-used escape hatch, hardest to reach.
+  assert(/class="qa-tile qa-tile-more"/.test(html), 'More is not styled as a tile');
+  assert(/qa-tile-more[^>]*onclick="openMoreActions\(\)"/.test(html),
+    'the More tile does not open the existing searchable drawer');
+  // Reusing the drawer matters: it already has search, grouping and the full action list. A new
+  // sheet would be a second thing to keep in step with the registry.
+  assert(/id="moreActionsModal"/.test(html), 'the drawer it points at does not exist');
+  assert(/id="qaSearchInput"/.test(html), 'the drawer has no search — demoting actions would bury them');
+});
+
+check('the quick action tiles read as one block, not five cards', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
+  const block = css.slice(css.indexOf('.qa-grid .qa-tile, .qa-tile-more'), css.indexOf('.qa-grid .qa-tile, .qa-tile-more') + 320);
+  assert(/box-shadow:none/.test(block), 'the tiles still carry individual card shadows');
+  assert(/surface-sunken/.test(block), 'the tiles are not on a recessed surface');
+  // Scoped to the dashboard: the drawer's tiles sit on a modal, where a recessed surface would
+  // disappear into the backdrop.
+  assert(/\.qa-grid \.qa-tile/.test(css), 'the lighter treatment is not scoped to the dashboard grid');
+});
+
+check('set-once settings do not sit open on the busiest screens', () => {
+  // Measured before changing anything: Collect and Export carry the most markup in the app, and
+  // both are screens a crew is on constantly. A control that is configured once per project and
+  // then never touched costs vertical space on every visit for the life of the project — which is
+  // the specific shape of clutter worth removing, as distinct from "there is a lot here".
+  //
+  // The accuracy standard sits inside the GPS card's existing collapsed detail area rather than
+  // getting a second collapsible of its own: two collapsibles side by side on one card is the
+  // thing this was meant to remove, not a smaller version of it.
+  const gateField = html.slice(html.indexOf('id="fixGateField"'), html.indexOf('id="fixGateField"') + 120);
+  assert(/display:none/.test(gateField), 'the accuracy standard is always visible on Collect');
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/fixGateField/.test(gps), 'nothing ever reveals the accuracy standard — it would be unreachable');
+  assert(/toggleGpsDetail[\s\S]{0,500}fixGateField/.test(gps),
+    'the standard is not revealed by the existing detail toggle, so the card has two collapsibles');
+
+  // What must NOT be hidden: the live fix line changes every second and is the reason to look at
+  // this card at all, and the refusal note explains a disabled button — hiding that behind a
+  // toggle would be perverse.
+  const status = html.slice(html.indexOf('id="plotfixStatus"'), html.indexOf('id="plotfixStatus"') + 90);
+  assert(!/display:none/.test(status), 'the live fix quality line is hidden by default');
+});
+
+check('the coordinate system card is collapsed but readable while collapsed', () => {
+  // Set once per project, so it starts closed. But a collapsed card that hides the ONE fact you
+  // would open it to check just makes you open it — the current grid is in the header.
+  assert(/id="cardCoordSystem"[^>]*|class="card card-collapsible collapsed" id="cardCoordSystem"/.test(html),
+    'the coordinate system card is missing');
+  const card = html.slice(html.indexOf('id="cardCoordSystem"') - 60, html.indexOf('id="cardCoordSystem"') + 400);
+  assert(/collapsed/.test(card), 'the coordinate system card starts expanded');
+  assert(/id="exportCrsSummary"/.test(card), 'the collapsed header does not show the current grid');
+  const grid = fs.readFileSync(path.join(ROOT, 'js/16b-plotgrid.js'), 'utf8');
+  assert(/exportCrsSummary/.test(grid), 'the summary is never filled in');
+});
+
+check('a collapsed attributes card is honest about what is left blank', () => {
+  // The badge was binary: one filled field flipped step 3 to "Completed", and the card could then
+  // be folded away over seven empty ones. Nothing was wrong — none were required — but the crew
+  // had no way to know, and the entire purpose of collapsing a step is to stop looking at it.
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/function collectBlankCounts/.test(gps), 'nothing counts what is still blank');
+  assert(/id="attrBlankChip"/.test(html), 'the header has nowhere to report it');
+  // The chip must live in the TITLE, which stays visible when the body collapses. Inside the body
+  // it would vanish at exactly the moment it becomes useful.
+  const title = html.slice(html.indexOf('3 · Attributes'), html.indexOf('3 · Attributes') + 400);
+  assert(/attrBlankChip/.test(title), 'the blank count is not on the collapsed header');
+  assert(/"Completed"/.test(gps) && /of \$\{counts\.total\}|counts\.total - counts\.blank/.test(gps),
+    'the badge can still claim Completed with fields outstanding');
+});
+
+check('the blank count never becomes a requirement', () => {
+  // The explicit brief: tell me, do not stop me. If this ever hardens into validation, a survey
+  // that legitimately leaves half its schema blank starts being nagged, and the crew learns to
+  // fill fields they do not need just to clear the warning.
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  const fn = gps.slice(gps.indexOf('function noteBlankFieldsOnCollapse'), gps.indexOf('function scrollCollectTitleIntoView'));
+  assert(/showToast/.test(fn), 'nothing is said when a half-filled card is collapsed');
+  assert(!/showConfirm|return false|preventDefault/.test(fn),
+    'collapsing a half-filled card is blocked or challenged — it must be a note, not a gate');
+  assert(/still save/.test(fn), 'the optional message does not make clear that saving is allowed');
+  // And the save path must be untouched by any of this.
+  const feat = fs.readFileSync(path.join(ROOT, 'js/11-features.js'), 'utf8');
+  assert(!/collectBlankCounts/.test(feat), 'the blank count has leaked into save validation');
+});
+
+check('required and optional gaps are reported differently', () => {
+  // Two different statements: "there is more you could add" versus "save will refuse". Merging
+  // them either overstates the first or buries the second.
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/requiredBlank/.test(gps), 'required-and-empty is not counted separately');
+  // Read across the whole stylesheet set rather than one file: these moved to
+  // css/09-capture-form.css when 05-components passed the size limit, and a check that names a
+  // file breaks on a split that changed nothing about the behaviour.
+  const css = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  assert(/blank-chip\[data-tone="optional"\]/.test(css), 'no quiet tone for optional gaps');
+  assert(/blank-chip\[data-tone="required"\]/.test(css), 'no distinct tone for required gaps');
+  assert(/danger-rgb/.test(css.slice(css.indexOf('blank-chip[data-tone="required"]'), css.indexOf('blank-chip[data-tone="required"]') + 220)),
+    'a required gap looks the same as an optional one');
+});
+
+check('fields nobody can fill are not counted as blank', () => {
+  // A calculated field fills itself, a hidden field is hidden because its condition is unmet, and
+  // a per-vertex field belongs to the vertex editor. Counting any of them would report a number
+  // the crew cannot act on from this card — which is how an advisory becomes an irritation.
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  const fn = gps.slice(gps.indexOf('function collectBlankCounts'), gps.indexOf('function updateCollectStepStatus'));
+  assert(/'calculated'/.test(fn), 'calculated fields are counted as blank');
+  assert(/hiddenAttrIds/.test(fn), 'fields hidden by skip-logic are counted as blank');
+  assert(/effectiveFieldScope/.test(fn), 'per-vertex fields are counted against the feature card');
+});
+
+check('a value the app supplied is never mistaken for one the crew gave', () => {
+  // The failure this whole feature is arranged around: two hundred poles recorded as concrete
+  // because the first one was. It happens when an inherited value is indistinguishable from an
+  // observed one, so the marking is the non-negotiable part — not the carrying.
+  const seed = fs.readFileSync(path.join(ROOT, 'js/06b-plotseed.js'), 'utf8');
+  // seedForField returns the value AND its source together. A function returning only the value
+  // would make it possible to seed a field without marking it, which is the exact hole.
+  assert(/return \{ value:.*source:/.test(seed), 'a seeded value can be supplied without its source');
+  assert(/function markPaneSeeded/.test(seed), 'nothing marks a seeded field');
+  const collect = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  assert(/seedForField\(/.test(collect) && /markPaneSeeded\(/.test(collect),
+    'seeding and marking are not both wired into the render path');
+  const css = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  assert(/\.attr-pane\.is-seeded/.test(css), 'a seeded field looks identical to a filled one');
+  assert(/\.seed-tag/.test(css), 'the source of a seeded value is not named on the field');
+});
+
+check('touching a seeded field confirms it, without needing an edit', () => {
+  // Looking at a carried value and deciding it is right IS confirming it. Requiring an actual
+  // change to clear the mark would push people to alter values needlessly, which is worse than
+  // the problem being solved.
+  const seed = fs.readFileSync(path.join(ROOT, 'js/06b-plotseed.js'), 'utf8');
+  assert(/function clearSeedMark/.test(seed), 'a seeded mark can never be cleared');
+  const collect = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  const fn = collect.slice(collect.indexOf('function bindSeedClearOnce'), collect.indexOf('function renderAttrField'));
+  assert(/'input','change','click'/.test(fn), 'only edits clear the mark, not attention');
+  // Pinning is a control ON the field, not an answer to it.
+  assert(/attr-pin/.test(fn), 'tapping the pin would count as answering the field');
+});
+
+check('carrying forward is opt-in per field, never global', () => {
+  // The app is in no position to guess that road name is constant for this run and condition is
+  // not. A global carry-forward would be right for a few fields and quietly wrong for the rest.
+  const seed = fs.readFileSync(path.join(ROOT, 'js/06b-plotseed.js'), 'utf8');
+  assert(/function toggleFieldPin/.test(seed), 'there is no per-field opt-in');
+  assert(/stickyPinsFor\(ftId\)/.test(seed), 'pins are not scoped per feature type');
+  // "Condition" on a pole and "condition" on a culvert are different questions that share a label.
+  assert(/stickyValues\[ft(Id)?\.?(id)?\]/.test(seed), 'carried values are not scoped per feature type');
+  // Not persisted: a pin is a statement about the run you are on, and one silently surviving until
+  // next week is the unnoticed-inheritance problem all over again.
+  assert(!/localStorage[^\n]*sticky/i.test(seed), 'pins persist across sessions — they would be forgotten and still active');
+});
+
+check('a form that looks complete but is partly inherited says so', () => {
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/seededFieldIds\(\)/.test(gps), 'the header never reports carried values');
+  assert(/carried/.test(gps), 'there is no distinct state for "nothing blank, but not all of it reviewed"');
+  const css = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  assert(/blank-chip\[data-tone="seeded"\]/.test(css), 'the carried state has no visual treatment');
+});
+
+check('a schema default is available and marked like any other seeded value', () => {
+  // Lower risk than sticky — a deliberate decision made once by whoever designed the survey — but
+  // to the person checking the form it is still a value they did not type.
+  assert(/id="ftfDefault"/.test(html), 'a feature type field cannot declare a default');
+  const schema = fs.readFileSync(path.join(ROOT, 'js/03-schema.js'), 'utf8');
+  assert(/ftfDefault/.test(schema), 'the default is never read back into the field editor');
+  const seed = fs.readFileSync(path.join(ROOT, 'js/06b-plotseed.js'), 'utf8');
+  assert(/defaultValue/.test(seed), 'defaults are not applied at capture');
+  // Sticky beats default: it is the more recent and more specific statement of intent.
+  const fn = seed.slice(seed.indexOf('function seedForField'), seed.indexOf('function seededFieldIds'));
+  assert(fn.indexOf('sticky') < fn.indexOf('defaultValue'), 'a stale default would override a value just carried forward');
+});
+
+// ══ THE MEMORY BANK ══════════════════════════════════════════════════════════
+// PlotMind's third method. The line that matters: it SUGGESTS, it never fills. Seeding
+// (js/06b-plotseed.js) trades verification for speed and pays for it with a visible marking; a
+// suggestion costs nothing because the crew's answer is still their own. A suggestion that wrote
+// itself in would just be a seed with worse provenance.
+
+check('a suggestion never becomes a value on its own', () => {
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  // The only writer is applySuggestion, and it runs from a tap.
+  const render = bank.slice(bank.indexOf('function renderValueSuggestions'), bank.indexOf('function applySuggestion'));
+  assert(!/\.value\s*=/.test(render), 'the render pass writes a value into a field');
+  assert(/onclick="applySuggestion/.test(bank), 'suggestions are not applied by an explicit tap');
+  // And a tapped suggestion is the crew's answer, so it must NOT be marked as app-supplied.
+  const apply = bank.slice(bank.indexOf('function applySuggestion'));
+  assert(!/markPaneSeeded/.test(apply), 'a value the crew chose is marked as if the app supplied it');
+});
+
+check('the bank learns from what was saved, and counts rather than lists', () => {
+  // Counting is what lets a typo entered once sink on its own instead of needing to be cleaned up,
+  // and what makes the reason for a suggestion explainable: "you have used it N times".
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/function learnFromSave/.test(bank), 'nothing learns');
+  assert(/\(bank\[k\]\[v\] \|\| 0\) \+ 1/.test(bank), 'values are stored as a list, so frequency is lost');
+  const feat = fs.readFileSync(path.join(ROOT, 'js/11-features.js'), 'utf8');
+  assert(/learnFromSave\(ft, attrs\)/.test(feat), 'learning is not wired into save');
+  // Bounded, or a long survey grows the stored object without limit.
+  assert(/BANK_MAX_PER_FIELD/.test(bank), 'the bank is unbounded');
+});
+
+check('learned values are scoped per feature type, not per field name', () => {
+  // "Condition" on a pole and "condition" on a culvert are different questions that happen to
+  // share a label; merging them would suggest a pole's vocabulary for a pipe.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/function bankKey/.test(bank) && /ftId \+ '::' \+ fieldId/.test(bank),
+    'the bank is keyed on field alone');
+});
+
+check('what the crew types outranks what the app guessed', () => {
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  const fn = bank.slice(bank.indexOf('function suggestionsFor'), bank.indexOf('function renderValueSuggestions'));
+  assert(fn.indexOf('learned') < fn.indexOf('domainValuesFor'), 'lexicon guesses are offered ahead of learned values');
+  assert(/seen\.has/.test(fn), 'a learned value and a lexicon value can both appear for the same word');
+});
+
+check('the domain lexicon matches on what a feature type is called', () => {
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/PLOTMIND_LEXICON/.test(bank), 'there is no domain vocabulary');
+  ['road','house','pole','pipe','septic','borehole','culvert'].forEach(w =>
+    assert(new RegExp("'" + w + "'").test(bank), `the lexicon has nothing for ${w}`));
+  // Matched loosely on both sides: "Access Road" must hit `road`, and "Surface type" must hit
+  // `surface`, or the lexicon only fires for feature types named exactly right.
+  const fn = bank.slice(bank.indexOf('function domainValuesFor'), bank.indexOf('function suggestionsFor'));
+  assert(/name\.includes/.test(fn) && /label\.includes/.test(fn), 'the lexicon needs an exact name match to fire');
+});
+
+check('a suggestion row disappears once the field has an answer', () => {
+  // Leaving it up turns it into a standing invitation to second-guess a value already given.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/String\(input\.value \|\| ''\)\.trim\(\) !== ''/.test(bank), 'suggestions persist over an answered field');
+  const collect = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  assert(/renderValueSuggestions\(\)/.test(collect), 'suggestions are never refreshed as the form is filled');
+});
+
+check('learned values can be forgotten, singly and wholesale', () => {
+  // A crew that mistyped a word once must be able to remove it without wiping everything — and
+  // must be able to wipe everything, since the bank is a record of their own habits.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/function forgetLearnedValue/.test(bank) && /function clearValueBank/.test(bank),
+    'learned values cannot be removed');
+  assert(/showConfirm/.test(bank), 'a long-press deletes a suggestion with no confirmation');
+  assert(/clearValueBank\(\)/.test(html), 'there is no way to clear the bank from the UI');
+});
+
+check('what is physically nearby is offered at capture, not only in review', () => {
+  // PlotMind already did kNN attribute fill — but only as a post-hoc action: finish the survey,
+  // open PlotMind, run checks, accept fills. That is the right tool at the wrong moment. The best
+  // predictor of a septic's material is the three septics either side of it, and that is known
+  // while the crew is standing there, not two weeks later at a desk.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  assert(/function nearestValueFor/.test(bank), 'nearby captures are not consulted at capture time');
+  // Reuses PlotMind's own geodesy rather than carrying a second copy that could drift from it.
+  assert(/pmDistM/.test(bank) && /pmCentroid/.test(bank), 'a second distance implementation was introduced');
+  const mind = fs.readFileSync(path.join(ROOT, 'js/16a-plotmind.js'), 'utf8');
+  const pmRadius = (mind.match(/PM_KNN_MAX_M = (\d+)/) || [])[1];
+  const bankRadius = (bank.match(/BANK_NEAR_RADIUS_M = (\d+)/) || [])[1];
+  assert(pmRadius && pmRadius === bankRadius,
+    `capture-time and review-time kNN disagree about what "nearby" means (${bankRadius} vs ${pmRadius})`);
+});
+
+check('a weak spatial agreement is withheld rather than shown', () => {
+  // A suggestion backed by two neighbours that disagree is worse than none, because on screen it
+  // looks exactly like one backed by five that agree.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  const fn = bank.slice(bank.indexOf('function nearestValueFor'));
+  assert(/agreement < 0\.6/.test(fn), 'a minority value can be suggested as if it were a consensus');
+  assert(/near\.length < 2/.test(fn), 'a single neighbour is treated as evidence');
+  assert(/editingFeatureId && f\.id === editingFeatureId/.test(fn),
+    'a feature can be suggested its own value back when edited');
+});
+
+check('the three suggestion sources are ranked by specificity and look different', () => {
+  // Nearest ("the ones right here are this") beats learned ("you usually type this") beats domain
+  // ("features like this often are this"). The same ordering rule as sticky-beats-default.
+  const bank = fs.readFileSync(path.join(ROOT, 'js/16c-plotbank.js'), 'utf8');
+  const fn = bank.slice(bank.indexOf('function suggestionsFor'), bank.indexOf('function renderValueSuggestions'));
+  assert(fn.indexOf('nearestValueFor') < fn.indexOf('learnedValuesFor'), 'learned values outrank nearby evidence');
+  assert(fn.indexOf('learnedValuesFor') < fn.indexOf('domainValuesFor'), 'lexicon guesses outrank learned values');
+  const css = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  ['nearest', 'learned', 'domain'].forEach(k =>
+    assert(new RegExp('suggest-chip\\[data-from="' + k + '"\\]').test(css),
+      `${k} suggestions look identical to the others — the crew cannot tell evidence from a guess`));
+});
+
+check('the site geocoder asks at suburb level, not city level', () => {
+  // Reported from the field: standing in Hatfield, a Harare suburb, the site read "Chitungwiza" —
+  // a separate town 20 km away. zoom=12 is a city/district query and Nominatim does not return
+  // suburbs at that level at all; it returns the nearest thing it ranks as a settlement.
+  const proj = fs.readFileSync(path.join(ROOT, 'js/05-projects.js'), 'utf8');
+  const zoom = (proj.match(/nominatim[^`]*zoom=(\d+)/) || [])[1];
+  assert(Number(zoom) >= 16, `the geocoder asks at zoom=${zoom}, which cannot return a suburb`);
+});
+
+check('a suburb name beats a neighbouring town', () => {
+  // The old chain was town || village || city || … — `suburb` was not in it at all, so even at a
+  // fine zoom the suburb would have been thrown away. And `town` came before `city`, which is
+  // exactly how a neighbouring town wins over the city you are standing in.
+  const proj = fs.readFileSync(path.join(ROOT, 'js/05-projects.js'), 'utf8');
+  const block = proj.slice(proj.indexOf('const local = a &&'), proj.indexOf('const centreLat'));
+  assert(/a\.suburb/.test(block), 'suburb is still not consulted');
+  assert(block.indexOf('a.suburb') < block.indexOf('a.town'), 'a town name still outranks the suburb you are in');
+  assert(block.indexOf('a.city') < block.indexOf('a.town'), 'town is still tried before city');
+  // "Hatfield, Harare" — a bare suburb is ambiguous on a job sheet and a bare city is useless.
+  assert(/\$\{local\}, \$\{wider\}/.test(block), 'the site name is not qualified with its city');
+});
+
+check('a place name far from the fix is refused', () => {
+  // Nominatim returns the centre of whatever it matched, so a result far from where we are means
+  // it reached outward for something larger. Caught rather than trusted — the coordinates are
+  // never wrong, so they win, and the rejected name goes in the hint rather than being dropped
+  // silently, because it is sometimes still what the crew wants to type.
+  const proj = fs.readFileSync(path.join(ROOT, 'js/05-projects.js'), 'utf8');
+  assert(/farAway/.test(proj), 'a distant place name is accepted without question');
+  assert(/> 25000/.test(proj), 'no distance threshold on the returned place centre');
+  assert(/is far from here/.test(proj), 'the rejected name is discarded without telling anyone');
 });
 
 check('nothing threw while any of that ran', () => {

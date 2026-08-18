@@ -296,10 +296,31 @@ function toggleCardCollapse(titleEl){
   const willCollapse = !body.classList.contains('collapsed');
   if (!willCollapse) collapseSiblingCollectCards(titleEl);
   setCardCollapsed(titleEl, willCollapse);
+  // Said once, at the moment of folding the card away, because that is when the information stops
+  // being visible and starts being easy to forget. A toast rather than a confirm: the crew is
+  // allowed to collapse a half-filled card and usually means to — this is a note, not a gate, and
+  // anything that asked permission would be answered "yes" reflexively within a day.
+  if (willCollapse) noteBlankFieldsOnCollapse(titleEl);
   // Collapsing the cards above the one just opened removes height from *above* the scroll
   // position, so without this the page appears to jump somewhere unrelated. Re-anchoring on the
   // header that was tapped is what makes the accordion feel like turning a page.
   if (!willCollapse) requestAnimationFrame(() => scrollCollectTitleIntoView(titleEl));
+}
+
+// Only for the Attributes card, and only when something is actually outstanding. Silent otherwise
+// — a message that fires on every collapse is noise, and noise is what gets ignored.
+function noteBlankFieldsOnCollapse(titleEl){
+  const card = titleEl.closest('.card');
+  if (!card || card.id !== 'collectCardAttrs') return;
+  const c = collectBlankCounts();
+  if (!c.blank) return;
+  if (c.requiredBlank){
+    showToast(`${c.requiredBlank} required field${c.requiredBlank === 1 ? '' : 's'} still empty — save will ask for ${c.requiredBlank === 1 ? 'it' : 'them'}`);
+  } else {
+    // Phrased as an observation, not an instruction. "You can still save" is the part that stops
+    // this reading as an error, which is what it would otherwise be mistaken for.
+    showToast(`${c.blank} field${c.blank === 1 ? '' : 's'} left blank — that's fine, you can still save`);
+  }
 }
 
 function scrollCollectTitleIntoView(titleEl){
@@ -409,6 +430,45 @@ function isCollectStepDone(cardId){
   }
 }
 
+// ══ WHAT IS STILL BLANK ══
+// The badge was binary: as soon as ONE attribute had a value, step 3 read "Completed" and could be
+// collapsed with seven empty fields hidden behind it. Nothing was wrong — none of them were
+// required — but the crew had no way to know, and the whole point of collapsing a step is to stop
+// looking at it.
+//
+// So the badge now counts. Deliberately ADVISORY: nothing here blocks a save, changes validation,
+// or marks a field as required. Optional fields are optional, and a survey that legitimately
+// leaves half the schema blank must not be nagged. What it does is make the collapsed header
+// honest about what is underneath it.
+//
+// Required fields are counted SEPARATELY and shown differently, because those are a different
+// statement — "you have not finished" rather than "there is more you could add" — and merging the
+// two would either overstate the optional ones or bury the required ones.
+function collectBlankCounts(){
+  const out = { blank: 0, requiredBlank: 0, total: 0 };
+  const sel = document.getElementById('featureTypeSelect');
+  const ft = sel ? getFeatureType(sel.value) : null;
+  if (!ft) return out;
+
+  const geo = (typeof currentCaptureGeometry === 'function') ? currentCaptureGeometry() : 'point';
+  (ft.fields || []).forEach(a => {
+    // Feature-scope only. Per-vertex fields belong to the vertex editor, and counting them here
+    // would report a number the crew cannot act on from this card.
+    if (typeof effectiveFieldScope === 'function' && effectiveFieldScope(a, geo) === 'vertex') return;
+    // Calculated fields fill themselves; a hidden field is hidden because its condition is unmet,
+    // and reporting either as "blank" would be reporting a state nobody can or should change.
+    if (a.type === 'calculated') return;
+    if (typeof hiddenAttrIds !== 'undefined' && hiddenAttrIds && hiddenAttrIds.has(a.id)) return;
+    out.total++;
+    const filled = (typeof attrValuePreview === 'function') ? attrValuePreview(a) !== '' : false;
+    if (!filled){
+      out.blank++;
+      if (a.required) out.requiredBlank++;
+    }
+  });
+  return out;
+}
+
 function updateCollectStepStatus(){
   Object.entries(COLLECT_STEP_CARDS).forEach(([cardId, badgeId]) => {
     const badge = document.getElementById(badgeId);
@@ -418,6 +478,43 @@ function updateCollectStepStatus(){
     else if (activeCollectStepId === cardId) state = 'active';
     badge.dataset.state = state;
     badge.textContent = state === 'done' ? 'Completed' : state === 'active' ? 'Active' : 'Pending';
+
+    // The attributes card is the only one with a schema behind it, so it is the only one that can
+    // meaningfully say "there is more here". The others are single actions.
+    if (cardId === 'collectCardAttrs'){
+      const counts = collectBlankCounts();
+      const chip = document.getElementById('attrBlankChip');
+      if (chip){
+        if (counts.requiredBlank){
+          // Required-and-empty is stated plainly, because save WILL stop for these — the message
+          // should match what is about to happen rather than being softened into a hint.
+          chip.textContent = `${counts.requiredBlank} required`;
+          chip.dataset.tone = 'required';
+          chip.style.display = '';
+        } else if (counts.blank){
+          chip.textContent = `${counts.blank} blank`;
+          chip.dataset.tone = 'optional';
+          chip.style.display = '';
+        } else if (typeof seededFieldIds === 'function' && seededFieldIds().length){
+          // Nothing is blank, but some of it was filled by the app rather than by the crew. A form
+          // that LOOKS complete while carrying unreviewed inherited values is the exact failure
+          // seeding introduces, so it gets its own state rather than being folded into "done".
+          const n = seededFieldIds().length;
+          chip.textContent = `${n} carried`;
+          chip.dataset.tone = 'seeded';
+          chip.style.display = '';
+        } else {
+          chip.style.display = 'none';
+        }
+      }
+      // "Completed" is only honest when nothing is left. With fields outstanding the badge says
+      // how far along instead — it used to claim Completed off a single filled field, which is
+      // exactly what let a card be collapsed over seven empty ones.
+      if (state === 'done' && counts.blank && counts.total){
+        badge.textContent = `${counts.total - counts.blank} of ${counts.total}`;
+        badge.dataset.state = 'partial';
+      }
+    }
   });
 }
 
@@ -453,8 +550,12 @@ function toggleGpsDetail() {
   const btn = document.getElementById('gpsDetailToggle');
   const open = row.style.display === 'none';
   row.style.display = open ? '' : 'none';
+  // The accuracy standard travels with the detail row rather than being a second thing to reveal:
+  // two collapsibles side by side on one card is the clutter this was meant to remove.
+  const gate = document.getElementById('fixGateField');
+  if (gate) gate.style.display = open ? '' : 'none';
   btn.classList.toggle('open', open);
-  document.getElementById('gpsDetailToggleLabel').textContent = open ? 'Hide altitude & accuracy detail' : 'Show altitude & accuracy detail';
+  document.getElementById('gpsDetailToggleLabel').textContent = open ? 'Hide GPS detail & accuracy standard' : 'Show GPS detail & accuracy standard';
 }
 
 function startGPS() {

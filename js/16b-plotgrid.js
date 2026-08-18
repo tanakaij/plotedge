@@ -380,13 +380,11 @@ function chooseCrs(key){
 }
 
 function syncCrsUI(){
-  const sel = document.getElementById('projectCrsSelect');
-  if (sel){
-    const key = projectCrsKey();
-    sel.innerHTML = Object.keys(PLOTGRID_REGISTRY).map(k =>
-      `<option value="${k}">${escapeHtml(PLOTGRID_REGISTRY[k].label)}</option>`).join('');
-    sel.value = key;
-  }
+  const label = document.getElementById('exportCrsLabel');
+  if (label) label.textContent = projectCrs().label;
+  // Shown in the collapsed header, so the current grid can be checked without expanding the card.
+  const summary = document.getElementById('exportCrsSummary');
+  if (summary) summary.textContent = projectCrs().label;
   const note = document.getElementById('projectCrsNote');
   if (note){
     const c = projectCrs();

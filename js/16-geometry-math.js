@@ -691,7 +691,11 @@ const QA_REGISTRY = [
 // connection, and leading a fresh install of an offline-first field tool with a tile that fails in
 // the field would misrepresent what the app is. It is one tap away in the drawer, and seeded into
 // grids whose owners have already shown they curate them.
-const QA_DEFAULT = ['featuretypes','import','export','layers','plotatlas','plotmind','attrtable','analytics'];
+// Four, matching QA_MAX. The four that make a session possible, in the order one runs: you cannot
+// collect without a feature type, you bring existing data in, you send results out, and layers is
+// what you reach for constantly while reviewing. PlotAtlas, PlotMind, the attribute table and
+// analytics moved to the More drawer — all one tap away, and all searchable there.
+const QA_DEFAULT = ['featuretypes','import','export','layers'];
 
 // ══ PINNED ORDER ══
 // QA_DEFAULT only governs a grid that has never been customised. Anyone who had
@@ -741,7 +745,11 @@ function qaSeedNewActions(){
 // — one row FEWER than the old six occupied, while exposing two more actions.
 // Kept at a multiple of four so the grid never renders a ragged final row, which
 // is the detail that makes a dense grid look accidental rather than designed.
-const QA_MAX = 8;
+// Four, matching what the comment above the grid in index.html has always claimed. It was 8, so
+// eight tiles rendered and the dashboard overflowed — the clutter and the cut-off bottom were the
+// same bug. Everything beyond four is still one tap away in the More drawer, which already has
+// search, so nothing became less reachable: the drawer went from holding 11 actions to 15.
+const QA_MAX = 4;
 
 const QA_MIN = 2;
 

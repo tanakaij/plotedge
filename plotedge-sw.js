@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v14';   // bumped: js/05a-plotbounds.js added
+const SW_VERSION = 'v16';   // bumped: js/16c-plotbank.js added
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -39,6 +39,7 @@ const APP_ASSETS = [
   'css/06-plotatlas.css',
   'css/07-analytics.css',
   'css/08-plotwords.css',
+  'css/09-capture-form.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
@@ -49,6 +50,7 @@ const APP_ASSETS = [
   'js/05a-plotbounds.js',
   'js/06-collect.js',
   'js/06a-capture-stack.js',
+  'js/06b-plotseed.js',
   'js/07-navigation.js',
   'js/08-gps.js',
   'js/09-geometry.js',
@@ -65,6 +67,7 @@ const APP_ASSETS = [
   'js/16-geometry-math.js',
   'js/16a-plotmind.js',
   'js/16b-plotgrid.js',
+  'js/16c-plotbank.js',
   'js/17-export.js',
   'js/17a-plansheet.js',
   'js/17b-plotpack.js',

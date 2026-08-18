@@ -284,7 +284,7 @@ const DEVICE_SETTING_KEYS = [
   'plotedge_theme', 'plotedge_domain', 'plotedge_density', 'plotedge_units',
   'plotedge_basemap', 'plotedge_maplayout_basemap', 'plotedge_snap',
   'plotedge_watermark', 'plotedge_quickactions', 'plotedge_export_format_default',
-  'plotedge_plotlens_enabled', 'plotedge_plotwords_seen', 'plotedge_plotmate_clock', 'plotedge_plotmate_device',
+  'plotedge_plotlens_enabled', 'plotedge_plotwords_seen', 'plotedge_widget_dynamic', 'plotedge_value_bank', 'plotedge_plotmate_clock', 'plotedge_plotmate_device',
   'plotedge_plotvault_sources', 'plotedge_atlas_tools_open', 'plotedge_insights_open',
   'plotedge_recent_assignees', 'plotedge-save-to-device', 'plotedge-autoexport-device',
   'plotedge-cloud-endpoint', 'plotedge-ai-endpoint',

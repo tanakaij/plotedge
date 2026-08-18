@@ -1,0 +1,164 @@
+/* ══ CAPTURE-FORM AFFORDANCES ══
+   Split out of css/05-components.css, which had grown past the 2500-line limit the split test
+   enforces — this session appended to it six times. Everything here belongs to one subject: how
+   the Collect form tells the crew where a value came from and what is still outstanding.
+
+   The through-line is the note at the top of js/06b-plotseed.js. Carrying values forward saves
+   most of the typing on a repetitive survey and is also the most common way an asset inventory
+   fills with unverified data. All of these styles exist to keep an inherited value visibly
+   different from an observed one. */
+
+  /* ══ SEEDED VALUES ══
+     A field the app filled in, not the crew. The marking is deliberately NOT subtle: two hundred
+     poles recorded as concrete because the first one was is the most common way an asset inventory
+     goes wrong, and it happens precisely when an inherited value is indistinguishable from an
+     observed one. See the header of js/06b-plotseed.js.
+
+     The tint is on the whole pane rather than the input, so it survives on the field types
+     rendered as chips and toggles, which have no input to tint. */
+  .attr-pane.is-seeded .field {
+    background:rgba(var(--accent-rgb),0.07);
+    border-left:2px solid rgba(var(--accent-rgb),0.42);
+    border-radius:var(--radius-sm);
+    padding-left:9px;
+    margin-left:-2px;
+    transition:background var(--dur-base), border-color var(--dur-base);
+  }
+
+  /* Says WHICH kind, because "carried forward" and "default" are different claims about how much
+     thought has gone into the value. */
+  .seed-tag {
+    margin-left:7px; padding:1px 6px;
+    border-radius:var(--radius-pill);
+    font-size:var(--text-2xs); font-weight:700; letter-spacing:0.02em;
+    background:rgba(var(--accent-rgb),0.16);
+    color:var(--accent-primary);
+    vertical-align:middle;
+  }
+
+  /* ══ THE PIN ══
+     A statement about the FIELD ("constant for this run"), not about the value in it — which is why
+     it sits on the label rather than in the input row, where it would read as an action on the
+     value. */
+  .attr-pin {
+    margin-left:auto; width:30px; height:30px; margin-top:-6px; margin-bottom:-6px;
+    display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid transparent; border-radius:var(--radius-pill);
+    background:none; color:var(--text-tertiary); cursor:pointer;
+    transition:color var(--dur-base), background var(--dur-base), transform var(--dur-fast);
+  }
+  .attr-pin:active { transform:scale(0.88); }
+  .attr-pin.pinned {
+    color:var(--accent-primary);
+    background:rgba(var(--accent-rgb),0.14);
+    border-color:rgba(var(--accent-rgb),0.30);
+  }
+  /* The label becomes a row so the pin can sit at its end without a wrapper element. */
+  .attr-pane label { display:flex; align-items:center; gap:4px; }
+
+  /* Nothing blank, but some of it filled by the app rather than by the crew. A form that LOOKS
+     complete while carrying unreviewed values is the exact failure seeding introduces, so it gets
+     its own state instead of being folded into "done". */
+  .blank-chip[data-tone="seeded"] {
+    background:rgba(var(--accent-rgb),0.12);
+    border:1px solid rgba(var(--accent-rgb),0.28);
+    color:var(--accent-primary);
+  }
+
+  /* ══ "STILL BLANK" CHIP ══
+     Sits on the Attributes step header, including while the card is collapsed — which is the whole
+     point. The step badge used to read "Completed" the moment one field had a value, so a card
+     with seven empty optional fields could be folded away looking finished.
+
+     Two tones, because they are two different statements. Optional-blank is information: there is
+     more you could record. Required-blank is a consequence: save will stop. Merging them would
+     either overstate the first or bury the second. */
+  .blank-chip {
+    display:inline-flex; align-items:center;
+    margin-left:8px; padding:2px 8px;
+    border-radius:var(--radius-pill);
+    font-size:var(--text-2xs); font-weight:700;
+    letter-spacing:0.02em; white-space:nowrap;
+    transition:background var(--dur-base), color var(--dur-base);
+  }
+
+  /* Deliberately quiet. This is advisory — a survey that legitimately leaves half its schema blank
+     must not be nagged, and a chip loud enough to feel like an error would train the crew to fill
+     fields they do not need just to clear it. */
+  .blank-chip[data-tone="optional"] {
+    background:var(--surface-sunken);
+    border:1px solid var(--card-border);
+    color:var(--text-secondary);
+  }
+
+  /* Louder, because save actually will refuse. */
+  .blank-chip[data-tone="required"] {
+    background:rgba(var(--danger-rgb),0.14);
+    border:1px solid rgba(var(--danger-rgb),0.32);
+    color:var(--danger);
+  }
+
+  /* Partly-filled: neither Pending nor Completed, and the badge now says which. */
+  .step-badge[data-state="partial"] {
+    background:rgba(var(--accent-rgb),0.14);
+    border-color:rgba(var(--accent-rgb),0.30);
+    color:var(--accent-primary);
+  }
+
+
+/* ══ VALUE SUGGESTIONS ══
+   PlotMind's memory bank (js/16c-plotbank.js). These OFFER a value; they never write one. That is
+   the whole distinction from the seeded fields above, which fill and must therefore be marked —
+   a suggestion costs nothing because the crew's answer is still their own.
+
+   Styled as a quiet secondary row, not as options that need dealing with. A suggestion row loud
+   enough to feel like a question would make an empty optional field feel unfinished, which is the
+   opposite of the intent. */
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.suggest-chip {
+  padding: 5px 11px;
+  min-height: 32px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-base), border-color var(--dur-base), transform var(--dur-fast);
+}
+
+.suggest-chip:active { transform: scale(0.94); }
+
+/* Learned from this crew's own captures — the stronger signal, so it reads as slightly more solid
+   than a guess from the lexicon. */
+.suggest-chip[data-from="learned"] {
+  background: var(--surface-sunken);
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+}
+
+/* From the domain vocabulary. Dashed, because it is a guess about what this KIND of feature
+   usually has, not a record of anything that happened — and the crew should be able to tell the
+   difference at a glance. */
+.suggest-chip[data-from="domain"] {
+  background: transparent;
+  border: 1px dashed var(--card-border);
+  color: var(--text-secondary);
+}
+
+.suggest-chip[data-from="learned"]:active,
+.suggest-chip[data-from="domain"]:active { background: rgba(var(--accent-rgb), 0.14); }
+
+/* Nearest-neighbour: what the already-captured features around this one actually say. The
+   strongest of the three signals, and the only one that is evidence about the specific thing in
+   front of the crew rather than about their habits or about the category — so it is the only one
+   drawn in the accent colour. */
+.suggest-chip[data-from="nearest"] {
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.34);
+  color: var(--accent-primary);
+}

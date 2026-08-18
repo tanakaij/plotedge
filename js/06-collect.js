@@ -254,13 +254,28 @@ function onFeatureTypeChange() {
     notesField.style.paddingTop = '';
     // Each field becomes its own pane so the sheet can show one at a time. renderAttrField() is
     // untouched — same markup, same `attr_<id>` ids collectAttrs() reads.
-    container.innerHTML = featureFields.map(a =>
-      `<div class="attr-pane" data-fid="${a.id}">${renderAttrField(a, prefillAttrs ? prefillAttrs[a.id] : undefined)}</div>`
-    ).join('');
+    // Seeding happens here, at the single point where a field's opening value is decided
+    // (js/06b-plotseed.js). Anything seeded is marked in the same pass — a value can never be
+    // supplied without being marked, because both come from the same call.
+    const seeds = {};
+    container.innerHTML = featureFields.map(a => {
+      const seed = (typeof seedForField === 'function')
+        ? seedForField(ft, a, prefillAttrs ? prefillAttrs[a.id] : undefined)
+        : { value: prefillAttrs ? prefillAttrs[a.id] : undefined, source: null };
+      if (seed.source) seeds[a.id] = seed.source;
+      return `<div class="attr-pane" data-fid="${a.id}">${renderAttrField(a, seed.value)}</div>`;
+    }).join('');
+    // Applied after the innerHTML assignment because the panes do not exist until then.
+    Object.keys(seeds).forEach(fid => {
+      const pane = container.querySelector(`.attr-pane[data-fid="${fid}"]`);
+      if (typeof markPaneSeeded === 'function') markPaneSeeded(pane, seeds[fid]);
+    });
   }
   attrSheetFields = featureFields;
   bindAttrFieldsListenerOnce();
   refreshFieldConditionsAndCalcs();
+  bindSeedClearOnce();
+  if (typeof renderValueSuggestions === 'function') renderValueSuggestions();
 
   // Ad hoc attributes: when editing an existing feature, pull in anything saved on it that isn't
   // part of this type's schema (and isn't an auto-computed geom_* attr) so it's still editable;
@@ -316,12 +331,41 @@ function updateGeometryUI(ft) {
 }
 
 
+// A seeded value stops being inherited the moment the crew touches it — whether or not the value
+// changed. Looking at a carried value and deciding it is right IS confirming it, and demanding an
+// edit to clear the mark would push people to change values needlessly.
+// Delegated once on the container, so it survives every re-render of the panes.
+let _seedClearBound = false;
+function bindSeedClearOnce(){
+  if (_seedClearBound) return;
+  const host = document.getElementById('attrFields');
+  if (!host) return;
+  ['input','change','click'].forEach(evt => host.addEventListener(evt, e => {
+    // The pin is a control ON the field, not an answer to it — pinning must not count as touching.
+    if (e.target.closest && e.target.closest('.attr-pin')) return;
+    const pane = e.target.closest && e.target.closest('.attr-pane');
+    if (pane && pane.dataset.fid && typeof clearSeedMark === 'function') clearSeedMark(pane.dataset.fid);
+    // A suggestion row is for an empty box. Leaving it up once the field has an answer turns it
+    // into a standing invitation to second-guess a value already given.
+    if (typeof renderValueSuggestions === 'function') renderValueSuggestions();
+  }, { passive:true }));
+  _seedClearBound = true;
+}
+
 function renderAttrField(a, val) {
   const req = a.required ? ' <span class="hint">(required)</span>' : ' <span class="hint">(optional)</span>';
-  const label = `<label>${escapeHtml(a.label)}${req}</label>`;
+  // The pin sits on the label rather than beside the input: it is a statement about the FIELD
+  // ("this one is constant for this run"), not about the value currently in it, and putting it in
+  // the input row would read as an action on the value. Excluded for repeat groups (no single
+  // value to carry) and calculated fields (they fill themselves).
+  const _sel0 = document.getElementById('featureTypeSelect');
+  const _ftId = _sel0 ? _sel0.value : '';
+  const _pin = (typeof pinButtonHtml === 'function' && _ftId && a.type !== 'repeat_group' && a.type !== 'calculated')
+    ? pinButtonHtml(_ftId, a.id) : '';
+  const label = `<label>${escapeHtml(a.label)}${req}${_pin}</label>`;
   if (a.type === 'single_select') {
     const opts = (a.options||[]).map(o => `<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
-    return `<div class="field"><label>${escapeHtml(a.label)}</label><div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div></div>`;
+    return `<div class="field">${label}<div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div></div>`;
   }
   if (a.type === 'multi_select') {
     const sel = Array.isArray(val) ? val : [];
@@ -1003,6 +1047,50 @@ function exitCollectDataEntry(){
 })();
 
 
+// ══ THE SLIDING INDICATOR ══
+// Moves the one shared #navPill element to sit behind the active tab. Measured rather than
+// computed from a tab count, because the bar's tabs are not all the same width once labels are
+// translated or the device font scale is turned up — a hardcoded 1/5 would drift off the button.
+//
+// The spring is a CSS cubic-bezier with a slight overshoot rather than a physics simulation. A
+// real spring (stiffness 400 / damping 35) settles in about 300ms with a small overshoot, and
+// that curve reproduces the felt result closely enough that nobody could pick them apart on a
+// 60px travel — without a rAF loop running on every tab change on a low-end phone.
+function positionNavPill(name){
+  const pill = document.getElementById('navPill');
+  const btn = document.getElementById('navBtn-' + name);
+  const bar = document.getElementById('bottomNav');
+  if (!pill || !btn || !bar) return;
+
+  const b = btn.getBoundingClientRect();
+  const r = bar.getBoundingClientRect();
+  if (!b.width) return; // the bar is hidden — measuring now would park the pill at zero
+
+  // Inset so the indicator reads as a highlight behind the tab rather than a button around it.
+  const insetX = 6, insetY = 5;
+  pill.style.width  = (b.width - insetX * 2) + 'px';
+  pill.style.height = (b.height - insetY * 2) + 'px';
+  pill.style.transform = `translate3d(${b.left - r.left + insetX}px, ${b.top - r.top + insetY}px, 0)`;
+
+  // First positioning happens with transitions suppressed, or the pill flies in from the corner
+  // on the very first paint — an animation of a state the user never saw.
+  if (!pill.dataset.ready){
+    pill.style.transition = 'none';
+    void pill.offsetWidth;              // flush, so the next frame has a real starting point
+    pill.style.transition = '';
+    pill.dataset.ready = '1';
+    pill.classList.add('show');
+  }
+}
+
+// The bar's geometry changes without any tab change: rotation, the keyboard resizing the
+// viewport, or a font-scale change. Re-measured rather than assumed, since a stale position
+// leaves the indicator behind the wrong tab.
+window.addEventListener('resize', () => {
+  const active = document.querySelector('.nav-btn.active');
+  if (active) positionNavPill(active.id.replace('navBtn-', ''));
+}, { passive:true });
+
 function switchTab(name) {
   // Recorded here rather than in switchTabNav(), so it stays correct even when
   // a tab is entered programmatically. See noteCurrentTab().
@@ -1015,6 +1103,7 @@ function switchTab(name) {
   if (name !== 'collect') exitCollectDataEntry();
   const tabs = ['dashboard','collect','review','import','export'];
   document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id==='navBtn-'+name));
+  positionNavPill(name);
   // Per-project controls, refreshed on entry. At boot would be wrong: opening a second project
   // would leave the first one's coordinate system and accuracy standard on screen.
   if (name === 'export' && typeof syncCrsUI === 'function') syncCrsUI();

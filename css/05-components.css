@@ -94,7 +94,34 @@
        label on one line drops each tile to ~46px — a bit over half the height — for the same tap
        target width, and makes the grid and the "More" row below it read as one family, since they
        are now literally the same row shape. */
+  /* Four tiles in a 2×2, with More spanning the full width beneath them — a 5-tile grid would
+     leave one orphan cell on a two-column layout, and a 5-across row makes every tile too narrow
+     for its label on a phone. */
   .qa-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+  /* Lighter containers for the dashboard block only. Five elevated cards read as five separate
+     things competing for attention; a recessed surface reads as one group of controls, which is
+     what this is. The drawer's tiles keep their card treatment — they sit on a modal, where a
+     recessed surface would vanish into the backdrop. */
+  .qa-grid .qa-tile, .qa-tile-more {
+    background:var(--surface-sunken);
+    box-shadow:none;
+    border-radius:var(--radius-md);
+    padding:7px 10px;
+  }
+  .qa-grid .qa-tile:active, .qa-tile-more:active { background:var(--card-bg); }
+
+  /* Same tile, same badge, same height as the four above it: this is the fifth action, not a
+     footer, and anything that made it look different would push it back out of the scan path. */
+  .qa-tile-more { width:100%; margin-top:8px; justify-content:flex-start; }
+  .qa-tile-more .qa-more-count {
+    margin-left:auto;
+    font-size:var(--text-xs); font-weight:700;
+    color:var(--text-secondary);
+    background:var(--surface-sunken);
+    border:1px solid var(--card-border);
+    border-radius:var(--radius-pill);
+    padding:2px 8px;
+  }
   .qa-tile {
     position:relative; overflow:hidden; display:flex; flex-direction:row; align-items:center; gap:9px;
     min-height:46px; padding:8px 10px; cursor:pointer; text-align:left;
@@ -1255,15 +1282,41 @@
      state (pressed), where a wash that fades downward reads as the cell being lit from the accent
      bar above it — the same light source the top bar implies. Sits in ::after at z-index 0 with
      the icon and label above it, so it tints the cell without washing out the glyph. */
-  .nav-btn::after {
-    content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+  /* The per-tab wash is gone: the shared #navPill below does that job now, and one element that
+     MOVES reads as continuous where eleven that fade in and out read as flicker. This is the
+     "visual re-render flash" — it was never a re-render, it was five independent opacity
+     transitions crossing each other. */
+
+  /* ══ THE SLIDING INDICATOR ══
+     Positioned by positionNavPill() in js/06-collect.js, which measures the active tab rather than
+     computing a fraction — tabs are not equal width once labels are translated or the device font
+     scale is raised. */
+  .nav-pill {
+    position:absolute; left:0; top:0; z-index:0;
+    pointer-events:none;
+    border-radius:var(--radius-md);
     background:linear-gradient(to bottom,
-      rgba(var(--accent-rgb),0.16) 0%,
-      rgba(var(--accent-rgb),0.06) 55%,
-      rgba(var(--accent-rgb),0) 100%);
-    opacity:0; transition:opacity 0.15s ease;
+      rgba(var(--accent-rgb),0.20) 0%,
+      rgba(var(--accent-rgb),0.10) 60%,
+      rgba(var(--accent-rgb),0.04) 100%);
+    border:1px solid rgba(var(--accent-rgb),0.22);
+    opacity:0;
+    /* Slight overshoot, then settle. This is a spring at roughly stiffness 400 / damping 35
+       expressed as a bezier: it reaches the target at about 70% of the duration, passes it by a
+       few percent, and comes back. Indistinguishable from a simulated spring over 60px of travel,
+       with no rAF loop running on every tab change on a cheap phone. */
+    transition:transform var(--dur-slow) cubic-bezier(0.22, 1.28, 0.36, 1),
+               width var(--dur-slow) cubic-bezier(0.22, 1.28, 0.36, 1),
+               opacity var(--dur-base) ease;
+    will-change:transform;
   }
-  .nav-btn.active::after { opacity:1; }
+  .nav-pill.show { opacity:1; }
+
+  /* Reduced motion: the indicator still moves, because its position is the information — but it
+     goes straight there with no overshoot, which is the part that causes trouble. */
+  @media (prefers-reduced-motion: reduce) {
+    .nav-pill { transition:transform 0s linear, width 0s linear, opacity 0s linear; }
+  }
   /* Both children have to be lifted above the wash explicitly — ::after is painted after them in
      the absence of a stacking order, which would put the tint over the icon. */
   .nav-btn svg, .nav-btn span { position:relative; z-index:1; }
@@ -1290,8 +1343,43 @@
      without that). transform-origin stays centered so growth doesn't push the icon toward one
      edge of its button; ease-out (quick start, gentle finish) matches responsive tap feedback
      rather than a linear or ease-in curve, which would feel sluggish on the way in. */
-  .nav-btn svg { transform: scale(1); transform-origin: center; transition: transform var(--dur-base) cubic-bezier(0.17,0.84,0.44,1), stroke-width var(--dur-base) cubic-bezier(0.17,0.84,0.44,1); fill: none; }
-  .nav-btn.active svg { transform: scale(1.2); stroke-width: 2.9; fill: currentColor; fill-opacity: 0.16; }
+  /* ══ ICON STATE ══
+     Line-art when inactive, filled when active. There is only ONE svg per tab rather than a
+     line-art copy crossfading with a filled copy: `fill` and `fill-opacity` are animatable
+     properties, so the same path fills in place. Two stacked copies would double the DOM, and any
+     sub-pixel difference between them shows as a shimmer through the crossfade — which is the
+     artefact the crossfade was supposed to remove.
+     Everything the active state changes is on one transition, so nothing in the icon arrives
+     ahead of anything else. */
+  .nav-btn svg {
+    transform: scale(1); transform-origin: center; fill: currentColor; fill-opacity: 0;
+    /* --dur-base is 0.15s, not the 0.2s originally specced. 50ms on an icon fill is below the
+       threshold anyone can pick out, and a fourth duration in the file reopens exactly the drift
+       the scale was built to close one round ago — the app had ten durations before that. If the
+       icon genuinely wants its own timing, the right move is to change --dur-base and let every
+       state change in the app move together, not to carve out an exception here. */
+    transition: transform var(--dur-base) ease-in-out, stroke-width var(--dur-base) ease-in-out,
+                fill-opacity var(--dur-base) ease-in-out, color var(--dur-base) ease-in-out;
+  }
+  /* The press. Applied to the whole button so the icon and label compress together — scaling only
+     the icon reads as the glyph shrinking inside a static box rather than the tab being pushed. */
+  .nav-btn:active { transform: scale(0.9); }
+  .nav-btn { transition: color var(--dur-base) ease-in-out, transform var(--dur-fast) cubic-bezier(0.17,0.84,0.44,1); }
+
+  /* The settle: a brief overshoot when a tab BECOMES active, so the selection has a moment of
+     emphasis. Runs on the icon only — bouncing the label makes the text illegible mid-animation. */
+  @keyframes nav-icon-settle {
+    0%   { transform: scale(1); }
+    55%  { transform: scale(1.28); }
+    100% { transform: scale(1.2); }
+  }
+  .nav-btn.active svg { animation: nav-icon-settle var(--dur-slow) cubic-bezier(0.22,1.28,0.36,1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-btn.active svg { animation: none; }
+    .nav-btn:active { transform: none; }
+  }
+  .nav-btn.active svg { transform: scale(1.2); stroke-width: 2.9; fill-opacity: 0.18; }
 
   /* ══ COLLECT ACTION DOCK ══
      Was a lone circular Capture button that only faded in once the real Capture button had
@@ -2328,3 +2416,4 @@
      so a bare rule for them would reach into anything using the same word. */
   .pe-popup-btn-ghost:active,   .pe-sketch-x:active,   .pill-icon-btn:active,   .pl-tap:active,   .pl-tap-next:active,   .pl-tap-prev:active,   .pl-tray-all:active,   .pmind-ask-hit:active,   .qa-tile-compact:active,   .repeat-add-btn:active,   .wide:active { transform:scale(0.96); filter:brightness(0.92); }
   .pe-popup-btn-ghost,   .pe-sketch-x,   .pill-icon-btn,   .pl-tap,   .pl-tap-next,   .pl-tap-prev,   .pl-tray-all,   .pmind-ask-hit,   .qa-tile-compact,   .repeat-add-btn,   .wide { transition:transform 0.12s ease, filter 0.15s ease; }
+

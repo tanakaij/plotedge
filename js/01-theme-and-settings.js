@@ -685,6 +685,8 @@ function syncSettingsModalUI(){
   const compact = document.documentElement.getAttribute('data-density')==='compact';
   const dc = document.getElementById('settingsDensityComfortable'), dk = document.getElementById('settingsDensityCompact');
   if (dc && dk) { dc.classList.toggle('active', !compact); dk.classList.toggle('active', compact); }
+  const wd = document.getElementById('widgetDynamicToggle');
+  if (wd && typeof widgetFollowsHomeScreen === 'function') wd.checked = widgetFollowsHomeScreen();
   const sel = document.getElementById('settingsExportFormat');
   if (sel){
     // Rebuilt on open rather than only at boot: cheap, and it means the picker is correct even if

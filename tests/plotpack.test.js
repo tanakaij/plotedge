@@ -423,7 +423,19 @@ const main = (async () => {
   });
 
   // ── widget theme ──
-  await check('the widget payload carries the live theme as ARGB ints', () => {
+  await check('the widget defers to the system palette by default', () => {
+    // Material You is what the rest of the home screen is doing, so matching it is the less
+    // surprising default. Returning null is the mechanism: the provider's applyTheme() no-ops on
+    // null, which leaves the values-v31 resource palette — and therefore the wallpaper colours —
+    // in place. See the note above widgetThemeColors() in js/04-store.js.
+    run(`localStorage.removeItem('plotedge_widget_dynamic')`);
+    assert(run('widgetFollowsHomeScreen()') === true, 'the widget does not follow the home screen by default');
+    assert(run('widgetThemeColors()') === null,
+      'a palette was sent while following the home screen — it would paint over the wallpaper colours');
+  });
+
+  await check('the widget payload carries the live theme as ARGB ints when asked to', () => {
+    run(`setWidgetFollowsHomeScreen(false)`);
     const theme = run('widgetThemeColors()');
     assert(theme, 'no theme palette was resolved');
     for (const key of ['bg', 'title', 'body', 'eyebrow', 'accent', 'warn']) {
@@ -438,9 +450,12 @@ const main = (async () => {
   await check('the palette is all-or-nothing, never half-resolved', () => {
     // A partial palette would mix app colours with the values/ resources and
     // match neither theme.
+    run(`setWidgetFollowsHomeScreen(false)`);
     const theme = run('widgetThemeColors()');
     const keys = Object.keys(theme);
     assert(keys.length === 12, `expected the full palette, got ${keys.length}: ${keys.join(',')}`);
+    // Restore the default so nothing after this runs against the wrong mode.
+    run(`localStorage.removeItem('plotedge_widget_dynamic')`);
   });
 
   await check('an unreadable colour yields null rather than a broken palette', () => {

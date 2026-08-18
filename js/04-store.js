@@ -580,7 +580,41 @@ function migrateCurrentVertices(d) {
 // funnelled through a canvas to normalise oklch()/color-mix()/hsl() into rgb,
 // because modern token values are not parseable by hand and getComputedStyle
 // hands back whatever the stylesheet wrote.
+// ══ WHY THE WIDGET IGNORED MATERIAL YOU ══
+// The values-v31 dynamic palette added to scripts/patch-android-widget.py was correct and had no
+// effect, because this function overrides it. The widget provider's applyTheme() paints every
+// leaf view from the colours below at each update, and the XML palettes are only what shows when
+// this returns null.
+//
+// That was a deliberate decision and a defensible one: the widget matched PlotEdge's OWN theme, so
+// choosing the light theme on a dark-set phone kept the tile consistent with the app. But on a
+// modern home screen every other widget is tinted from the wallpaper, and a fixed white card next
+// to them reads as the one thing that does not belong.
+//
+// So it is now a choice rather than an assumption. When "match home screen" is on, this returns
+// null — the provider's own null-guard then leaves the resource palette in place, which on Android
+// 12+ resolves to values-v31 and the wallpaper colours. No Java change was needed: the escape
+// hatch was already there.
+const WIDGET_DYNAMIC_KEY = 'plotedge_widget_dynamic';
+
+function widgetFollowsHomeScreen(){
+  try {
+    const v = localStorage.getItem(WIDGET_DYNAMIC_KEY);
+    // Defaults to ON. Material You is what the platform does and what the rest of the home screen
+    // is doing; matching it is the less surprising default, and anyone who preferred the old
+    // behaviour can say so.
+    return v === null ? true : v === '1';
+  } catch(e){ return true; }
+}
+
+function setWidgetFollowsHomeScreen(on){
+  try { localStorage.setItem(WIDGET_DYNAMIC_KEY, on ? '1' : '0'); } catch(e){}
+  persist(); // rewrites the bridge file, which is what the provider reads on its next update
+  showToast(on ? 'Widget follows your home screen colours' : 'Widget uses PlotEdge’s theme');
+}
+
 function widgetThemeColors(){
+  if (widgetFollowsHomeScreen()) return null;
   try {
     const cs = getComputedStyle(document.documentElement);
     const read = name => cs.getPropertyValue(name).trim();

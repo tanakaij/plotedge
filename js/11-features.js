@@ -220,6 +220,13 @@ function saveFeature(){
   // Auto-computed length/area/perimeter — always recalculated from the current vertices so an
   // edited feature's geometry attrs stay in sync with whatever shape it ends up with.
   Object.assign(attrs, computeGeometryAttrs(ft, vertices, saveGeo));
+  // Pinned fields refresh from the SAVED values rather than the live form: the form is about to be
+  // cleared, and what was written is the authoritative version of what the crew meant.
+  if (typeof captureStickyFromSave === 'function') captureStickyFromSave(ft, attrs);
+  // PlotMind's value bank (js/16c-plotbank.js) counts what this crew actually types, so its
+  // suggestions are evidence rather than guesswork. Reads the saved attrs for the same reason
+  // sticky does: it is the authoritative version of what they meant.
+  if (typeof learnFromSave === 'function') learnFromSave(ft, attrs);
 
   // Same name already used elsewhere in this project — easy to do by accident (retyping "Marker 3"
   // without realizing it's already logged), so ask before silently creating a second feature
