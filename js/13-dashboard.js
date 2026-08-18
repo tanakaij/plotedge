@@ -51,9 +51,287 @@ function renderAccuracyDetail(accVals){
   el.innerHTML = rows.join('') + note;
 }
 
+// ══ PROJECT THUMBNAIL ══
+// The dashboard's old full-width Leaflet preview is gone (see the note where dockReviewMap() used
+// to live in js/06-collect.js). This draws the same information — the shape of what has been
+// collected — as a 46px inline SVG built from vertex coordinates already in memory.
+// It is not a map and does not pretend to be one: no tiles, no basemap, no scale. That is the
+// point. A field app on a dead data plan renders this identically to one on wifi, and it costs a
+// single pass over the vertices rather than a tile fetch and a Leaflet reflow.
+// Coordinates are projected with a plain equirectangular fit — longitude scaled by cos(latitude)
+// so a survey does not come out stretched sideways — then normalised into the box. At thumbnail
+// size any projection more honest than that would be indistinguishable.
+function renderDashThumb(){
+  const el = document.getElementById('dashProjectThumb');
+  if (!el) return;
+  const pts = [];
+  savedFeatures.forEach(f => (f.vertices || []).forEach(v => {
+    if (v && v.lat != null && v.lon != null) pts.push([v.lat, v.lon]);
+  }));
+  if (!pts.length){
+    // An empty project gets a mark, not an empty box: a blank tile beside the project name looks
+    // like something failed to load rather than like there is nothing to draw yet.
+    el.innerHTML = `<svg class="dash-thumb-empty" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
+    el.setAttribute('aria-label', 'No features captured yet — open the Review map');
+    return;
+  }
+  const lats = pts.map(p=>p[0]), lons = pts.map(p=>p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const midLat = (minLat + maxLat) / 2;
+  const kx = Math.cos(midLat * Math.PI / 180) || 1;
+  const spanX = Math.max((maxLon - minLon) * kx, 1e-9);
+  const spanY = Math.max(maxLat - minLat, 1e-9);
+  // One scale for both axes, so the drawing keeps the survey's real proportions instead of
+  // stretching a road centreline into a square.
+  const S = 100, PAD = 12;
+  const scale = (S - PAD * 2) / Math.max(spanX, spanY);
+  const offX = (S - spanX * scale) / 2, offY = (S - spanY * scale) / 2;
+  const px = (lat, lon) => [
+    ((lon - minLon) * kx * scale + offX).toFixed(1),
+    // SVG y grows downward; latitude grows northward. Flip, or every survey comes out mirrored.
+    (S - ((lat - minLat) * scale + offY)).toFixed(1)
+  ];
+
+  let out = '';
+  savedFeatures.forEach(f => {
+    const vs = (f.vertices || []).filter(v => v && v.lat != null && v.lon != null);
+    if (!vs.length) return;
+    const color = featureTypeColor(resolveFeatureType(f).key);
+    const pathPts = vs.map(v => px(v.lat, v.lon));
+    if (vs.length === 1){
+      out += `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3.4" fill="${color}"/>`;
+    } else {
+      const d = pathPts.map((p,i)=>`${i?'L':'M'}${p[0]} ${p[1]}`).join(' ');
+      const closed = (f.geometryType || '') === 'polygon';
+      out += `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">${out}</svg>`;
+  el.setAttribute('aria-label', `${savedFeatures.length} feature${savedFeatures.length===1?'':'s'} captured — open the Review map`);
+}
+
+
+// ══ STATUS SHADE ══
+// Every row answers a question about the RIG or the SAFETY of the work, never about how much has
+// been collected — that is the KPI grid's job, and repeating it here would make the shade a
+// second version of a thing the user already has. Each row is also a link: a status line that
+// tells you something is wrong and then leaves you to find the screen that fixes it is only half
+// an answer.
+// Severity is carried as 'ok' | 'warn' | 'bad' | '' so the peek bar can lead with the worst of
+// them rather than with whichever row happens to be first.
+// ══ WHAT IS DELIBERATELY *NOT* IN HERE ══
+// A status surface earns its space only by saying things nothing else on the screen says. Three
+// candidate rows were cut for exactly that reason, and the reasoning is recorded so they do not
+// get added back:
+//  · POSITION SOURCE / fix type / satellites / HDOP — the GPS Accuracy KPI card already expands in
+//    place to show all of it (renderAccuracyDetail above). That card owns the receiver, because
+//    that is where the accuracy numbers it explains already live.
+//  · UNSAVED CAPTURE — #dashInProgressBanner already announces live vertices and paused captures
+//    and taps through to Collect, and it does it more loudly than a row inside a closed drawer
+//    could. A second copy would mean the same warning appearing twice on one screen.
+//  · DATA QUALITY (low accuracy, missing fields, missing photos) — the readiness checklist and
+//    Today's Progress own that, and their rows jump to the offending features, which a status line
+//    cannot do.
+// What is left is the set of facts with no other home on the dashboard: which grid the project
+// works in, whether the work has left the device, how much room is left, and whether the network
+// half of the app is reachable.
+function dashShadeRows(){
+  const rows = [];
+
+  // ── Which grid the numbers come out in ──
+  const crs = (typeof projectCrs === 'function') ? projectCrs() : null;
+  rows.push({ key:'Working grid', val: crs ? crs.label : 'WGS 84 lat/lon (degrees)', tone:'', run:"openCrsPicker('active')" });
+
+  // ── Has any of it left the device ──
+  const p = projects.find(x=>x.id===activeProjectId);
+  if (!savedFeatures.length){
+    rows.push({ key:'Export', val:'Nothing captured yet', tone:'', run:"switchTabNav('export')" });
+  } else if (!p || !p.lastExportedAt){
+    rows.push({ key:'Export', val:`Never exported · ${savedFeatures.length} waiting`, tone:'bad', run:"switchTabNav('export')" });
+  } else {
+    const since = savedFeatures.filter(f => new Date(f.editedAt||f.savedAt) > new Date(p.lastExportedAt)).length;
+    rows.push({
+      key:'Export',
+      val: since ? `${since} change${since===1?'':'s'} since ${timeAgo(p.lastExportedAt)}` : `Up to date · ${timeAgo(p.lastExportedAt)}`,
+      tone: since ? 'warn' : 'ok',
+      run:"switchTabNav('export')"
+    });
+  }
+
+  // ── Room left on the device ──
+  const info = getStorageUsageInfo();
+  rows.push({
+    key:'Device storage',
+    val:`${info.percent}% used`,
+    tone: info.percent >= 90 ? 'bad' : info.percent >= 75 ? 'warn' : 'ok',
+    run:'showStorage()'
+  });
+
+  // ── Whether the online half of the app is reachable at all ──
+  const online = navigator.onLine !== false;
+  rows.push({
+    key:'Connection',
+    // Offline is not a fault in this app — it is the design point — so it reads as neutral, not
+    // as an error. It is here because it changes what PlotVault and the web map can do.
+    val: online ? 'Online · cloud sync available' : 'Offline · captures stay on device',
+    tone: online ? 'ok' : '',
+    run:'openPlotVault()'
+  });
+
+  return rows;
+}
+
+function renderDashShade(){
+  const shade = document.getElementById('dashShade');
+  const rowsEl = document.getElementById('dashShadeRows');
+  const body = document.getElementById('dashShadeBody');
+  if (!shade || !rowsEl || !body) return;
+
+  const rows = dashShadeRows();
+  rowsEl.innerHTML = rows.map(r =>
+    `<button type="button" class="dash-shade-row" onclick="${r.run}">
+       <span class="dash-shade-row-dot ${r.tone}"></span>
+       <span class="dash-shade-row-body">
+         <span class="dash-shade-row-label">${escapeHtml(r.key)}</span>
+         <span class="dash-shade-row-val">${escapeHtml(r.val)}</span>
+       </span>
+       <svg class="dash-shade-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+     </button>`
+  ).join('');
+
+  // Three dots, not one per row: the peek bar is read at a glance. These are the three whose bad
+  // state actually costs you something — unexported work can be lost, a full device stops capture,
+  // and no connection changes what the cloud half of the app can do.
+  const byKey = k => rows.find(r => r.key === k) || { tone:'' };
+  const dots = ['Export','Device storage','Connection'].map(k =>
+    `<span class="dash-shade-dot ${byKey(k).tone}"></span>`).join('');
+  const dotsEl = document.getElementById('dashShadeDots');
+  if (dotsEl) dotsEl.innerHTML = dots;
+
+  // Lead with the worst thing, so the collapsed bar is never merely decorative.
+  const worst = rows.find(r => r.tone === 'bad') || rows.find(r => r.tone === 'warn');
+  const line = document.getElementById('dashShadeLine');
+  if (line) line.textContent = worst ? `${worst.key}: ${worst.val}` : 'All systems ready';
+
+  // Measured, not guessed. The open height has to be a real number for the transition to ease
+  // toward something; it is re-measured on every render because a row's text can wrap differently
+  // as the status changes, which would otherwise leave the shade clipped or gapped.
+  shade.style.setProperty('--shade-h', body.firstElementChild.scrollHeight + 'px');
+
+  // Restored here rather than at boot, and once: --shade-h has only just become a real number, so
+  // restoring any earlier would open the shade to a height of zero and look like a broken drawer.
+  if (!_shadeRestored){ _shadeRestored = true; dashShadeRestore(); }
+}
+
+let _shadeRestored = false;
+
+function toggleDashShade(){
+  const shade = document.getElementById('dashShade');
+  if (!shade) return;
+  // A drag ends in a pointerup, and a pointerup on a <button> is followed by a click — which would
+  // land here and undo whatever the drag just committed. The drag sets this flag on its way out;
+  // consuming it here is what keeps one gesture to one state change.
+  if (shade.dataset.dragged === '1'){ delete shade.dataset.dragged; return; }
+  setDashShadeOpen(!shade.classList.contains('open'));
+}
+
+const DASH_SHADE_KEY = 'plotedge_shade_open';
+
+function setDashShadeOpen(open){
+  const shade = document.getElementById('dashShade');
+  if (!shade) return;
+  shade.classList.toggle('open', open);
+  const peek = document.getElementById('dashShadePeek');
+  if (peek) peek.setAttribute('aria-expanded', open ? 'true' : 'false');
+  try { localStorage.setItem(DASH_SHADE_KEY, open ? '1' : '0'); } catch(e) {}
+}
+
+function dashShadeRestore(){
+  let open = false;
+  try { open = localStorage.getItem(DASH_SHADE_KEY) === '1'; } catch(e) {}
+  const shade = document.getElementById('dashShade');
+  if (!shade) return;
+  // Applied without the transition so a shade that was left open does not animate itself open on
+  // every arrival at the dashboard — that is animating a state the user never left.
+  shade.classList.add('dragging');
+  setDashShadeOpen(open);
+  requestAnimationFrame(()=>shade.classList.remove('dragging'));
+}
+
+// ══ THE PULL GESTURE ══
+// Tap already works (the peek bar is a button), so this exists to make the shade feel like the
+// thing it is modelled on rather than like a disclosure triangle. Pointer events rather than
+// touch events so it works with a mouse on the web build and a stylus on a tablet from one path.
+//
+// Two details that decide whether a drag feels right or wrong:
+//  · The height is written directly during the drag, with the CSS transition suppressed. Leaving
+//    the transition on means every frame retargets a 300ms ease that never completes, and the
+//    shade lags a finger it should be pinned to.
+//  · Release commits on distance OR velocity. Distance alone means a fast flick that only
+//    travelled 20px snaps shut, which is the specific thing that makes a drawer feel sticky.
+(function(){
+  const shade = document.getElementById('dashShade');
+  if (!shade) return;
+  const body = document.getElementById('dashShadeBody');
+  if (!body) return;
+
+  let dragging = false, startY = 0, startH = 0, maxH = 0, lastY = 0, lastT = 0, velocity = 0, moved = false;
+
+  const onDown = (e) => {
+    // Only from the two grab surfaces. A pointerdown on a status row is somebody pressing that
+    // row's link, and turning it into a drag would swallow the tap.
+    if (!e.target.closest('#dashShadePeek, #dashShadeGrab')) return;
+    dragging = true; moved = false;
+    startY = lastY = e.clientY;
+    lastT = performance.now();
+    velocity = 0;
+    maxH = body.firstElementChild ? body.firstElementChild.scrollHeight : 0;
+    startH = shade.classList.contains('open') ? maxH : 0;
+    shade.classList.add('dragging');
+  };
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    if (Math.abs(dy) > 3) moved = true;
+    const now = performance.now();
+    if (now > lastT) velocity = (e.clientY - lastY) / (now - lastT);   // px per ms, signed
+    lastY = e.clientY; lastT = now;
+    const h = Math.max(0, Math.min(maxH, startH + dy));
+    body.style.height = h + 'px';
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    shade.classList.remove('dragging');
+    const h = parseFloat(body.style.height) || 0;
+    body.style.height = '';           // hand control back to the class-driven height
+    if (!moved) return;               // a tap: the peek bar's own onclick handles it
+    // A deliberate flick wins over position; otherwise the halfway point decides.
+    const open = Math.abs(velocity) > 0.35 ? velocity > 0 : h > maxH / 2;
+    shade.dataset.dragged = '1';      // consumed by toggleDashShade() — see the note there
+    setDashShadeOpen(open);
+  };
+
+  shade.addEventListener('pointerdown', onDown);
+  // Bound to the window, not the shade: a finger that leaves the element mid-drag must keep
+  // driving it, and must still commit when it lifts somewhere else entirely.
+  window.addEventListener('pointermove', onMove, { passive:true });
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+})();
+
+// A tap that followed a drag would toggle a second time on top of what the drag already decided.
+// The peek bar's onclick is the tap path; suppressing it after a real drag is handled by the
+// `moved` flag above returning early, leaving the click to run alone.
+
 function updateStats(){
   renderReadinessChecklist();
   renderDashHealth();
+  renderDashThumb();
+  renderDashShade();
 
   const nF=savedFeatures.length;
   const nP=savedFeatures.reduce((s,f)=>s+(f.vertices||[]).length,0);
@@ -178,7 +456,6 @@ function updateStats(){
 function renderDashWidgets(){
   renderDashRecentActivity();
   renderDashPace();
-  renderDashBackup();
   renderDashInsightsShell();
 }
 
@@ -313,29 +590,3 @@ function renderDashPace(){
 }
 
 
-function renderDashBackup(){
-  const card = document.getElementById('dashBackupCard');
-  if (!card) return;
-  if (!savedFeatures.length) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-
-  const info = getStorageUsageInfo();
-  const fill = document.getElementById('dashStorageFill');
-  const label = document.getElementById('dashStorageLabel');
-  if (fill) fill.style.width = info.percent + '%';
-  if (label) label.textContent = info.percent>=80 ? `Storage ${info.percent}% full` : `Storage ${info.percent}% used`;
-
-  const p = projects.find(x=>x.id===activeProjectId);
-  const line = document.getElementById('dashExportLine');
-  if (!line) return;
-  if (!p || !p.lastExportedAt) {
-    line.innerHTML = `<strong>Never exported</strong> · ${savedFeatures.length} feature${savedFeatures.length===1?'':'s'} waiting`;
-    line.classList.add('warn');
-  } else {
-    const newSince = savedFeatures.filter(f=> new Date(f.savedAt) > new Date(p.lastExportedAt)).length;
-    line.innerHTML = newSince
-      ? `Last exported ${timeAgo(p.lastExportedAt)} · <strong>${newSince} new since</strong>`
-      : `Last exported ${timeAgo(p.lastExportedAt)} · <strong>up to date</strong>`;
-    line.classList.toggle('warn', newSince > 0);
-  }
-}

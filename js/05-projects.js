@@ -129,7 +129,10 @@ function plural(n, word){ return n + ' ' + word + (n === 1 ? '' : 's'); }
 
 
 function renderDataHub(){
-  document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id === 'navBtn-data'));
+  // setActiveNavTab() rather than a bare class toggle: the toggle alone lit the Data tab's colour
+  // but left the sliding #navPill behind the previous tab, which is what "the highlight never goes
+  // to Data" was. See the helper in js/06-collect.js.
+  setActiveNavTab('data');
   const t = dataHubTotals();
   const sum = document.getElementById('hubSummary');
   if (sum) {
@@ -601,7 +604,7 @@ function renderProjectManager(){
   // No tab of #view-app is showing, so light up Projects instead of leaving whichever tab the
   // user last visited looking current.
   // Projects lives under the Data tab now, so the Data button is the one that lights up here.
-  document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id === 'navBtn-data'));
+  setActiveNavTab('data');
   renderPmList();
 }
 
@@ -798,6 +801,17 @@ let _renameId = null;
 // it picks up the shared slide-up transition and gets closed by the hardware back button via
 // closeTopOverlay().
 function openMoreActions(){
+  // Repainted on open, not only when the dashboard renders. The drawer now leads with a
+  // recently-used block, and running an action from in here closes the sheet and changes that
+  // list — so reopening without a repaint would show the ordering from before the last thing the
+  // user did. It also resets any leftover search text, which would otherwise present a drawer
+  // that looks like most of its actions have gone missing.
+  renderQuickActions();
+  const sub = document.getElementById('qaDrawerSub');
+  if (sub){
+    const n = qaAvailable().filter(a => !qaVisibleIds().includes(a.id)).length;
+    sub.textContent = `${n} more action${n===1?'':'s'} · tap to run, or customise the grid below`;
+  }
   document.getElementById('moreActionsModal').classList.add('show');
 }
 

@@ -509,6 +509,12 @@ function closeTopOverlay(){
   if (isReallyOpen(plotMindModal)) { closePlotMind(); return true; }
   const analyticsModal = document.getElementById('analyticsModal');
   if (isReallyOpen(analyticsModal)) { closeAnalytics(); return true; }
+  // Above settingsModal, and for the same reason ftSubfieldModal sits above ftFieldModal: the
+  // group sheets are opened from inside the Settings index and layer on top of it, so a Back press
+  // with one up must return to the index rather than closing Settings out from under it. Routed
+  // through the named close so the whole group set is cleared, not just the class on this element.
+  const settingsSub = [...document.querySelectorAll('.settings-subsheet.show')].find(isReallyOpen);
+  if (settingsSub) { closeSettingsGroup(settingsSub.dataset.group); return true; }
   const settingsModal = document.getElementById('settingsModal');
   if (isReallyOpen(settingsModal)) { closeSettings(); return true; }
   const customizeModal = document.getElementById('customizeQaModal');

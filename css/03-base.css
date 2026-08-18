@@ -491,8 +491,8 @@
   html[data-density="compact"] .panel { padding-top:10px !important; padding-left:12px !important; padding-right:12px !important; }
   html[data-density="compact"] .dash-widget-card { padding:12px 14px !important; }
   html[data-density="compact"] .dash-health-card { padding:12px 14px !important; margin-bottom:10px !important; }
-  html[data-density="compact"] .dash-map-slot { margin-bottom:10px !important; }
-  html[data-density="compact"] .dash-project-strip { margin-bottom:10px !important; }
+  html[data-density="compact"] .dash-project-head { margin-bottom:10px !important; }
+  html[data-density="compact"] .dash-shade { margin-bottom:10px !important; }
   html[data-density="compact"] .card { padding:13px 14px !important; margin-bottom:10px !important; }
   html[data-density="compact"] .card-title { margin-bottom:10px !important; }
   html[data-density="compact"] .field { margin-bottom:10px !important; }
@@ -849,26 +849,84 @@
   .panel.active { display:block; }
 
   /* ══ DASHBOARD ══ */
-  .dash-project-strip { font-size:12px; color:var(--text-secondary); margin-bottom:18px; line-height:1.6; }
-  .dash-project-strip strong { color:var(--white); font-weight:700; }
-  .dash-map-slot { margin-bottom:14px; }
-  .dash-map-slot:empty { display:none; }
-  /* Smaller preview height when the shared map is docked on the Dashboard instead of Review —
-     same #reviewMap element, same Leaflet instance, just a shorter box and a couple of controls
-     hidden that only make sense in the full Review context (type filter isn't shown here anyway,
-     but the basemap label is trimmed to save space). See dockReviewMap() in JS. */
-  .review-map-wrap.dash-preview #reviewMap { height:120px; }
-  .review-map-wrap.dash-preview .map-basemap-toggle span { display:none; }
-  .review-map-wrap.dash-preview .map-basemap-toggle { padding:7px; top:8px; right:8px; }
-  /* On the dashboard this is a glance-only mini-map, not a working map — the Review tab already
-     owns the full legend/connection-status/fullscreen controls, so repeating them here just made
-     the preview feel as heavy as the real thing. Hide that chrome and let the tiny map read as a
-     compact "here's your coverage" thumbnail instead. */
-  .review-map-wrap.dash-preview .map-layer-toggle,
-  .review-map-wrap.dash-preview .map-goto-toggle,
-  .review-map-wrap.dash-preview .map-fullscreen-toggle,
-  .review-map-wrap.dash-preview .map-legend,
-  .review-map-wrap.dash-preview .review-map-conn { display:none; }
+  /* ── PROJECT HEAD ── the thumbnail and the project name sit on one row, as two separate tap
+     targets rather than one: the mark goes to the map, the name goes to the project's details.
+     Making the whole row a single button would mean one of those two intents had to lose. */
+  .dash-project-head { display:flex; align-items:center; gap:11px; margin-bottom:14px; }
+  .dash-thumb {
+    flex-shrink:0; width:46px; height:46px; padding:0; cursor:pointer;
+    border:1px solid var(--card-border); border-radius:var(--radius-md);
+    background:var(--surface-sunken); overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform var(--dur-fast), border-color 0.15s;
+  }
+  .dash-thumb:active { transform:scale(0.94); border-color:var(--accent-primary); }
+  .dash-thumb svg { display:block; width:100%; height:100%; }
+  .dash-thumb-empty { color:var(--text-tertiary); opacity:0.7; }
+  .dash-project-strip {
+    flex:1; min-width:0; margin:0; padding:0; text-align:left; cursor:pointer;
+    background:none; border:none; font-family:var(--font);
+    font-size:12px; color:var(--text-secondary); line-height:1.5;
+  }
+  .dash-project-strip strong { display:block; font-size:15px; color:var(--white); font-weight:800; letter-spacing:-0.015em; }
+  .dash-project-strip:active { opacity:0.65; }
+
+  /* ── STATUS SHADE ──
+     Collapsed height is the peek bar plus the grab handle; open adds the measured height of the
+     rows, written to --shade-h by renderDashShade() so the transition has a real number to travel
+     to rather than animating against max-height:9999px (which makes the easing curve a lie and
+     the close feel late). While a drag is in progress .dragging kills the transition entirely so
+     the shade tracks the finger frame-for-frame instead of chasing it. */
+  .dash-shade {
+    --shade-h: 0px;
+    position:relative; margin-bottom:14px; overflow:hidden;
+    background:var(--card-bg); border:1px solid var(--card-border);
+    border-radius:var(--rl); box-shadow:var(--card-shadow);
+  }
+  .dash-shade-peek {
+    display:flex; align-items:center; gap:9px; width:100%; box-sizing:border-box;
+    padding:11px 13px 9px; cursor:pointer; user-select:none;
+    /* The peek bar is the drag surface, so the browser must not claim the vertical gesture for
+       page scrolling. Scoped to this strip and the handle only — the rows inside stay scrollable. */
+    touch-action:none;
+  }
+  .dash-shade-line { flex:1; min-width:0; font-size:12px; font-weight:700; color:var(--text-primary); letter-spacing:-0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dash-shade-dots { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+  .dash-shade-dot { width:7px; height:7px; border-radius:50%; background:var(--text-tertiary); }
+  .dash-shade-dot.ok   { background:var(--success); }
+  .dash-shade-dot.warn { background:var(--warn); }
+  .dash-shade-dot.bad  { background:var(--danger); }
+  .dash-shade-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform var(--dur-base) ease; }
+  .dash-shade.open .dash-shade-chevron { transform:rotate(180deg); }
+  .dash-shade-body {
+    height:0; overflow:hidden;
+    transition:height var(--dur-slow) cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .dash-shade.open .dash-shade-body { height:var(--shade-h); }
+  .dash-shade.dragging .dash-shade-body { transition:none; }
+  .dash-shade-rows { padding:2px 13px 4px; }
+  .dash-shade-row {
+    display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box;
+    padding:9px 0; text-align:left; cursor:pointer; font-family:var(--font);
+    background:none; border:none; border-top:1px solid var(--card-border);
+  }
+  .dash-shade-row:active { opacity:0.6; }
+  .dash-shade-row-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:var(--text-tertiary); }
+  .dash-shade-row-dot.ok   { background:var(--success); }
+  .dash-shade-row-dot.warn { background:var(--warn); }
+  .dash-shade-row-dot.bad  { background:var(--danger); }
+  .dash-shade-row-body { flex:1; min-width:0; }
+  .dash-shade-row-label { font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-tertiary); }
+  .dash-shade-row-val { font-size:12.5px; font-weight:700; color:var(--white); margin-top:2px; line-height:1.35; }
+  .dash-shade-row-chevron { flex-shrink:0; color:var(--text-tertiary); opacity:0.5; }
+  /* The handle reads as "pull me" the way a sheet grabber does. It is also a drag surface in its
+     own right, which is what makes the shade close by pushing up rather than only by tapping. */
+  .dash-shade-grab { display:flex; align-items:center; justify-content:center; padding:5px 0 8px; cursor:grab; touch-action:none; }
+  .dash-shade-grab span { display:block; width:34px; height:4px; border-radius:2px; background:var(--card-border); transition:background 0.15s, width var(--dur-base) ease; }
+  .dash-shade.open .dash-shade-grab span { width:44px; background:rgba(var(--accent-rgb),0.45); }
+  @media (prefers-reduced-motion: reduce) {
+    .dash-shade-body, .dash-shade-chevron, .dash-shade-grab span { transition:none; }
+  }
 
   .dash-inprogress-banner { display:flex; align-items:center; gap:10px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.32); color:var(--accent-hover); font-size:12.5px; font-weight:700; border-radius:12px; padding:12px 14px; margin-bottom:16px; cursor:pointer; }
   .dash-inprogress-banner::before { content:'●'; flex-shrink:0; }

@@ -1194,7 +1194,9 @@ check('More is the fifth tile, not a footer, and opens the existing drawer', () 
 });
 
 check('the quick action tiles read as one block, not five cards', () => {
-  const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
+  // Quick actions moved to their own stylesheet once 05-components.css outgrew the size the split
+  // test allows; the rules are unchanged, only their address is.
+  const css = fs.readFileSync(path.join(ROOT, 'css/10-quick-actions.css'), 'utf8');
   const block = css.slice(css.indexOf('.qa-grid .qa-tile, .qa-tile-more'), css.indexOf('.qa-grid .qa-tile, .qa-tile-more') + 320);
   assert(/box-shadow:none/.test(block), 'the tiles still carry individual card shadows');
   assert(/surface-sunken/.test(block), 'the tiles are not on a recessed surface');
@@ -1506,6 +1508,176 @@ check('a place name far from the fix is refused', () => {
   assert(/farAway/.test(proj), 'a distant place name is accepted without question');
   assert(/> 25000/.test(proj), 'no distance threshold on the returned place centre');
   assert(/is far from here/.test(proj), 'the rejected name is discarded without telling anyone');
+});
+
+// ══════════════════ DASHBOARD, SETTINGS GROUPING, NAV INDICATOR ══════════════════
+// These run against the booted window rather than against the source text, because every one of
+// them is about behaviour that reads correctly in the markup and was still wrong on the device.
+// The nav one in particular: the class was always being set: it was the indicator that stayed put.
+
+check('the Data tab moves the indicator, not just the class', () => {
+  // The bug: switchTab() set the .active class AND positioned #navPill; renderDataHub() and
+  // renderProjectManager() set only the class, because Data is the one tab in the bar that is not
+  // a tab of #view-app and so never routes through switchTab(). Data lit up in the accent colour
+  // while the sliding highlight stayed parked behind whichever tab was visited last.
+  const geo = fs.readFileSync(path.join(ROOT, 'js/05-projects.js'), 'utf8');
+  const collect = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  assert(/function setActiveNavTab/.test(collect), 'there is no single place that lights a tab');
+  assert(/setActiveNavTab\(name\)/.test(collect), 'switchTab does not use the shared helper');
+  const bare = geo.match(/classList\.toggle\('active', b\.id === 'navBtn-data'\)/g) || [];
+  assert(!bare.length, `${bare.length} call site(s) still set the class without moving the pill`);
+  assert((geo.match(/setActiveNavTab\('data'\)/g) || []).length === 2,
+    'both Data-tab screens should light the tab through the helper');
+});
+
+check('every status shade row leads somewhere', () => {
+  // The shade replaced a full-width map. A status line that reports a problem and then leaves the
+  // user to find the screen that fixes it is only half an answer, so each row is a link.
+  //
+  // The floor is FOUR, not six. Three candidate rows were deliberately cut once it was clear each
+  // repeated something the dashboard already shows: position source and fix type (the GPS Accuracy
+  // KPI card expands to show all of it), unsaved capture (#dashInProgressBanner announces it more
+  // loudly), and data quality (the readiness checklist owns it, and its rows can jump to the
+  // offending features, which a status line cannot). A status surface earns its space only by
+  // saying what nothing else says — so this asserts every row is a link, and does NOT reward
+  // padding the list back out. See dashShadeRows() for the same reasoning at the source.
+  w.eval(`
+    projects.push({ id:'pShade', name:'Shade Test', crs:'wgs84', createdAt:new Date().toISOString() });
+    projectData['pShade'] = { savedFeatures:[], currentVertices:[], featureTypes:[] };
+    activeProjectId = 'pShade'; savedFeatures = []; currentVertices = [];
+    renderDashShade();
+  `);
+  const rows = [...w.document.querySelectorAll('.dash-shade-row')];
+  assert(rows.length >= 4, `only ${rows.length} status rows rendered`);
+  rows.forEach(r => assert(r.getAttribute('onclick'), 'a status row is a dead end'));
+  assert(w.document.getElementById('dashShadeLine').textContent.trim(), 'the collapsed summary is blank');
+});
+
+check('the shade commits a drag once, not twice', () => {
+  // A drag ends in a pointerup, and a pointerup on a button is followed by a click — which would
+  // land in toggleDashShade() and undo whatever the drag just decided. The flag is what keeps one
+  // gesture to one state change.
+  w.eval("setDashShadeOpen(true); document.getElementById('dashShade').dataset.dragged='1'; toggleDashShade();");
+  assert(w.document.getElementById('dashShade').classList.contains('open'),
+    'the trailing click reversed the drag');
+  w.eval('toggleDashShade()');
+  assert(!w.document.getElementById('dashShade').classList.contains('open'),
+    'the flag was not consumed, so the next real tap did nothing');
+});
+
+check('the project thumbnail survives a degenerate extent', () => {
+  // One vertex means a zero-width and zero-height bounding box. Dividing by that span is how a
+  // thumbnail full of NaN gets rendered — and an SVG with NaN coordinates draws nothing at all,
+  // so it fails silently as an empty box rather than as an error.
+  w.eval(`
+    savedFeatures = [{ id:1, name:'Sign', featureTypeId:'ft', geometryType:'point',
+      savedAt:new Date().toISOString(), vertices:[{lat:-25.75, lon:28.23, photos:[]}] }];
+    renderDashThumb();
+  `);
+  const one = w.document.getElementById('dashProjectThumb').innerHTML;
+  assert(!/NaN|Infinity/.test(one), `a single vertex produced ${one.slice(0, 120)}`);
+  assert(/<circle/.test(one), 'a lone point is not drawn');
+
+  w.eval(`
+    savedFeatures = [{ id:2, name:'Main St', featureTypeId:'ft', geometryType:'line',
+      savedAt:new Date().toISOString(),
+      vertices:[{lat:-25.750, lon:28.230, photos:[]}, {lat:-25.751, lon:28.235, photos:[]}] }];
+    renderDashThumb();
+  `);
+  const line = w.document.getElementById('dashProjectThumb').innerHTML;
+  assert(/<path[^>]*d="M/.test(line), 'a line feature is not drawn');
+  assert(!/NaN|Infinity/.test(line), 'the projection produced non-numbers');
+
+  w.eval('savedFeatures = []; renderDashThumb();');
+  assert(/svg/.test(w.document.getElementById('dashProjectThumb').innerHTML),
+    'an empty project shows an empty box rather than a placeholder mark');
+});
+
+check('the dashboard no longer stands up a third map', () => {
+  // Review owns the working map and PlotAtlas owns the full-screen one. The dashboard preview was
+  // the same shared #reviewMap element being physically relocated between tabs on every switch,
+  // with an invalidateSize() and a tile fetch behind it — on a screen nobody opens to look at a map.
+  const collect = fs.readFileSync(path.join(ROOT, 'js/06-collect.js'), 'utf8');
+  assert(!/function dockReviewMap/.test(collect), 'the map is still being moved between tabs');
+  assert(!/id="dashMapSlot"/.test(html), 'the dashboard still has a map slot to dock into');
+  assert(/id="dashProjectThumb"/.test(html), 'nothing replaced the map');
+  const base = fs.readFileSync(path.join(ROOT, 'css/03-base.css'), 'utf8');
+  assert(!/dash-preview/.test(base), 'the docked-preview styles outlived the feature');
+});
+
+check('Settings is an index of groups, and a group layers over it', () => {
+  // Twelve preference rows in one sheet meant the last few were only ever reached by scrolling
+  // past everything else. Groups layer ON TOP of the index rather than replacing it, so Done or
+  // Back returns to the group list instead of dropping the user out of Settings entirely.
+  w.eval("openSettings(); openSettingsGroup('appearance');");
+  assert(w.document.getElementById('settingsGroup-appearance').classList.contains('show'),
+    'the group sheet did not open');
+  assert(w.document.getElementById('settingsModal').classList.contains('show'),
+    'the index closed underneath the group — Back would leave Settings entirely');
+  w.eval("closeSettingsGroup('appearance')");
+  assert(!w.document.getElementById('settingsGroup-appearance').classList.contains('show'),
+    'the group did not close');
+
+  // A group is a sibling overlay, not a child, so closing Settings does not take it along for free.
+  w.eval("openSettingsGroup('maps'); closeSettings();");
+  assert(!w.document.getElementById('settingsGroup-maps').classList.contains('show'),
+    'a group sheet was left floating over the screen Settings was opened from');
+
+  // Reopening must land on the index. Restoring the last group visited would be a hidden mode.
+  w.eval("openSettingsGroup('capture'); closeSettings(); openSettings();");
+  assert(!w.document.querySelector('.settings-subsheet.show'),
+    'Settings reopened into a group instead of the index');
+  w.eval('closeSettings()');
+});
+
+check('regrouping Settings did not lose a single control', () => {
+  // The rows moved between sheets; every id and handler stayed put, so syncSettingsModalUI()
+  // paints the groups exactly as it painted the flat list. This is the assertion that would have
+  // caught a row dropped during the move.
+  ['settingsThemeAuto', 'settingsThemeLight', 'settingsThemeDark', 'domainGrid',
+   'settingsDensityComfortable', 'settingsDensityCompact', 'widgetDynamicToggle',
+   'settingsUnitsMetric', 'settingsUnitsImperial', 'settingsBasemapGrid', 'settingsSnapToggle',
+   'settingsExportFormat', 'settingsPlotLensToggle'].forEach(id => {
+    assert(w.document.getElementById(id), `#${id} did not survive the regrouping`);
+  });
+  w.eval('syncSettingsModalUI()');   // throws if a group's controls moved out from under it
+  // The two adjacent rows both labelled "Theme" — one the light/dark mode, one the palette — were
+  // indistinguishable from each other in the flat list.
+  assert(!/>Theme<\/div>\s*<div class="settings-row-sub">Auto follows/.test(html),
+    'the light/dark row is still called "Theme", same as the palette row below it');
+});
+
+check('the More drawer is searchable by what an action does, not only its name', () => {
+  // Searching labels alone only helps people who already know the labels — which is the group
+  // least in need of a search box. The drawer is where the UNFAMILIAR actions live.
+  const geo = fs.readFileSync(path.join(ROOT, 'js/16-geometry-math.js'), 'utf8');
+  const described = (geo.match(/\bdesc:['"]/g) || []).length;
+  const actions = (geo.match(/\{ id:'/g) || []).length;
+  assert(described === actions, `${actions - described} action(s) have no description`);
+
+  w.eval("qaNoteUsed('notes'); openMoreActions();");
+  const drawer = () => w.document.getElementById('qaDrawerGrid').innerHTML;
+  assert(/Recently used/.test(drawer()), 'the drawer does not surface recently used actions');
+  assert(/qa-desc/.test(drawer()), 'descriptions are not rendered in the drawer');
+
+  w.eval("onQaSearchInput('bluetooth')");
+  assert(/Connect GPS/.test(drawer()), 'searching a description does not find the action');
+  w.eval("onQaSearchInput('')");
+  w.eval('closeMoreActions()');
+});
+
+check('every card on the dashboard leads somewhere', () => {
+  // A card that reports a number and then does nothing when tapped teaches the user that tapping
+  // cards does nothing, which costs the cards that DO lead somewhere.
+  // dashBackupCard is not in this list because it no longer exists: storage and export status
+  // moved into the status shade, which is open on arrival rather than buried inside a section
+  // that is collapsed by default. Two renderings of the same two facts is the redundancy the
+  // shade was meant to remove, not add.
+  ['dashHealthCard', 'dashPaceCard'].forEach(id => {
+    const block = html.slice(html.indexOf(`id="${id}"`) - 300, html.indexOf(`id="${id}"`) + 200);
+    assert(/onclick=/.test(block), `#${id} is a dead end`);
+    assert(/onkeydown=/.test(block), `#${id} cannot be reached from a keyboard`);
+  });
 });
 
 check('nothing threw while any of that ran', () => {

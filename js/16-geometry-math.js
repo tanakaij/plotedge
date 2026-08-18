@@ -624,46 +624,65 @@ function closeHelp(){ document.getElementById('helpModal').classList.remove('sho
 // can drift out of sync with the other or accidentally show the same action twice.
 const QA_REGISTRY = [
   { id:'featuretypes', group:'Set up', label:'Feature Types',   run:()=>showFeatureTypes(),
+    desc:'Define what this project captures — fields, geometry, validation',
     icon:'<path d="M12 2 2 7l10 5 10-5z"/><path d="m2 12 10 5 6-3"/><circle cx="18.5" cy="18.5" r="3"/><path d="M18.5 14.4v1.1M18.5 21.5v1.1M14.4 18.5h1.1M21.5 18.5h1.1"/>' },
   { id:'import', group:'Data',       label:'Import',          run:()=>switchTabNav('import'),
+    desc:'Bring GeoJSON, CSV or a PlotPack into this project',
     icon:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>' },
   { id:'export', group:'Data',       label:'Export',          run:()=>switchTabNav('export'),
+    desc:'Send this project out as files, a web map or to a cloud endpoint',
     icon:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' },
   { id:'newproject', group:'Set up',   label:'New Project',     run:()=>showNewProject(),
+    desc:'Start a fresh project with its own schema and working grid',
     icon:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>' },
   { id:'plotatlas', group:'Explore',    label:'PlotAtlas',       run:()=>openPlotAtlas(),
+    desc:'Full-screen map with basemaps, layers and feature inspection',
     icon:'<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/>' },
   { id:'analytics', group:'Analyse',    label:'Analytics',       run:()=>openAnalytics(),
+    desc:'Charts and breakdowns across this project’s captured data',
     icon:'<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>' },
   { id:'plotmind', group:'Explore',     label:'PlotMind',        run:()=>openPlotMind(),
+    desc:'Attribute values learned from what you have already captured',
     icon:'<path d="M12 3a5 5 0 0 0-5 5v1a4 4 0 0 0 0 8v1a4 4 0 0 0 8 0V8a5 5 0 0 0-3-5z"/><path d="M12 3a5 5 0 0 1 5 5v1a4 4 0 0 1 0 8v1a4 4 0 0 1-5 3"/><path d="M9 10h1.5M14 14h1.5"/>' },
   { id:'plotetch', group:'Analyse',     label:'PlotEtch',        run:()=>openPlotEtch(),
+    desc:'Digitize shapes by hand, with snapping and overlay tools',
     icon:'<polygon points="12 3 20 8.5 17.5 18.5 6.5 18.5 4 8.5"/><circle cx="12" cy="3" r="1.6" fill="currentColor"/><circle cx="20" cy="8.5" r="1.6" fill="currentColor"/><circle cx="4" cy="8.5" r="1.6" fill="currentColor"/>' },
   { id:'attrtable', group:'Data',    label:'Attribute Table', run:()=>openAttributeTable(),
+    desc:'Every feature as a table, with query and column statistics',
     icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/>' },
   { id:'zonal', group:'Analyse',        label:'Zonal Stats',     run:()=>runZonalStatsForProject(),
+    desc:'Raster statistics summarised over this project’s polygons',
     icon:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>' },
   { id:'layers', group:'Set up',       label:'Layers',          run:()=>openLayerModal(),
+    desc:'Show, hide and reorder feature types on the map',
     icon:'<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>' },
   { id:'goto', group:'Explore',         label:'Go To',           run:()=>openGotoModal(),
+    desc:'Jump the map to a coordinate, a grid reference or a feature',
     icon:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' },
   { id:'media', group:'Data',        label:'Media Gallery',   run:()=>showMediaGallery(),
+    desc:'Every photo in this project, grouped by the feature it belongs to',
     icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>' },
   { id:'gps', group:'Utilities',          label:'Connect GPS',     run:()=>toggleExternalGps(),
+    desc:'Pair a Bluetooth NMEA receiver for survey-grade fixes',
     icon:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><line x1="12" y1="1.5" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22.5" y2="12"/>' },
   { id:'backup', group:'Data',       label:'Backup All',      run:()=>exportAllProjects(),
+    desc:'Zip every project on this device, not just the open one',
     icon:'<path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M23 3H1l4 5h14z"/><line x1="10" y1="12" x2="14" y2="12"/>' },
   { id:'notes', group:'Utilities',        label:'Quick Notes',     run:()=>openQuickNotesModal(),
+    desc:'A scratchpad for this project — site access, contacts, reminders',
     icon:'<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/>' },
   // Gated by the Settings toggle via available(). PlotLens belongs here rather than as a one-off
   // row on Review: it is the same class of tool as PlotEtch, Media Gallery and Attribute Table —
   // project-scoped, opened occasionally — and putting it in the registry means it inherits the
   // customisable grid, the More drawer and the same tile styling instead of inventing its own.
   { id:'plotlens', group:'Explore',     label:'PlotLens',        run:()=>showPlotLens(), available:()=>plotLensEnabled(),
+    desc:'Turn this project’s photos into a narrated visual story',
     icon:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/>' },
   { id:'plotvault', group:'Explore', label:'PlotVault',       run:()=>openPlotVault(),
+    desc:'Push and pull this project against a shared cloud vault',
     icon:'<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>' },
   { id:'help', group:'Utilities',         label:'Help & About',    run:()=>openHelp(),
+    desc:'How the app works, and where your data actually lives',
     icon:'<circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.9 2.9 0 0 1 5.6 1c0 2-2.8 2.5-2.8 4"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/>' }
 ];
 
@@ -811,8 +830,23 @@ function qaTileHtml(action, inDrawer){
       ${icon}<span class="qa-text">${escapeHtml(action.label)}</span>
     </button>`;
   }
-  return `<button class="qa-tile" onclick="${onclick}">
-    ${icon}<span class="qa-text">${escapeHtml(action.label)}</span>
+  // ══ THE DRAWER TILE CARRIES A DESCRIPTION ══
+  // The dashboard grid cannot: at four across there is room for a two-line label and nothing else.
+  // The drawer is the opposite case — it is precisely where the UNFAMILIAR actions live, and a
+  // grid of proprietary names (PlotEtch, PlotMind, PlotVault, PlotLens) with nothing but an icon
+  // beside them is a list you have to open things to understand. One line of plain English per
+  // row is the difference between a menu and a directory. It is also what makes search worth
+  // having: the filter reads the description too, so "photo" finds Media Gallery and PlotLens
+  // without either label containing the word.
+  const desc = action.desc
+    ? `<span class="qa-desc">${escapeHtml(action.desc)}</span>`
+    : '';
+  return `<button class="qa-tile qa-tile-rich" onclick="${onclick}">
+    ${icon}
+    <span class="qa-rich-body">
+      <span class="qa-text">${escapeHtml(action.label)}</span>
+      ${desc}
+    </span>
     <svg class="qa-tile-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
   </button>`;
 }
@@ -845,9 +879,43 @@ const QA_SEARCH_MIN = 8;
 
 let qaDrawerFilter = '';
 
+// ══ RECENTLY USED ══
+// Grouping helps you browse and search helps you aim, but neither helps with the thing people
+// actually do most: reaching for the same two or three overflow actions over and over. A crew
+// working a site that needs Media Gallery and Quick Notes every hour should not re-scan five
+// groups, or retype the same three letters, every time.
+// Deliberately a short list and deliberately NOT self-reordering the grid: the grid is the user's
+// to arrange (that is what Customise is for), and a dashboard whose tiles move on their own is a
+// dashboard you cannot build muscle memory against. This is a shortcut row inside the drawer, and
+// nothing more.
+const QA_RECENT_KEY = 'plotedge_qa_recent';
+const QA_RECENT_MAX = 3;
+
+function qaRecentIds(){
+  try {
+    const v = JSON.parse(localStorage.getItem(QA_RECENT_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch(e){ return []; }
+}
+
+// Most-recent-first, de-duplicated, capped. Recorded for every run regardless of where it was
+// launched from, because "what did I last use" is a fact about the user, not about which surface
+// they happened to tap.
+function qaNoteUsed(id){
+  try {
+    const next = [id, ...qaRecentIds().filter(x => x !== id)].slice(0, QA_RECENT_MAX);
+    localStorage.setItem(QA_RECENT_KEY, JSON.stringify(next));
+  } catch(e){}
+}
+
 function qaDrawerHtml(rest){
   const q = qaDrawerFilter.trim().toLowerCase();
-  const matched = q ? rest.filter(a => a.label.toLowerCase().includes(q)) : rest;
+  // Label OR description. Searching the description is what lets someone find an action by what
+  // it DOES when they cannot remember what it is called — the whole problem with proprietary
+  // module names.
+  const matched = q
+    ? rest.filter(a => a.label.toLowerCase().includes(q) || (a.desc || '').toLowerCase().includes(q))
+    : rest;
   if (!matched.length) {
     return `<div class="qa-drawer-empty">Nothing matches “${escapeHtml(qaDrawerFilter.trim())}”.</div>`;
   }
@@ -855,7 +923,18 @@ function qaDrawerHtml(rest){
   // more than they organise, and they push the actual answers down the sheet.
   if (q) return `<div class="qa-grid qa-drawer-grid">${matched.map(a=>qaTileHtml(a, true)).join('')}</div>`;
 
-  return QA_GROUP_ORDER.map(g => {
+  // Recents sit above the groups and are ALSO left in their own group below — a shortcut that
+  // removes an action from where it normally lives would make the drawer's structure shift under
+  // the user, which is exactly the instability the comment above rejects for the grid.
+  const recent = qaRecentIds().map(id => matched.find(a => a.id === id)).filter(Boolean);
+  const recentBlock = recent.length
+    ? `<div class="qa-group qa-group-recent">
+         <div class="qa-group-label">Recently used</div>
+         <div class="qa-grid qa-drawer-grid">${recent.map(a=>qaTileHtml(a, true)).join('')}</div>
+       </div>`
+    : '';
+
+  return recentBlock + QA_GROUP_ORDER.map(g => {
     const inGroup = matched.filter(a => qaGroupOf(a) === g);
     if (!inGroup.length) return '';
     return `<div class="qa-group">
@@ -876,6 +955,9 @@ function onQaSearchInput(v){
 function qaRun(id){
   const a = qaActionById(id);
   if (!a) { showToast('That action is no longer available'); return; }
+  // Recorded before the action runs, not after: several of these navigate away or open a sheet,
+  // and one that throws is still an action the user reached for.
+  qaNoteUsed(id);
   try { a.run(); } catch(e){ console.error('Quick action failed:', e); showToast('That action couldn\'t run'); }
 }
 
@@ -895,6 +977,12 @@ function renderQuickActions(){
   if (drawer) drawer.innerHTML = qaDrawerHtml(rest);
   const count = document.getElementById('qaMoreCount');
   if (count) count.textContent = String(rest.length);
+  // The sheet says how much is in it, so the drawer's header is informative rather than a bare
+  // title over a list whose length you have to scroll to discover.
+  const sub = document.getElementById('qaDrawerSub');
+  if (sub) sub.textContent = rest.length
+    ? `${rest.length} more action${rest.length===1?'':'s'} · tap to run, or customise the grid below`
+    : 'Every action is already on your dashboard grid.';
 }
 
 

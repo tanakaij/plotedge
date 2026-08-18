@@ -241,7 +241,7 @@ checkCI('the build fails loudly rather than shipping an unsignable APK', () => {
 // Comments are stripped before any of this is matched. These stylesheets are heavily commented and
 // the comments name the very selectors being searched for, so an unstripped match happily lands in
 // a paragraph of prose about a rule instead of on the rule.
-const navCss = ['css/01-tokens.css','css/02-mesh.css','css/03-base.css','css/05-components.css']
+const navCss = ['css/01-tokens.css','css/02-mesh.css','css/03-base.css','css/05-components.css','css/10-quick-actions.css']
   .map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
   .replace(/\/\*[\s\S]*?\*\//g, '');
 const navJsNav = fs.readFileSync(path.join(ROOT, 'js/07-navigation.js'), 'utf8');

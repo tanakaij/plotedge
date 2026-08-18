@@ -654,6 +654,9 @@ function setDensityPref(mode){
 let _screenBeforeSettings = null;
 
 function openSettings(){
+  // Always lands on the index. Reopening Settings into whichever group was last visited would be
+  // a hidden mode — the gear icon must mean the same thing every time it is tapped.
+  closeSettingsGroup();
   syncSettingsModalUI();
   _screenBeforeSettings = currentScreenState();
   setScreenState('settings');
@@ -661,9 +664,39 @@ function openSettings(){
 }
 
 function closeSettings(){
+  // A sub-sheet is a sibling overlay, not a child of this one, so closing Settings does not take
+  // it with it — without this, "Done" on the index (or a Back that reached the index) could leave
+  // an Appearance sheet floating over the screen Settings was opened from.
+  closeSettingsGroup();
   document.getElementById('settingsModal').classList.remove('show');
   if (_screenBeforeSettings) { setScreenState(_screenBeforeSettings); _screenBeforeSettings = null; }
 }
+
+// ══ SETTINGS SUB-SHEETS ══
+// Settings is an index of three grouped sheets (see the markup in index.html). They layer ON TOP
+// of the index rather than replacing it, so Done/Back/tap-outside returns to the list of groups
+// instead of dropping the user out of Settings — the behaviour of every native settings app.
+const SETTINGS_GROUPS = ['appearance', 'maps', 'capture'];
+
+function openSettingsGroup(key){
+  const el = document.getElementById('settingsGroup-' + key);
+  if (!el) return;
+  // Repainted on every open rather than only when Settings itself opens: a preference can be
+  // changed from a quick toggle elsewhere while the index is sitting open behind this sheet.
+  syncSettingsModalUI();
+  el.classList.add('show');
+}
+
+// Called with no argument to close whichever is up — used by closeSettings() and by the Back
+// handler, neither of which should have to know which group the user had opened.
+function closeSettingsGroup(key){
+  const keys = key ? [key] : SETTINGS_GROUPS;
+  keys.forEach(k => {
+    const el = document.getElementById('settingsGroup-' + k);
+    if (el) el.classList.remove('show');
+  });
+}
+
 
 // Paints every control in the modal from current state — called on open, and after any change
 // made elsewhere (the quick icon toggles) so the modal never shows a stale selection if it was

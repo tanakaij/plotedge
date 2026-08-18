@@ -106,6 +106,7 @@
 <link rel="stylesheet" href="css/07-analytics.css">
 <link rel="stylesheet" href="css/08-plotwords.css">
 <link rel="stylesheet" href="css/09-capture-form.css">
+<link rel="stylesheet" href="css/10-quick-actions.css">
 </head>
 <body>
 
@@ -844,8 +845,49 @@ try {
 
   <!-- ══ DASHBOARD ══ -->
   <div class="panel active" id="panel-dashboard">
-    <div class="dash-map-slot" id="dashMapSlot"></div>
-    <div class="dash-project-strip" id="dashProjectStrip"></div>
+    <!-- ══ PROJECT HEAD ══
+         This replaces the full-width Leaflet preview that used to open the dashboard. That map
+         was the app's THIRD view of the same geometry — Review owns the working map and PlotAtlas
+         owns the full-screen one — and it was not a cheap third: dockReviewMap() physically moved
+         the single shared #reviewMap between the two tabs on every switch, which meant an
+         invalidateSize() dance, a re-render, and a fresh tile fetch on a screen nobody navigates
+         to in order to look at a map. A dashboard should say what state the work is in, and hand
+         you to the map when you want the map.
+         What is left is a thumbnail: an inline SVG plot of this project's own vertices, drawn by
+         renderDashThumb() from coordinates already in memory. No tiles, no Leaflet, no network —
+         it works in a dead spot, which the hero map never did. It reads as an identity mark for
+         the project rather than a map you are meant to use, and tapping it goes to the real map. -->
+    <div class="dash-project-head">
+      <button type="button" class="dash-thumb" id="dashProjectThumb" onclick="switchTabNav('review')"
+              aria-label="Open this project on the Review map"></button>
+      <button type="button" class="dash-project-strip" id="dashProjectStrip"
+              onclick="editProject(activeProjectId)" aria-label="Edit project details"></button>
+    </div>
+    <!-- ══ STATUS SHADE ══
+         A pull-down drawer in the manner of the Android status bar: a one-line summary with
+         indicator dots always visible, the full operational picture behind a drag (or a tap).
+         Deliberately NOT a fifth KPI card. The KPI grid answers "how much have I collected?" —
+         features, vertices, accuracy, photos, all of it a count of work done. This answers "is
+         this rig set up and is my work safe?": where the position is coming from, which grid the
+         project is working in, whether anything is unsaved, whether it has been exported, how
+         full the device is, and whether the network is there. None of those numbers appear on a
+         KPI card, and every row is a link to the screen that acts on it. -->
+    <div class="dash-shade" id="dashShade">
+      <div class="dash-shade-peek" id="dashShadePeek" role="button" tabindex="0"
+           aria-expanded="false" aria-controls="dashShadeBody" onclick="toggleDashShade()"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleDashShade();}">
+        <span class="dash-shade-dots" id="dashShadeDots"></span>
+        <span class="dash-shade-line" id="dashShadeLine">Checking status…</span>
+        <svg class="dash-shade-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="dash-shade-body" id="dashShadeBody">
+        <div class="dash-shade-rows" id="dashShadeRows"></div>
+      </div>
+      <!-- The grab handle is the affordance that says "this pulls". It is inside the shade so it
+           travels with it, and it is the second drag surface: pulling it up closes the shade the
+           same way pulling the peek bar down opens it. -->
+      <div class="dash-shade-grab" id="dashShadeGrab" aria-hidden="true"><span></span></div>
+    </div>
     <div class="dash-inprogress-banner" id="dashInProgressBanner" style="display:none;" onclick="switchTabNav('collect')"></div>
     <div class="kpi-grid">
       <div class="kpi-card" data-kpi="features" onclick="switchTabNav('review'); setReviewView('table');" role="button" tabindex="0">
@@ -929,7 +971,10 @@ try {
         <svg class="dash-insights-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="dash-insights-body" id="dashInsightsBody">
-    <div class="dash-health-card" id="dashHealthCard" style="display:none;">
+    <!-- Today's Progress counts features against the checklist; Review is the screen that lists
+         those features, which is where anybody reading this card is heading next. -->
+    <div class="dash-health-card dash-widget-card-tap" id="dashHealthCard" onclick="switchTabNav('review')" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchTabNav('review');}" style="display:none;">
       <div class="dash-health-top">
         <div class="dash-health-title">Today's Progress</div>
         <div class="dash-health-pct" id="dashHealthPct">0%</div>
@@ -952,7 +997,10 @@ try {
     <!-- Capture Pace — features/hour so far today, plus a 7-day sparkline for trend context (is
          today typical, or a slow/fast day compared to the rest of the week). Both numbers come
          from feature.savedAt, already stored on every saved feature — no new tracking needed. -->
-    <div class="dash-widget-card" id="dashPaceCard" style="display:none;">
+    <!-- Pace is a summary of a trend; Analytics is where that trend can actually be interrogated,
+         so the card hands off to it rather than being a read-only rectangle. -->
+    <div class="dash-widget-card dash-widget-card-tap" id="dashPaceCard" onclick="openAnalytics()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAnalytics();}" style="display:none;">
       <div class="dash-widget-row">
         <div>
           <div class="dash-widget-title">Pace Today</div>
@@ -966,16 +1014,12 @@ try {
       </div>
     </div>
 
-    <!-- Backup & Storage — surfaces two things that are easy to forget in the field: how full
-         local storage is (reuses the same estimate as the Export tab's meter) and whether this
-         project's data has actually been exported since it was last captured. Tapping opens
-         Export directly since that's the one actionable thing this card is telling you to do. -->
-    <div class="dash-widget-card dash-widget-card-tap" id="dashBackupCard" onclick="switchTabNav('export')" style="display:none;">
-      <div class="dash-widget-title">Backup &amp; Storage</div>
-      <div class="storage-meter-track" style="margin-top:10px;"><div class="storage-meter-fill" id="dashStorageFill" style="width:0%;"></div></div>
-      <div class="storage-meter-label" id="dashStorageLabel">Storage 0% used</div>
-      <div class="dash-export-line" id="dashExportLine"></div>
-    </div>
+    <!-- Backup & Storage used to be a fourth card here, showing storage percent, last export and
+         "N new since". All three moved into the status shade at the top of the dashboard, which is
+         the better home: this section is collapsed by default, so the one card whose whole job was
+         to warn that work has not left the device was the card nobody saw. Keeping both would mean
+         the same two facts rendered twice on one screen from two different functions — see the
+         "what is deliberately NOT in here" note in dashShadeRows(). -->
 
       </div>
     </div>
@@ -2160,7 +2204,11 @@ try {
      one stacked underneath would strand it behind whatever comes next. -->
 <div class="modal-overlay" id="moreActionsModal" role="dialog" aria-modal="true" aria-label="More quick actions">
   <div class="modal-box">
-    <div class="modal-msg">More actions</div>
+    <div class="modal-msg" style="margin-bottom:4px;">More actions</div>
+    <!-- Written by openMoreActions(). A sheet that opens with a bare title makes the user work out
+         what they are looking at from the contents; one line saying how much is here and what the
+         two things at the bottom do costs nothing and answers both. -->
+    <div class="qa-drawer-sub" id="qaDrawerSub"></div>
     <!-- Shown by renderQuickActions() only past QA_SEARCH_MIN overflow actions: a search field over
          a list you can already take in at a glance reads as friction rather than help. -->
     <div class="qa-search-wrap" id="qaSearchWrap" style="display:none;">
@@ -2168,8 +2216,33 @@ try {
       <input type="text" id="qaSearchInput" placeholder="Search actions…" autocomplete="off" oninput="onQaSearchInput(this.value)" aria-label="Search actions">
     </div>
     <div id="qaDrawerGrid">    </div>
-    <div class="modal-actions" style="margin-top:18px;">
-      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="runFromMoreActions(openCustomizeQa)">Customise…</button>
+    <!-- ══ THE DRAWER'S OWN FOOTER ══
+         These two are actions ABOUT this sheet rather than actions in it, which is why they sit
+         below the groups and carry a different surface rather than being registry entries.
+         PlotWords belongs here specifically: this is the one screen in the app that shows the full
+         set of proprietary module names at once, so it is exactly where somebody meets a name they
+         do not recognise. Sending them to Settings to look it up would be the wrong answer to a
+         question asked here. Customise was already in this sheet as a bare button; as a row with a
+         description it finally says what it does. -->
+    <div class="qa-drawer-meta">
+      <button type="button" class="qa-tile qa-tile-rich" onclick="runFromMoreActions(openCustomizeQa)">
+        <span class="qa-icon-badge"><svg class="qa-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+        <span class="qa-rich-body">
+          <span class="qa-text">Customise the grid</span>
+          <span class="qa-desc">Choose which four actions sit on the dashboard</span>
+        </span>
+        <svg class="qa-tile-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </button>
+      <button type="button" class="qa-tile qa-tile-rich" onclick="runFromMoreActions(showPlotWords)">
+        <span class="qa-icon-badge"><svg class="qa-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+        <span class="qa-rich-body">
+          <span class="qa-text">What the names mean</span>
+          <span class="qa-desc">PlotEtch, PlotAtlas, PlotMind and the rest, in plain English</span>
+        </span>
+        <svg class="qa-tile-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-actions" style="margin-top:14px;">
       <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeMoreActions()">Close</button>
     </div>
   </div>
@@ -2468,11 +2541,51 @@ try {
   </div>
 </div>
 
+<!-- ══ SETTINGS ══
+     This was one flat sheet of twelve preference rows — long enough that the export-format picker
+     and the two toggles below it were only ever reached by scrolling past everything else, and
+     long enough that the sheet always painted in its scrollable layout. It is now an INDEX: three
+     grouped sub-sheets plus the two rows that are actions rather than preferences (the glossary
+     and Help), which stay on the top level because burying "how do I get help" one tap deeper is
+     the opposite of what a help affordance is for.
+
+     Every control below keeps its original id and handler — syncSettingsModalUI() paints the
+     sub-sheets by id exactly as it painted the flat list, so nothing had to learn where a row now
+     lives. Grouping is the only change.
+
+     The sub-sheets are siblings of this one and come AFTER it in the document, so they stack above
+     it at the same z-index while Settings stays open underneath: Back (or Done, or a tap outside)
+     returns to the index rather than dropping the user out of Settings entirely. -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal-box">
     <div class="ft-picker-title">Settings</div>
-    <!-- Sits at the top of Settings deliberately: somebody who has come looking for help should
-         meet it before the preference rows, not after scrolling past twenty of them. -->
+
+    <button class="settings-group" onclick="openSettingsGroup('appearance')">
+      <span class="settings-group-body">
+        <span class="settings-group-label">Appearance</span>
+        <span class="settings-group-sub">Light &amp; dark, colour theme, density, home screen widget</span>
+      </span>
+      <svg class="settings-group-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+
+    <button class="settings-group" onclick="openSettingsGroup('maps')">
+      <span class="settings-group-body">
+        <span class="settings-group-label">Maps &amp; units</span>
+        <span class="settings-group-sub">Units, default map style, PlotEtch snapping</span>
+      </span>
+      <svg class="settings-group-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+
+    <button class="settings-group" onclick="openSettingsGroup('capture')">
+      <span class="settings-group-body">
+        <span class="settings-group-label">Capture &amp; export</span>
+        <span class="settings-group-sub">Default export format, PlotLens, learned values</span>
+      </span>
+      <svg class="settings-group-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+
+    <!-- Sits below the groups but still on the top level deliberately: somebody who has come
+         looking for help should meet it without first guessing which group it was filed under. -->
     <div class="settings-row" onclick="closeSettings();showPlotWords();" role="button" tabindex="0"
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();closeSettings();showPlotWords();}">
       <div>
@@ -2481,28 +2594,28 @@ try {
       </div>
     </div>
 
-    <div class="settings-row" onclick="clearValueBank()" role="button" tabindex="0"
-         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();clearValueBank();}">
-      <div>
-        <div class="settings-row-label">Clear learned values</div>
-        <div class="settings-row-sub">Forget the words PlotMind has picked up from your captures. Your surveys are untouched.</div>
-      </div>
-    </div>
-
     <div class="settings-row">
       <div>
-        <div class="settings-row-label">Home screen widget</div>
-        <div class="settings-row-sub">Follow your wallpaper colours (Android 12+) instead of PlotEdge’s theme</div>
+        <div class="settings-row-label">Help &amp; about</div>
+        <div class="settings-row-sub">How the app works, and where your data actually lives</div>
       </div>
-      <label class="switch">
-        <input type="checkbox" id="widgetDynamicToggle" onchange="setWidgetFollowsHomeScreen(this.checked)">
-        <span class="switch-track"><span class="switch-thumb"></span></span>
-      </label>
+      <button class="btn btn-outline" style="width:auto;min-height:36px;padding:8px 16px;margin:0;font-size:12.5px;" onclick="closeSettings();openHelp();">Open</button>
     </div>
 
+    <button class="btn btn-outline" style="flex:1;width:100%;margin-top:6px;" onclick="closeSettings()">Done</button>
+  </div>
+</div>
+
+<!-- ══ SETTINGS › APPEARANCE ══ -->
+<div class="modal-overlay settings-subsheet" id="settingsGroup-appearance" data-group="appearance">
+  <div class="modal-box">
+    <div class="ft-picker-title">Appearance</div>
     <div class="settings-row">
       <div>
-        <div class="settings-row-label">Theme</div>
+        <!-- Was also labelled "Theme", directly above the colour picker which was ALSO labelled
+             "Theme" — two adjacent rows with the same name controlling different things. This one
+             is the light/dark mode; the one below is the palette. -->
+        <div class="settings-row-label">Light &amp; dark</div>
         <div class="settings-row-sub">Auto follows your device's setting</div>
       </div>
       <div class="seg-control" id="settingsThemeSeg">
@@ -2521,10 +2634,10 @@ try {
          family — the old picker put three greens in a row. -->
     <div class="settings-row settings-row-stack">
       <div>
-        <div class="settings-row-label">Theme</div>
+        <div class="settings-row-label">Colour theme</div>
         <div class="settings-row-sub">Tints the whole app — buttons, badges, focus rings and the ambient background</div>
       </div>
-      <div class="domain-grid" id="domainGrid" role="group" aria-label="Theme">
+      <div class="domain-grid" id="domainGrid" role="group" aria-label="Colour theme">
         <button type="button" class="domain-swatch" data-domain="land"        onclick="setDomainTheme('land', true)"        aria-pressed="false"><span class="ds-chips"><i style="background:#B45309"></i><i style="background:#C2410C"></i><i style="background:#F59E0B"></i></span><span class="ds-name">Earth &amp; Land</span></button>
         <button type="button" class="domain-swatch" data-domain="water"       onclick="setDomainTheme('water', true)"       aria-pressed="false"><span class="ds-chips"><i style="background:#0E7490"></i><i style="background:#0369A1"></i><i style="background:#22D3EE"></i></span><span class="ds-name">Water</span></button>
         <button type="button" class="domain-swatch" data-domain="climate"     onclick="setDomainTheme('climate', true)"     aria-pressed="false"><span class="ds-chips"><i style="background:#7C3AED"></i><i style="background:#DB2777"></i><i style="background:#A78BFA"></i></span><span class="ds-name">Climate</span></button>
@@ -2535,6 +2648,36 @@ try {
     </div>
     <div class="settings-row">
       <div>
+        <div class="settings-row-label">Density</div>
+        <div class="settings-row-sub">Comfortable vs compact layout</div>
+      </div>
+      <div class="seg-control" id="settingsDensitySeg">
+        <button onclick="setDensityPref('comfortable')" id="settingsDensityComfortable">Comfortable</button>
+        <button onclick="setDensityPref('compact')" id="settingsDensityCompact">Compact</button>
+      </div>
+    </div>
+    <!-- Filed under Appearance rather than a group of its own: it is a colour preference, just
+         one that applies to a surface outside the app. -->
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Home screen widget</div>
+        <div class="settings-row-sub">Follow your wallpaper colours (Android 12+) instead of PlotEdge’s theme</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="widgetDynamicToggle" onchange="setWidgetFollowsHomeScreen(this.checked)">
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+      </label>
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:6px;" onclick="closeSettingsGroup('appearance')">Done</button>
+  </div>
+</div>
+
+<!-- ══ SETTINGS › MAPS &amp; UNITS ══ -->
+<div class="modal-overlay settings-subsheet" id="settingsGroup-maps" data-group="maps">
+  <div class="modal-box">
+    <div class="ft-picker-title">Maps &amp; units</div>
+    <div class="settings-row">
+      <div>
         <div class="settings-row-label">Units</div>
         <div class="settings-row-sub">Distances &amp; areas shown on screen</div>
       </div>
@@ -2543,7 +2686,7 @@ try {
         <button onclick="setUnitsPref('imperial')" id="settingsUnitsImperial">Imperial</button>
       </div>
     </div>
-    <div class="settings-row">
+    <div class="settings-row settings-row-stack">
       <div>
         <div class="settings-row-label">Default map style</div>
         <div class="settings-row-sub">Review &amp; vertex-correction maps</div>
@@ -2562,24 +2705,6 @@ try {
         <button type="button" class="atlas-bm-opt" data-bm="dark" onclick="setBasemapPref('dark')"><span class="atlas-bm-swatch" data-bm="dark"></span>Dark</button>
       </div>
     </div>
-    <div class="settings-row">
-      <div>
-        <div class="settings-row-label">Default export format</div>
-        <div class="settings-row-sub">Pre-selected when you open Export</div>
-      </div>
-      <!-- Generated from EXPORT_FORMATS — see the note on #exportFormatSelect. -->
-      <select class="settings-select" id="settingsExportFormat" onchange="setExportFormatDefault(this.value)"></select>
-    </div>
-    <div class="settings-row">
-      <div>
-        <div class="settings-row-label">Density</div>
-        <div class="settings-row-sub">Comfortable vs compact layout</div>
-      </div>
-      <div class="seg-control" id="settingsDensitySeg">
-        <button onclick="setDensityPref('comfortable')" id="settingsDensityComfortable">Comfortable</button>
-        <button onclick="setDensityPref('compact')" id="settingsDensityCompact">Compact</button>
-      </div>
-    </div>
     <!-- This row used to toggle a "shape complete" celebration animation that happened to be
          called PlotEtch. That animation is gone, and PlotEtch is now the digitizing screen — so
          the row keeps its name but finally controls something about the thing users actually
@@ -2596,6 +2721,22 @@ try {
         <span class="toggle-slider"></span>
       </label>
     </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:6px;" onclick="closeSettingsGroup('maps')">Done</button>
+  </div>
+</div>
+
+<!-- ══ SETTINGS › CAPTURE &amp; EXPORT ══ -->
+<div class="modal-overlay settings-subsheet" id="settingsGroup-capture" data-group="capture">
+  <div class="modal-box">
+    <div class="ft-picker-title">Capture &amp; export</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Default export format</div>
+        <div class="settings-row-sub">Pre-selected when you open Export</div>
+      </div>
+      <!-- Generated from EXPORT_FORMATS — see the note on #exportFormatSelect. -->
+      <select class="settings-select" id="settingsExportFormat" onchange="setExportFormatDefault(this.value)"></select>
+    </div>
     <!-- ══ PLOTLENS ══
          Off by default and gated behind a toggle because it is a storytelling/reporting feature,
          not part of the capture loop — a crew who only ever collects data should never have to
@@ -2611,14 +2752,14 @@ try {
         <span class="toggle-slider"></span>
       </label>
     </div>
-    <div class="settings-row">
+    <div class="settings-row" onclick="clearValueBank()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();clearValueBank();}">
       <div>
-        <div class="settings-row-label">Help &amp; about</div>
-        <div class="settings-row-sub">How the app works, and where your data actually lives</div>
+        <div class="settings-row-label">Clear learned values</div>
+        <div class="settings-row-sub">Forget the words PlotMind has picked up from your captures. Your surveys are untouched.</div>
       </div>
-      <button class="btn btn-outline" style="width:auto;min-height:36px;padding:8px 16px;margin:0;font-size:12.5px;" onclick="closeSettings();openHelp();">Open</button>
     </div>
-    <button class="btn btn-outline" style="flex:1;width:100%;margin-top:6px;" onclick="closeSettings()">Done</button>
+    <button class="btn btn-outline" style="width:100%;margin-top:6px;" onclick="closeSettingsGroup('capture')">Done</button>
   </div>
 </div>
 

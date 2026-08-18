@@ -989,28 +989,15 @@ function toggleCard(id){
   card.classList.toggle('collapsed');
 }
 
-// Moves the single shared #reviewMap Leaflet instance between the Dashboard preview slot and its
-// home position on the Review tab, rather than standing up a second map (and downloading a second
-// set of tiles) for the dashboard — this app is built to work offline on field data plans, so a
-// duplicate map would be a real cost for what's meant to be a lightweight "here's your coverage"
-// glance. invalidateSize() is required after the move: Leaflet lays tiles out for the container
-// size at the moment it becomes visible, and the dashboard/review slots are different heights.
-function dockReviewMap(destination){
-  const wrap = document.getElementById('reviewMapWrap');
-  const dashSlot = document.getElementById('dashMapSlot');
-  const anchor = document.getElementById('reviewMapAnchor');
-  if (!wrap || !dashSlot || !anchor) return;
-  if (destination === 'dashboard') {
-    dashSlot.appendChild(wrap);
-    wrap.classList.add('dash-preview');
-  } else if (destination === 'review') {
-    anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
-    wrap.classList.remove('dash-preview');
-  } else {
-    return;
-  }
-  setTimeout(() => { if (reviewMap) reviewMap.invalidateSize(); }, 60);
-}
+// ══ THE MAP NO LONGER MOVES ══
+// dockReviewMap() used to physically relocate the single shared #reviewMap element between the
+// Dashboard's preview slot and its home on Review, on every tab switch, with an invalidateSize()
+// afterwards because Leaflet lays tiles out for whatever box it finds itself in. Sharing one map
+// was the right call given the alternative was a second tile download on a field data plan — but
+// the better call is not putting a map on the dashboard at all. Review owns the working map,
+// PlotAtlas owns the full-screen one, and the dashboard now shows an offline SVG thumbnail
+// (renderDashThumb() in js/13-dashboard.js) drawn from vertices already in memory.
+// So the wrap simply stays where index.html puts it, and switching tabs costs nothing.
 
 // ══ COLLECT DATA-ENTRY CHROME ══
 // The bottom nav bar (and the ~56-64dp it occupies) is only useful while browsing between tabs —
@@ -1056,7 +1043,7 @@ function exitCollectDataEntry(){
 // real spring (stiffness 400 / damping 35) settles in about 300ms with a small overshoot, and
 // that curve reproduces the felt result closely enough that nobody could pick them apart on a
 // 60px travel — without a rAF loop running on every tab change on a low-end phone.
-function positionNavPill(name){
+function positionNavPill(name, retried){
   const pill = document.getElementById('navPill');
   const btn = document.getElementById('navBtn-' + name);
   const bar = document.getElementById('bottomNav');
@@ -1064,7 +1051,15 @@ function positionNavPill(name){
 
   const b = btn.getBoundingClientRect();
   const r = bar.getBoundingClientRect();
-  if (!b.width) return; // the bar is hidden — measuring now would park the pill at zero
+  // The bar is hidden — measuring now would park the pill at zero. This is reachable on a real
+  // navigation, not just at boot: arriving at the Data hub from a chrome-less screen (Welcome,
+  // a subpage) flips body[data-chrome] to 'nav' in the same synchronous block that positions the
+  // pill, so the bar can still be display:none for this measurement. One retry on the next frame
+  // — bounded, so a genuinely hidden bar cannot spin a rAF loop forever.
+  if (!b.width) {
+    if (!retried) requestAnimationFrame(() => positionNavPill(name, true));
+    return;
+  }
 
   // Inset so the indicator reads as a highlight behind the tab rather than a button around it.
   const insetX = 6, insetY = 5;
@@ -1081,6 +1076,22 @@ function positionNavPill(name){
     pill.dataset.ready = '1';
     pill.classList.add('show');
   }
+}
+
+// ══ ONE PLACE THAT SETS THE ACTIVE TAB ══
+// Lighting a tab is TWO operations — the .active class (colour, top rule, bolder label, icon
+// scale) and the position of the shared #navPill — and they were being done separately.
+// switchTab() did both; renderDataHub() and renderProjectManager() in js/05-projects.js did only
+// the class, because the Data tab is the one tab in the bar that is not a tab of #view-app and so
+// never routes through switchTab(). The result was exactly the reported symptom: Data went the
+// right colour but the highlight stayed parked behind whichever of the other three tabs was last
+// visited. (It also meant the pill jumped to Data on the next rotation, since the resize handler
+// above re-measures from .nav-btn.active — proof the two halves had drifted.)
+// Every caller now goes through here, so a tab cannot be marked active without the indicator
+// following it, and a tab added later gets both halves for free.
+function setActiveNavTab(name){
+  document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id === 'navBtn-' + name));
+  positionNavPill(name);
 }
 
 // The bar's geometry changes without any tab change: rotation, the keyboard resizing the
@@ -1102,8 +1113,7 @@ function switchTab(name) {
   switchTabScreenState(name);
   if (name !== 'collect') exitCollectDataEntry();
   const tabs = ['dashboard','collect','review','import','export'];
-  document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id==='navBtn-'+name));
-  positionNavPill(name);
+  setActiveNavTab(name);
   // Per-project controls, refreshed on entry. At boot would be wrong: opening a second project
   // would leave the first one's coordinate system and accuracy standard on screen.
   if (name === 'export' && typeof syncCrsUI === 'function') syncCrsUI();
@@ -1128,8 +1138,9 @@ function switchTab(name) {
   if (name==='review'||name==='export'||name==='dashboard') updateStats();
   // syncPlotLensEntry() here rather than only on boot: the toggle can be flipped in Settings at
   // any time, and Review is the tab that hosts the entry point.
-  if (name==='review') { dockReviewMap('review'); renderReviewMap(); syncPlotLensEntry(); }
-  if (name==='dashboard') { dockReviewMap('dashboard'); renderReviewMap(); }
+  if (name==='review') { renderReviewMap(); syncPlotLensEntry(); }
+  // The dashboard no longer renders a map, so entering it costs no Leaflet work at all — see the
+  // note where dockReviewMap() used to be. updateStats() above already refreshed the thumbnail.
   if (name==='export') refreshExportMeta();
   // Field workflow: a GPS fix takes a few seconds to settle, so start acquiring the moment Collect
   // opens rather than waiting for a manual "Start GPS" tap — by the time the feature type/name are
