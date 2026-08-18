@@ -1015,6 +1015,13 @@ function switchTab(name) {
   if (name !== 'collect') exitCollectDataEntry();
   const tabs = ['dashboard','collect','review','import','export'];
   document.querySelectorAll('.nav-btn[id^="navBtn-"]').forEach(b=>b.classList.toggle('active', b.id==='navBtn-'+name));
+  // Per-project controls, refreshed on entry. At boot would be wrong: opening a second project
+  // would leave the first one's coordinate system and accuracy standard on screen.
+  if (name === 'export' && typeof syncCrsUI === 'function') syncCrsUI();
+  if (name === 'collect'){
+    if (typeof plotfixSyncUI === 'function') plotfixSyncUI();
+    if (typeof applyFixGateToCaptureButton === 'function') applyFixGateToCaptureButton();
+  }
   // A first-open explainer belongs to the module that raised it. Switching tabs abandons that
   // module without necessarily running its close function, and the strip is fixed to the viewport
   // rather than to the module — so it is cleared here, centrally, rather than relying on every

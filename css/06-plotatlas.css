@@ -85,7 +85,7 @@
     text-align:center; padding:16px 22px;
     font-size:13px; line-height:1.6; font-weight:600;
     color:var(--text-secondary);
-    border-radius:14px;
+    border-radius:var(--radius-md);
     pointer-events:none;
   }
 
@@ -109,7 +109,7 @@
     backdrop-filter:var(--glass-12);
     -webkit-backdrop-filter:var(--glass-12);
     border:1px solid var(--card-border);
-    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+    box-shadow:var(--elev-2);
     color:var(--text-primary);
   }
 
@@ -184,11 +184,20 @@
     flex-shrink:0;
     width:24px; height:24px; border-radius:50%;
     align-items:center; justify-content:center;
-    background:var(--glass-8, rgba(255,255,255,0.08));
+    background:rgba(255,255,255,0.08);
     border:none; cursor:pointer;
     font-size:16px; line-height:1;
     color:var(--text-secondary);
   }
+  /* 24px is well under the touch target, but this one sits INSIDE a text field where a 44px box
+     would crowd the input. The compromise every platform makes here is to keep the visual size and
+     extend the hit area past it, which ::before does without affecting layout. */
+  .atlas-search-clear::before {
+    content:''; position:absolute; inset:-10px;
+  }
+  .atlas-search-clear { position:relative; transition:background 0.15s, transform 0.12s; }
+  .atlas-search-clear:active { background:rgba(255,255,255,0.2); transform:scale(0.88); }
+
 
   /* ══════════════ MEASURE READOUT ══════════════
      Directly under the search, so the two never occupy the same band. */
@@ -244,32 +253,32 @@
   }
   .atlas-rail-toggle {
     flex-shrink:0;
-    width:44px; height:44px; border-radius:14px;
+    width:44px; height:44px; border-radius:var(--radius-md);
     display:flex; align-items:center; justify-content:center;
     cursor:pointer;
-    transition:transform 0.18s ease;
+    transition:transform var(--dur-base) ease;
   }
   .atlas-rail.open .atlas-rail-toggle { transform:rotate(45deg); }
   .atlas-rail-toggle:active { filter:brightness(0.92); }
   .atlas-rail-tools {
     display:flex; flex-direction:column; gap:2px;
     min-height:0;
-    border-radius:14px; padding:5px;
+    border-radius:var(--radius-md); padding:5px;
     overflow-y:auto; overscroll-behavior:contain;
     opacity:0; visibility:hidden; pointer-events:none;
     transform:translateX(10px) scale(0.96);
     transform-origin:top right;
-    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease, visibility 0s linear var(--dur-base);
   }
   .atlas-rail.open .atlas-rail-tools {
     opacity:1; visibility:visible; pointer-events:auto;
     transform:none;
-    transition:opacity 0.16s ease, transform 0.16s ease;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease;
   }
   .atlas-tool {
     display:flex; align-items:center; gap:8px;
     width:100%;
-    background:none; border:none; border-radius:9px;
+    background:none; border:none; border-radius:var(--radius-sm);
     padding:8px 10px;
     font-family:var(--font);
     font-size:12px; font-weight:600; white-space:nowrap;
@@ -294,7 +303,7 @@
     position:absolute; z-index:6;
     right:12px;
     bottom:calc(88px + var(--sab));
-    width:44px; height:44px; border-radius:14px;
+    width:44px; height:44px; border-radius:var(--radius-md);
     display:flex; align-items:center; justify-content:center;
     cursor:pointer;
   }
@@ -319,16 +328,16 @@
     left:calc(12px + var(--sal));
     bottom:calc(92px + var(--sab));
     width:min(268px, calc(100vw - 24px));
-    border-radius:16px; padding:12px;
+    border-radius:var(--radius-lg); padding:12px;
     opacity:0; visibility:hidden; pointer-events:none;
     transform:translateY(8px) scale(0.97);
     transform-origin:bottom left;
-    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease, visibility 0s linear var(--dur-base);
   }
   .atlas-bm-sheet.show {
     opacity:1; visibility:visible; pointer-events:auto;
     transform:none;
-    transition:opacity 0.16s ease, transform 0.16s ease;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease;
   }
   .atlas-bm-title {
     font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
@@ -339,7 +348,7 @@
   .atlas-bm-opt {
     display:flex; align-items:center; gap:8px;
     background:var(--glass-8, rgba(255,255,255,0.08));
-    border:1px solid transparent; border-radius:10px;
+    border:1px solid transparent; border-radius:var(--radius-sm);
     padding:8px 10px;
     font-family:var(--font);
     font-size:12px; font-weight:600;
@@ -353,7 +362,7 @@
     font-weight:700;
   }
   .atlas-bm-swatch {
-    width:18px; height:18px; border-radius:6px; flex-shrink:0;
+    width:18px; height:18px; border-radius:var(--radius-xs); flex-shrink:0;
     border:1px solid var(--card-border);
     background:var(--surface-sunken);
   }
@@ -373,7 +382,7 @@
     /* Hard cap, not a viewport fraction: the rail's band is derived from this
        number, so it has to be the same on every screen. Longer legends scroll. */
     max-height:120px; overflow-y:auto; overscroll-behavior:contain;
-    border-radius:14px; padding:10px 12px;
+    border-radius:var(--radius-md); padding:10px 12px;
     display:none;
   }
   .atlas-legend.show { display:block; }
@@ -390,12 +399,12 @@
     display:flex; align-items:center; gap:8px;
     border-radius:999px; padding:7px 8px 7px 14px;
     opacity:0; visibility:hidden; pointer-events:none;
-    transition:opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease, visibility 0s linear var(--dur-base);
   }
   .atlas-pin-bar.show {
     opacity:1; visibility:visible; pointer-events:auto;
     transform:translateX(-50%);
-    transition:opacity 0.16s ease, transform 0.16s ease;
+    transition:opacity var(--dur-base) ease, transform var(--dur-base) ease;
   }
   .atlas-pin-coord {
     font-family:var(--mono);
@@ -428,7 +437,7 @@
     border-radius:50%;
     background:var(--cl, #38BDF8);
     border:2px solid rgba(255,255,255,0.92);
-    box-shadow:0 2px 9px rgba(0,0,0,0.38);
+    box-shadow:var(--elev-2);
     color:#fff;
     font-family:var(--mono);
     font-size:11.5px; font-weight:700; line-height:1;
@@ -440,7 +449,7 @@
     position:absolute; left:0; top:0;
     transform:translateX(-50%);
     white-space:nowrap;
-    padding:2px 6px; border-radius:6px;
+    padding:2px 6px; border-radius:var(--radius-xs);
     background:rgba(0,0,0,0.62);
     color:#fff;
     font-family:var(--font);
@@ -454,7 +463,7 @@
     border-radius:50%;
     background:var(--danger);
     border:3px solid #fff;
-    box-shadow:0 2px 8px rgba(0,0,0,0.45);
+    box-shadow:var(--elev-2);
   }
 
   /* ══════════════ THE FEATURE SHEET ══════════════
@@ -481,6 +490,10 @@
     visibility:visible;
     transition:transform 0.22s cubic-bezier(0.32,0.72,0,1);
   }
+  /* A 4px-tall grip is a drag affordance, not a button, but it IS a <button> and it IS tapped —
+     so it needs both a real target and an acknowledgement. The padding gives the box height a
+     thumb can find while the visible bar stays 4px via background-clip. */
+  .atlas-sheet-grip:active { background:var(--accent-primary); }
   .atlas-sheet-grip {
     display:block; width:38px; height:4px;
     margin:4px auto 12px;
@@ -488,6 +501,7 @@
     border:none; border-radius:999px;
     background:var(--card-border);
     cursor:pointer;
+    transition:background 0.15s;
   }
   .atlas-sheet-type {
     font-size:10.5px; font-weight:700; letter-spacing:1.1px; text-transform:uppercase;
@@ -512,7 +526,7 @@
     display:flex; align-items:center; gap:8px;
     margin-top:10px;
     background:var(--surface-sunken);
-    border:1px solid var(--card-border); border-radius:10px;
+    border:1px solid var(--card-border); border-radius:var(--radius-sm);
     padding:8px 11px;
     font-family:var(--mono);
     font-size:12px; font-weight:700;
@@ -532,7 +546,7 @@
     margin-top:10px;
     background:var(--chip-info-bg, var(--surface-sunken));
     border:1px solid var(--chip-info-border, var(--card-border));
-    border-radius:10px; padding:9px 11px;
+    border-radius:var(--radius-sm); padding:9px 11px;
     font-size:11.5px; line-height:1.55; font-weight:600;
     color:var(--chip-info-text, var(--text-secondary));
   }
@@ -556,13 +570,13 @@
   .atlas-sheet-photos img {
     width:74px; height:74px; flex-shrink:0;
     object-fit:cover; display:block;
-    border-radius:10px;
+    border-radius:var(--radius-sm);
     border:1px solid var(--card-border);
     cursor:pointer;
   }
   .atlas-sheet-more {
     width:74px; height:74px; flex-shrink:0;
-    border-radius:10px;
+    border-radius:var(--radius-sm);
     background:var(--surface-sunken);
     border:1px solid var(--card-border);
     font-family:var(--font);
@@ -574,7 +588,7 @@
   .atlas-sheet-actions { display:flex; gap:8px; margin-top:14px; }
   .atlas-sheet-btn {
     flex:1;
-    border:none; border-radius:11px;
+    border:none; border-radius:var(--radius-md);
     padding:11px 10px;
     font-family:var(--font);
     font-size:12.5px; font-weight:700;
@@ -620,13 +634,13 @@
     background:var(--nav-bg);
     backdrop-filter:var(--glass-12);
     -webkit-backdrop-filter:var(--glass-12);
-    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+    box-shadow:var(--elev-2);
   }
   .plot-atlas .leaflet-control-zoom {
     margin:0 !important;
     border:1px solid var(--card-border) !important;
     border-radius:12px; overflow:hidden;
-    box-shadow:0 4px 14px rgba(0,0,0,0.22);
+    box-shadow:var(--elev-2);
   }
   .plot-atlas .leaflet-control-zoom a {
     width:34px; height:34px; line-height:34px;

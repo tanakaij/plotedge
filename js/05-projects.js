@@ -292,6 +292,9 @@ function showNewProject() {
   document.getElementById('newProjManager').value='';
   document.getElementById('newProjSite').value='';
   newProjSiteLat = null; newProjSiteLon = null;
+  const siteEl0 = document.getElementById('newProjSite');
+  if (siteEl0){ delete siteEl0.dataset.lat; delete siteEl0.dataset.lon; }
+  syncProjectFormCrs(null); // resets the picker to WGS84 rather than inheriting the last project's
   const hint=document.getElementById('locateHint'); if (hint){hint.textContent='';hint.classList.remove('err');}
   focusWhenSettled('newProjName');
   pushNavState('newproject');
@@ -307,12 +310,18 @@ function editProject(id) {
   document.getElementById('newProjectTitle').textContent = 'Edit project';
   document.getElementById('newProjSaveBtnLabel').textContent = 'Save changes';
   activateView('view-newproject');
+  syncProjectFormCrs(id);
   document.getElementById('newProjName').value = p.name || '';
   document.getElementById('newProjDesc').value = p.description || '';
   document.getElementById('newProjClient').value = p.client || '';
   document.getElementById('newProjManager').value = p.manager || '';
   document.getElementById('newProjSite').value = p.site || '';
   newProjSiteLat = p.siteLat ?? null;
+  const _se = document.getElementById('newProjSite');
+  if (_se){
+    if (p.siteLat != null){ _se.dataset.lat = p.siteLat; _se.dataset.lon = p.siteLon; }
+    else { delete _se.dataset.lat; delete _se.dataset.lon; }
+  }
   newProjSiteLon = p.siteLon ?? null;
   const hint=document.getElementById('locateHint'); if (hint){hint.textContent='';hint.classList.remove('err');}
   focusWhenSettled('newProjName');
@@ -347,6 +356,8 @@ function useCurrentLocationForSite() {
   };
   const useRawCoords = (lat, lon) => {
     newProjSiteLat = lat; newProjSiteLon = lon;
+    const _siteEl = document.getElementById('newProjSite');
+    if (_siteEl){ _siteEl.dataset.lat = lat; _siteEl.dataset.lon = lon; }
     input.value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
   };
 
@@ -354,6 +365,8 @@ function useCurrentLocationForSite() {
     async pos => {
       const { latitude: lat, longitude: lon } = pos.coords;
       newProjSiteLat = lat; newProjSiteLon = lon;
+    const _siteEl = document.getElementById('newProjSite');
+    if (_siteEl){ _siteEl.dataset.lat = lat; _siteEl.dataset.lon = lon; }
       try {
         const ctrl = new AbortController();
         const timeout = setTimeout(() => ctrl.abort(), 8000);
@@ -978,6 +991,26 @@ function refreshExportMeta(){
 }
 
 
+// Puts the project's stored grid onto the picker button. Called when the form opens, for both
+// create (where it resets to the default) and edit.
+function syncProjectFormCrs(projectId){
+  const btn = document.getElementById('newProjCrsBtn');
+  if (!btn || typeof PLOTGRID_REGISTRY === 'undefined') return;
+  const p = projects.find(x => x.id === projectId);
+  const key = (p && PLOTGRID_REGISTRY[p.crs]) ? p.crs : 'wgs84';
+  btn.dataset.crs = key;
+  btn.dataset.bounds = (p && p.bounds) ? JSON.stringify(p.bounds) : '';
+  if (typeof syncProjectBoundsUI === 'function') syncProjectBoundsUI();
+  document.getElementById('newProjCrsLabel').textContent = PLOTGRID_REGISTRY[key].label;
+  const note = document.getElementById('newProjCrsNote');
+  if (note){
+    note.textContent = crsNeedsDatumShift(key)
+      ? '⚠ Grid parameters are exact but the ' + PLOTGRID_REGISTRY[key].datum.toUpperCase() + ' datum shift is not applied.'
+      : (PLOTGRID_REGISTRY[key].note || '');
+    note.style.color = crsNeedsDatumShift(key) ? 'var(--danger)' : '';
+  }
+}
+
 function saveProjectForm() {
   const name = document.getElementById('newProjName').value.trim();
   if (!name) { showToast('Enter a project name'); return; }
@@ -985,6 +1018,13 @@ function saveProjectForm() {
   const client = document.getElementById('newProjClient').value.trim();
   const manager = document.getElementById('newProjManager').value.trim();
   const site = document.getElementById('newProjSite').value.trim();
+  // Chosen in the picker sheet and parked on the button until now, because the project did not
+  // exist yet to hold it. Defaults to WGS84 for anyone who never opened the picker.
+  const crs = document.getElementById('newProjCrsBtn')?.dataset.crs || 'wgs84';
+  // Parked on the same element as the CRS for the same reason: on a new project there is nothing
+  // to persist to until this function runs.
+  let bounds = null;
+  try { const raw = document.getElementById('newProjCrsBtn')?.dataset.bounds; if (raw) bounds = JSON.parse(raw); } catch(e) {}
 
   if (editingProjectId) {
     const p = projects.find(x=>x.id===editingProjectId);
@@ -993,6 +1033,11 @@ function saveProjectForm() {
     // is untouched.
     p.name = name; p.description = description; p.client = client; p.manager = manager; p.site = site;
     p.siteLat = newProjSiteLat; p.siteLon = newProjSiteLon;
+    // Changing the grid is non-destructive by design: capture is stored as WGS84 lat/lon, so this
+    // only changes what the numbers are reported IN. Nothing needs reprojecting and nothing is
+    // lost if it is changed back.
+    p.crs = crs;
+    p.bounds = bounds;
     p.updatedAt = new Date().toISOString();
     persistStore();
     if (activeProjectId === p.id) {
@@ -1010,7 +1055,7 @@ function saveProjectForm() {
 
   const id = 'p_' + Date.now();
   const nowIso = new Date().toISOString();
-  projects.push({ id, name, description, client, manager, site, siteLat:newProjSiteLat, siteLon:newProjSiteLon, createdAt:nowIso, updatedAt:nowIso });
+  projects.push({ id, name, description, client, manager, site, siteLat:newProjSiteLat, siteLon:newProjSiteLon, crs, bounds, createdAt:nowIso, updatedAt:nowIso });
   projectData[id] = { savedFeatures:[], currentVertices:[], featureTypes:[], notes:'', notesUpdatedAt:null };
   persistStore();
   // replaceNav: true — this form's own history stop gets turned directly into the new project's

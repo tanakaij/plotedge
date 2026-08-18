@@ -120,7 +120,7 @@ function gridUnprojectTM(e, n, p, ell){
 const PLOTGRID_REGISTRY = {
   wgs84: {
     label: 'WGS 84 lat/lon (degrees)', epsg: 4326, kind: 'geographic',
-    datum: 'wgs84', units: 'degrees',
+    datum: 'wgs84', units: 'degrees', find: 'wgs84 4326 latitude longitude degrees gps default global',
     note: 'Storage format. No projection applied.'
   },
 
@@ -129,6 +129,7 @@ const PLOTGRID_REGISTRY = {
   // wrong. The zone is derived from the data and reported alongside the coordinates.
   utm_auto: {
     label: 'UTM (zone from survey)', kind: 'utm', datum: 'wgs84', units: 'm',
+    find: 'utm universal transverse mercator automatic zone worldwide',
     note: 'Zone detected from the centre of your features and stated on every export.'
   },
 
@@ -137,22 +138,58 @@ const PLOTGRID_REGISTRY = {
   // Namibia, Botswana and Eswatini all use this convention.
   // Hardebeesthoek94 IS WGS84-based, so these are exact. The older Cape Datum versions of the
   // same belts are NOT, which is what `datum` is guarding.
+  lo15: { label: 'Lo15 / Gauss (CM 15°E)', epsg: 2040, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'namibia south africa gauss belt 15 hartebeesthoek lo15 western cape',
+    params: { lon0: 15, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo17: { label: 'Lo17 / Gauss (CM 17°E)', epsg: 2041, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'namibia south africa gauss belt 17 lo17 cape town western cape',
+    params: { lon0: 17, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo19: { label: 'Lo19 / Gauss (CM 19°E)', epsg: 2042, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa namibia gauss belt 19 lo19 northern cape',
+    params: { lon0: 19, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo21: { label: 'Lo21 / Gauss (CM 21°E)', epsg: 2043, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa botswana gauss belt 21 lo21 kimberley',
+    params: { lon0: 21, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo23: { label: 'Lo23 / Gauss (CM 23°E)', epsg: 2044, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa botswana gauss belt 23 lo23 gaborone',
+    params: { lon0: 23, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo25: { label: 'Lo25 / Gauss (CM 25°E)', epsg: 2045, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa botswana zimbabwe gauss belt 25 lo25 bulawayo',
+    params: { lon0: 25, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
   lo27: { label: 'Lo27 / Gauss (CM 27°E)', epsg: 2046, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa zimbabwe botswana gauss belt 27 lo27 johannesburg pretoria',
     params: { lon0: 27, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
   lo29: { label: 'Lo29 / Gauss (CM 29°E)', epsg: 2047, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'south africa zimbabwe gauss belt 29 lo29 durban gweru kwazulu',
     params: { lon0: 29, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
   lo31: { label: 'Lo31 / Gauss (CM 31°E)', epsg: 2048, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'zimbabwe harare mozambique gauss belt 31 lo31 mutare masvingo',
     params: { lon0: 31, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
   lo33: { label: 'Lo33 / Gauss (CM 33°E)', epsg: 2049, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'zimbabwe mozambique gauss belt 33 lo33 maputo beira',
     params: { lon0: 33, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+  lo35: { label: 'Lo35 / Gauss (CM 35°E)', epsg: 2050, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'mozambique malawi gauss belt 35 lo35',
+    params: { lon0: 35, k0: 1, fe: 0, fn: 0, lat0: 0, south: true } },
+
+  // ── A few more national grids, for jobs whose data leaves the region ──
+  utm35s: { label: 'UTM zone 35S', epsg: 32735, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'utm 35s zambia malawi mozambique zimbabwe west',
+    params: { lon0: 27, k0: 0.9996, fe: 500000, fn: 10000000, lat0: 0 } },
+  utm36s: { label: 'UTM zone 36S', epsg: 32736, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'utm 36s zimbabwe harare zambia mozambique tanzania',
+    params: { lon0: 33, k0: 0.9996, fe: 500000, fn: 10000000, lat0: 0 } },
+  utm37s: { label: 'UTM zone 37S', epsg: 32737, kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'utm 37s mozambique tanzania kenya',
+    params: { lon0: 39, k0: 0.9996, fe: 500000, fn: 10000000, lat0: 0 } },
 
   // ── A few widely used national grids ──
   osgb: { label: 'OSGB36 / British National Grid', epsg: 27700, kind: 'tm',
-    datum: 'osgb36', units: 'm',
+    datum: 'osgb36', units: 'm', find: 'uk britain england scotland wales bng osgb ordnance survey',
     params: { lon0: -2, k0: 0.9996012717, fe: 400000, fn: -100000, lat0: 49 },
     note: 'Grid parameters are exact; the OSGB36 datum differs from WGS84 by up to ~120 m and needs the OSTN15 shift for legal accuracy.' },
   irish: { label: 'Irish Transverse Mercator (ITM)', epsg: 2157, kind: 'tm',
-    datum: 'wgs84', units: 'm',
+    datum: 'wgs84', units: 'm', find: 'ireland irish itm dublin',
     params: { lon0: -8, k0: 0.99982, fe: 600000, fn: 750000, lat0: 53.5 } },
 
   // ── User-defined ──
@@ -160,6 +197,7 @@ const PLOTGRID_REGISTRY = {
   // surveyor who has the parameters should not have to wait for a release.
   custom: {
     label: 'Custom transverse Mercator…', kind: 'tm', datum: 'wgs84', units: 'm',
+    find: 'custom own parameters central meridian scale factor manual',
     params: null,
     note: 'Enter the central meridian, scale factor and false origin from your authority’s published definition.'
   }
@@ -202,6 +240,169 @@ function projectGeoidOffset(){
   const p = projects.find(x => x.id === activeProjectId);
   const v = p && Number(p.geoidOffset);
   return Number.isFinite(v) ? v : 0;
+}
+
+// Fills the picker from the registry and reflects the active project's choice. Built from
+// PLOTGRID_REGISTRY rather than hand-written options, so adding a grid is a data edit — the same
+// reason the export format pickers are generated.
+// ══ SEARCH ══
+// Matches on the label, the EPSG code and a `find` string of the terms somebody would actually
+// type — the country, the city, the belt number, the old datum name. Searching only labels would
+// mean "Harare" finds nothing and "2048" finds nothing, which are the two most likely queries.
+function crsSearch(query){
+  const q = String(query || '').trim().toLowerCase();
+  const keys = Object.keys(PLOTGRID_REGISTRY);
+  if (!q) return keys;
+  const terms = q.split(/\s+/).filter(Boolean);
+  return keys.map(k => {
+    const c = PLOTGRID_REGISTRY[k];
+    const hay = [c.label, c.find || '', c.epsg ? 'epsg:' + c.epsg + ' ' + c.epsg : '', k]
+      .join(' ').toLowerCase();
+    // Every term must appear, so "zimbabwe 31" narrows rather than widening the way an OR would.
+    if (!terms.every(t => hay.indexOf(t) !== -1)) return null;
+    // An exact EPSG match outranks everything: somebody who typed a code knows what they want.
+    const score = (c.epsg && q === String(c.epsg)) ? 0
+                : (c.label.toLowerCase().indexOf(q) !== -1) ? 1 : 2;
+    return { k, score };
+  }).filter(Boolean).sort((a, b) => a.score - b.score).map(x => x.k);
+}
+
+// The grid that actually covers a given position, for suggesting one from the project's site
+// rather than making the user work out which belt they are in. Returns null when nothing fits,
+// which is the honest answer outside the regions in the registry.
+function crsSuggestFor(lat, lon){
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  let best = null;
+  Object.keys(PLOTGRID_REGISTRY).forEach(k => {
+    const c = PLOTGRID_REGISTRY[k];
+    if (c.kind !== 'tm' || !c.params) return;
+    // A Gauss belt is 2° wide; a UTM zone is 6°. Half-widths, so the test is "is this position
+    // inside the belt this grid was designed for", not "which central meridian is nearest" —
+    // the latter would happily suggest a belt from the wrong country.
+    const halfWidth = c.params.k0 === 1 ? 1 : 3;
+    const d = Math.abs(lon - c.params.lon0);
+    if (d > halfWidth) return;
+    // Hemisphere has to agree: a south-oriented belt is not the right answer north of the equator.
+    if (c.params.south && lat > 0) return;
+    if (!best || d < best.d) best = { key: k, d };
+  });
+  return best ? best.key : null;
+}
+
+// ══ THE PICKER ══
+// `mode` is 'new' when picking for a project being created (nothing to persist to yet — the
+// choice is held on the form and written by saveProjectForm) or 'active' when changing the open
+// project's grid. One sheet, two callers, so the search behaviour cannot diverge between them.
+let crsPickerMode = 'active';
+let crsPendingKey = 'wgs84';
+
+function openCrsPicker(mode){
+  crsPickerMode = mode || 'active';
+  crsPendingKey = (crsPickerMode === 'new')
+    ? (document.getElementById('newProjCrsBtn').dataset.crs || 'wgs84')
+    : projectCrsKey();
+  const input = document.getElementById('crsSearchInput');
+  if (input) input.value = '';
+  renderCrsResults();
+  document.getElementById('crsPickerModal').classList.add('show');
+  // Deferred until the sheet has finished travelling — see focusWhenSettled in
+  // js/01-theme-and-settings.js for why a bare timer makes the keyboard flash and vanish.
+  if (typeof focusWhenSettled === 'function') focusWhenSettled('crsSearchInput');
+}
+
+function closeCrsPicker(){
+  document.getElementById('crsPickerModal').classList.remove('show');
+}
+
+function renderCrsResults(){
+  const host = document.getElementById('crsResults');
+  if (!host) return;
+  const q = (document.getElementById('crsSearchInput') || {}).value || '';
+  const keys = crsSearch(q);
+
+  // The suggestion, from wherever the project says it is. Shown only with an empty search box:
+  // once somebody is typing they have an answer in mind and a banner above the results is noise.
+  const sug = document.getElementById('crsSuggestion');
+  if (sug){
+    let html = '';
+    if (!q.trim()){
+      const p = projects.find(x => x.id === activeProjectId);
+      const lat = (crsPickerMode === 'new')
+        ? Number(document.getElementById('newProjSite')?.dataset.lat)
+        : (p && p.siteLat);
+      const lon = (crsPickerMode === 'new')
+        ? Number(document.getElementById('newProjSite')?.dataset.lon)
+        : (p && p.siteLon);
+      const key = crsSuggestFor(lat, lon);
+      if (key && key !== crsPendingKey){
+        html = `<div class="crs-suggest" onclick="chooseCrs('${key}')">
+          <div class="crs-suggest-lbl">Suggested for this site</div>
+          <div class="crs-suggest-name">${escapeHtml(PLOTGRID_REGISTRY[key].label)}</div>
+        </div>`;
+      }
+    }
+    sug.innerHTML = html;
+  }
+
+  if (!keys.length){
+    host.innerHTML = `<div class="hint" style="padding:14px 2px;">Nothing matches that. Try a country, a town, a belt number, or an EPSG code — or pick “Custom” to enter your authority’s own parameters.</div>`;
+    return;
+  }
+  host.innerHTML = keys.map(k => {
+    const c = PLOTGRID_REGISTRY[k];
+    const warn = crsNeedsDatumShift(k);
+    return `<div class="crs-row${k === crsPendingKey ? ' sel' : ''}" onclick="chooseCrs('${k}')">
+      <div class="crs-row-name">${escapeHtml(c.label)}</div>
+      <div class="crs-row-meta">${c.epsg ? 'EPSG:' + c.epsg + ' · ' : ''}${c.units === 'degrees' ? 'degrees' : 'metres'}${warn ? ' · <span style="color:var(--danger)">datum shift needed</span>' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function chooseCrs(key){
+  if (!PLOTGRID_REGISTRY[key]) return;
+  if (crsPickerMode === 'new'){
+    // Held on the button, not persisted: the project does not exist yet. saveProjectForm() reads
+    // it back off the dataset.
+    const btn = document.getElementById('newProjCrsBtn');
+    btn.dataset.crs = key;
+    document.getElementById('newProjCrsLabel').textContent = PLOTGRID_REGISTRY[key].label;
+    const note = document.getElementById('newProjCrsNote');
+    if (note){
+      note.textContent = crsNeedsDatumShift(key)
+        ? '⚠ Grid parameters are exact but the ' + PLOTGRID_REGISTRY[key].datum.toUpperCase() + ' datum shift is not applied.'
+        : (PLOTGRID_REGISTRY[key].note || '');
+      note.style.color = crsNeedsDatumShift(key) ? 'var(--danger)' : '';
+    }
+  } else {
+    setProjectCrs(key);
+  }
+  closeCrsPicker();
+}
+
+function syncCrsUI(){
+  const sel = document.getElementById('projectCrsSelect');
+  if (sel){
+    const key = projectCrsKey();
+    sel.innerHTML = Object.keys(PLOTGRID_REGISTRY).map(k =>
+      `<option value="${k}">${escapeHtml(PLOTGRID_REGISTRY[k].label)}</option>`).join('');
+    sel.value = key;
+  }
+  const note = document.getElementById('projectCrsNote');
+  if (note){
+    const c = projectCrs();
+    const bits = [];
+    if (c.note) bits.push(c.note);
+    if (crsNeedsDatumShift(projectCrsKey())){
+      // Stated in the UI, not only in the export header. Somebody about to issue coordinates on a
+      // legacy datum needs to have read this before they export, not after.
+      bits.push('⚠ Grid parameters are exact but the ' + c.datum.toUpperCase() +
+                ' datum shift is NOT applied — coordinates may be tens of metres out.');
+    }
+    note.innerHTML = escapeHtml(bits.join(' '));
+    note.style.color = crsNeedsDatumShift(projectCrsKey()) ? 'var(--danger)' : '';
+  }
+  const geoid = document.getElementById('geoidOffsetInput');
+  if (geoid) geoid.value = projectGeoidOffset() || '';
 }
 
 function setProjectCrs(key){

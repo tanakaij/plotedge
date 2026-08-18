@@ -8,9 +8,9 @@
   /* ══════════════ DIGITIZING AIDS (vertex map) ══════════════ */
   .digi-readout {
     position:absolute; top:10px; left:10px; z-index:500; pointer-events:none;
-    padding:7px 11px; border-radius:11px;
+    padding:7px 11px; border-radius:var(--radius-md);
     background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.14);
-    box-shadow:0 3px 12px rgba(0,0,0,0.4);
+    box-shadow:var(--elev-2);
   }
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     .digi-readout { backdrop-filter:var(--glass-8); -webkit-backdrop-filter:var(--glass-8); }
@@ -51,7 +51,7 @@
     background:rgba(var(--accent-rgb),0.12); border-bottom:1px solid var(--card-border); }
   .attr-query-active code { flex:1; min-width:0; font-size:11px; color:var(--text-primary);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:ui-monospace,Menlo,Consolas,monospace; }
-  .attr-query-active .aq-x { flex-shrink:0; width:22px; height:22px; border-radius:6px; border:none;
+  .attr-query-active .aq-x { flex-shrink:0; width:22px; height:22px; border-radius:var(--radius-xs); border:none;
     background:transparent; color:var(--text-secondary); font-size:13px; cursor:pointer; }
 
   .attr-selection-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 10px;
@@ -62,7 +62,7 @@
      scrolled sideways through a wide schema. */
   .attr-table th.attr-sel-col, .attr-table td.attr-sel-col { width:34px; min-width:34px; padding:0 4px; text-align:center; }
   .attr-sel-box { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
-    border-radius:5px; border:1.5px solid var(--card-border); background:var(--bg-primary);
+    border-radius:var(--radius-xs); border:1.5px solid var(--card-border); background:var(--bg-primary);
     font-size:11px; font-weight:900; color:var(--on-accent); }
   .attr-sel-box.on { background:var(--accent-primary); border-color:var(--accent-primary); }
   .attr-table tr.picked { background:rgba(var(--accent-rgb),0.10); }
@@ -83,7 +83,7 @@
   .aq-help { margin:12px 0 4px; font-size:12px; color:var(--text-secondary); }
   .aq-help summary { cursor:pointer; font-weight:700; color:var(--text-primary); }
   .aq-help ul { margin:8px 0 0 16px; line-height:1.7; }
-  .aq-help code { font-size:11px; background:var(--surface-sunken); padding:1px 4px; border-radius:4px; }
+  .aq-help code { font-size:11px; background:var(--surface-sunken); padding:1px 4px; border-radius:var(--radius-xs); }
 
   .aq-stat { display:flex; align-items:center; justify-content:space-between; gap:12px;
     padding:8px 10px; border-bottom:1px solid var(--card-border); font-size:12.5px; color:var(--text-secondary); }
@@ -166,7 +166,7 @@
     display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:12px;
     background:rgba(10,14,22,0.72); color:#E8EEF7; border:1px solid rgba(255,255,255,0.10);
     font-size:11.5px; font-variant-numeric:tabular-nums; pointer-events:none;
-    box-shadow:0 4px 14px rgba(0,0,0,0.28);
+    box-shadow:var(--elev-2);
   }
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     /* --glass-10, not a literal blur(): html.native-android neutralises every --glass-N token in
@@ -185,14 +185,14 @@
     position:absolute; left:10px; right:10px; bottom:10px; z-index:410;
     display:flex; gap:7px;
   }
-  .pe-drawbar .pe-tool { box-shadow:0 6px 18px rgba(0,0,0,0.30); }
+  .pe-drawbar .pe-tool { box-shadow:var(--elev-3); }
   /* ── MAP BUTTON STACK ── basemap / locate, stacked top-right clear of the readout. */
   .pe-mapbtns { position:absolute; top:10px; right:10px; z-index:410; display:flex; flex-direction:column; gap:7px; }
   .pe-mapbtn {
-    width:38px; height:38px; border-radius:11px; cursor:pointer;
+    width:38px; height:38px; border-radius:var(--radius-md); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     border:1px solid rgba(255,255,255,0.12); background:rgba(10,14,22,0.72); color:#E8EEF7;
-    box-shadow:0 4px 14px rgba(0,0,0,0.28);
+    box-shadow:var(--elev-2);
   }
   .pe-mapbtn:active { transform:scale(0.94); }
   .pe-mapbtn.on { background:var(--accent-primary); border-color:transparent; color:var(--on-accent,#fff); }
@@ -214,13 +214,13 @@
   .pe-toolrow { display:flex; gap:7px; flex-wrap:wrap; }
   .pe-tool {
     flex:1; min-width:78px; display:flex; align-items:center; justify-content:center; gap:5px;
-    padding:11px 8px; cursor:pointer; border:1px solid var(--card-border); border-radius:10px;
+    padding:11px 8px; cursor:pointer; border:1px solid var(--card-border); border-radius:var(--radius-sm);
     background:var(--card-bg); box-shadow:var(--card-shadow); font-family:var(--font);
     font-size:11px; font-weight:800; color:var(--text-primary); transition:transform 0.12s ease, border-color 0.15s;
   }
   .pe-mode-btn {
     flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 4px; cursor:pointer;
-    border:1px solid var(--card-border); border-radius:10px; background:var(--surface-sunken); font-family:var(--font);
+    border:1px solid var(--card-border); border-radius:var(--radius-sm); background:var(--surface-sunken); font-family:var(--font);
     font-size:10.5px; font-weight:800; color:var(--text-secondary); transition:background 0.15s, color 0.15s, border-color 0.15s;
   }
   .pe-mode-btn.active { background:var(--accent-primary); border-color:transparent; color:var(--on-accent,#fff); }
@@ -242,12 +242,12 @@
      is free here. closeOnZeroBearing keeps it hidden until the map is actually twisted off north. */
   .pe-map-wrap .leaflet-control-rotate-toggle {
     width:30px; height:30px;
-    border-radius:10px;
+    border-radius:var(--radius-sm);
     border:1px solid var(--card-border) !important;
     background:var(--nav-bg);
     backdrop-filter:var(--glass-12);
     -webkit-backdrop-filter:var(--glass-12);
-    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+    box-shadow:var(--elev-2);
   }
   .pe-section-label { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin:14px 0 8px; }
 
@@ -258,11 +258,11 @@
   }
   .pe-sketch:active { background:var(--surface-sunken); }
   .pe-sketch.sel { border-color:var(--accent-primary); box-shadow:0 0 0 2px rgba(var(--accent-rgb),0.18); }
-  .pe-sketch-chip { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .pe-sketch-chip { width:10px; height:10px; border-radius:var(--radius-xs); flex-shrink:0; }
   .pe-sketch-body { flex:1; min-width:0; }
   .pe-sketch-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .pe-sketch-meta { font-size:11px; color:var(--text-secondary); margin-top:1px; font-variant-numeric:tabular-nums; }
-  .pe-sketch-x { flex-shrink:0; width:26px; height:26px; border-radius:7px; border:none; background:var(--surface-sunken); color:var(--text-tertiary); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .pe-sketch-x { flex-shrink:0; width:26px; height:26px; border-radius:var(--radius-sm); border:none; background:var(--surface-sunken); color:var(--text-tertiary); cursor:pointer; display:flex; align-items:center; justify-content:center; }
   .pe-empty { padding:16px; text-align:center; font-size:12px; color:var(--text-tertiary); border:1px dashed var(--card-border); border-radius:var(--rl); }
 
   /* Analysis results read as console output — monospace so aligned figures compare down the column. */
@@ -274,18 +274,18 @@
   /* ══ LAYER MANAGER ROWS ══ */
   .lm-row { display:flex; align-items:center; gap:11px; padding:11px 0; border-bottom:1px solid var(--card-border); }
   .lm-row:last-of-type { border-bottom:none; }
-  .lm-swatch { width:14px; height:14px; border-radius:4px; flex-shrink:0; }
+  .lm-swatch { width:14px; height:14px; border-radius:var(--radius-xs); flex-shrink:0; }
   .lm-body { flex:1; min-width:0; }
   .lm-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lm-meta { font-size:11px; color:var(--text-secondary); margin-top:1px; }
 
   /* ══ FEATURE INSPECTOR ══ */
   .fi-head { display:flex; align-items:flex-start; gap:11px; margin-bottom:14px; }
-  .fi-chip { width:12px; height:12px; border-radius:4px; flex-shrink:0; margin-top:5px; }
+  .fi-chip { width:12px; height:12px; border-radius:var(--radius-xs); flex-shrink:0; margin-top:5px; }
   .fi-title { font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--white); line-height:1.25; }
   .fi-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
   .fi-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-bottom:14px; }
-  .fi-stat { padding:9px 10px; border:1px solid var(--card-border); border-radius:10px; background:var(--surface-sunken); }
+  .fi-stat { padding:9px 10px; border:1px solid var(--card-border); border-radius:var(--radius-sm); background:var(--surface-sunken); }
   .fi-stat-lbl { font-size:9.5px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-tertiary); }
   .fi-stat-val { font-size:13.5px; font-weight:800; color:var(--text-primary); margin-top:2px; font-variant-numeric:tabular-nums; }
   .fi-attr { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--card-border); font-size:12.5px; }
@@ -297,5 +297,5 @@
   .help-h { font-size:13px; font-weight:800; color:var(--white); margin:16px 0 6px; }
   .help-h:first-child { margin-top:0; }
   .help-p { font-size:12.5px; line-height:1.6; color:var(--text-secondary); margin-bottom:8px; }
-  .help-p code { font-family:var(--font-mono, monospace); font-size:11.5px; background:var(--surface-sunken); padding:1px 5px; border-radius:4px; }
+  .help-p code { font-family:var(--font-mono, monospace); font-size:11.5px; background:var(--surface-sunken); padding:1px 5px; border-radius:var(--radius-xs); }
   .help-ver { font-size:11px; color:var(--text-tertiary); margin-top:16px; padding-top:12px; border-top:1px solid var(--card-border); font-variant-numeric:tabular-nums; }

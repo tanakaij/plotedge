@@ -205,6 +205,39 @@ function plotfixGate(){
   };
 }
 
+const PLOTFIX_PRESETS = {
+  off:       { label:'No limit — capture anything', on:false },
+  recon:     { label:'Reconnaissance (±10 m)',        on:true, minQuality:'gps',      maxHoriz:10 },
+  asset:     { label:'Asset inventory (±5 m)',        on:true, minQuality:'gps',      maxHoriz:5 },
+  mapping:   { label:'Detail mapping (DGNSS, ±1 m)',  on:true, minQuality:'dgps',     maxHoriz:1 },
+  boundary:  { label:'Boundary / cadastral (RTK fixed, ±0.05 m)', on:true, minQuality:'rtk_fix', maxHoriz:0.05 }
+};
+
+function applyFixGatePreset(key){
+  const p = PLOTFIX_PRESETS[key];
+  if (!p) return;
+  setPlotfixGate({ on:p.on, minQuality:p.minQuality || 'gps', maxHoriz:p.maxHoriz != null ? p.maxHoriz : 5 });
+  showToast(p.on ? 'Capture limited to ' + p.label : 'Accuracy limit removed');
+  if (typeof applyFixGateToCaptureButton === 'function') applyFixGateToCaptureButton();
+}
+
+// Fills the picker and selects whichever preset matches the project's stored gate. A project
+// configured outside the presets (possible via setPlotfixGate directly) shows the closest match
+// rather than silently resetting to one.
+function plotfixSyncUI(){
+  const sel = document.getElementById('fixGateSelect');
+  if (!sel) return;
+  sel.innerHTML = Object.keys(PLOTFIX_PRESETS).map(k =>
+    `<option value="${k}">${escapeHtml(PLOTFIX_PRESETS[k].label)}</option>`).join('');
+  const g = plotfixGate();
+  const match = Object.keys(PLOTFIX_PRESETS).find(k => {
+    const p = PLOTFIX_PRESETS[k];
+    if (!g.on) return !p.on;
+    return p.on && p.minQuality === g.minQuality && p.maxHoriz === g.maxHoriz;
+  });
+  sel.value = match || 'off';
+}
+
 function setPlotfixGate(patch){
   const p = projects.find(x => x.id === activeProjectId);
   if (!p) { showToast('Open a project first'); return; }

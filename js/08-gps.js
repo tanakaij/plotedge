@@ -113,6 +113,10 @@ function handleNmeaLine(line){
   // separate change from starting to parse properly. PlotFix is the source of truth for quality
   // and provenance; this remains the source of position.
   if (typeof plotfixIngest === 'function') plotfixIngest(line);
+  // The gate has to re-evaluate on every sentence, not only on device-provider updates: an RTK
+  // link dropping to float is exactly the moment capture should stop, and no geolocation event
+  // accompanies it.
+  applyFixGateToCaptureButton();
 
   if (!line.startsWith('$') || !/GGA/.test(line.slice(0,6))) return; // only GGA carries fix quality + HDOP
   // Refuse a sentence whose checksum does not verify. Previously absent, which meant a mangled
@@ -488,6 +492,31 @@ const INDOOR_WEAK_ACCURACY_M = 30;
 
 let weakFixStreak = 0;
 
+// Enables or disables Capture against the project's fix standard, and explains itself on the
+// button's own title/aria-label so "why can't I capture" is answered where it is asked.
+// A project with no standard set (the default) always passes, so nothing changes for anyone who
+// has not opted in.
+function applyFixGateToCaptureButton(){
+  const btn = document.getElementById('captureBtn');
+  if (!btn) return;
+  const gate = (typeof plotfixCheckGate === 'function') ? plotfixCheckGate() : { ok:true };
+  btn.disabled = !gate.ok;
+  btn.title = gate.reason || '';
+  if (gate.reason) btn.setAttribute('aria-label', gate.reason);
+  else btn.removeAttribute('aria-label');
+  const note = document.getElementById('fixGateNote');
+  if (note){
+    note.textContent = gate.reason || '';
+    note.style.display = gate.reason ? '' : 'none';
+  }
+  const line = document.getElementById('plotfixStatus');
+  if (line && typeof plotfixStatusLine === 'function'){
+    // The fix quality read-out: type, satellites, and an accuracy figure that says whether it was
+    // measured by the receiver or estimated from HDOP. Previously computed and never shown.
+    line.textContent = plotfixStatusLine();
+  }
+}
+
 function onPos(pos) {
   // The device provider has no fix metadata, so PlotFix records it as source:'system' with the
   // quality fields explicitly null rather than stale. This is also the path that carries a
@@ -500,7 +529,23 @@ function onPos(pos) {
   document.getElementById('lonVal').textContent=lon.toFixed(7);
   document.getElementById('altVal').textContent=alt!==null?alt.toFixed(1):'N/A';
   document.getElementById('accVal').textContent=acc.toFixed(1);
-  document.getElementById('captureBtn').disabled=false;
+  // Projected read-out (js/16b-plotgrid.js). crsFormat() returns lat/lon unchanged when the
+  // project is on WGS84, which is why the row is hidden in that case rather than duplicating the
+  // two boxes above it.
+  const gridRow = document.getElementById('gridCoordRow');
+  if (gridRow && typeof crsProject === 'function'){
+    const projected = crsProject(lat, lon, alt);
+    const showing = projected.units !== 'degrees';
+    gridRow.style.display = showing ? '' : 'none';
+    if (showing){
+      document.getElementById('gridCoordLabel').textContent = projected.label;
+      document.getElementById('gridCoordVal').textContent = crsFormat(lat, lon);
+    }
+  }
+  // Project accuracy standard. Refusing at the button, with the reason on the button itself,
+  // rather than at save time — telling a surveyor their fix was inadequate AFTER they walked the
+  // boundary is not a warning, it is a report of wasted work.
+  applyFixGateToCaptureButton();
   let state,label,cls;
   if(acc<=5){state='good';label='Good fix';cls='acc-good';}
   else if(acc<=15){state='poor';label='Fair fix';cls='acc-ok';}
@@ -618,6 +663,24 @@ function hapticTap(){ try{ if (navigator.vibrate) navigator.vibrate(35); }catch(
 // Shared by both the plain-tap and hold-to-average paths — everything downstream of "we have
 // the coords we're going to save" lives here so the two capture modes stay in sync.
 function commitVertex(lat, lon, alt, acc, weak, manual){
+  // ══ OUTLIER CHECK ══
+  // A mis-typed coordinate, or a fix that latched onto a cached position from the previous job,
+  // saves silently and is found weeks later in somebody else's QGIS. If the project has an area
+  // set, this asks the question now — as a confirm, never a refusal, because a survey legitimately
+  // reaches outside its own boundary for a control point and a hard block would get switched off.
+  // Re-entered via the callback rather than returning, so the confirm is asynchronous without the
+  // rest of this function having to know that. `__outlierOk` guards the second pass.
+  if (!commitVertex.__outlierOk && typeof confirmIfOutlier === 'function'){
+    const d = (typeof outsideProjectBounds === 'function') ? outsideProjectBounds(lat, lon) : null;
+    if (d != null){
+      confirmIfOutlier(lat, lon, () => {
+        commitVertex.__outlierOk = true;
+        try { commitVertex(lat, lon, alt, acc, weak, manual); }
+        finally { commitVertex.__outlierOk = false; }
+      });
+      return;
+    }
+  }
   // 'gps_fix' covers both the normal and hold-to-average paths (acc is always a real GPS accuracy
   // there); 'manual' covers both the typed-coordinates modal and a tap on the satellite/plan map —
   // those are told apart by which environment the crew is in, since PlotIn's tap map and PlotOut's

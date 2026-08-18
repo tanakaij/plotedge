@@ -517,11 +517,46 @@ try {
         <label>Site / Location <span class="hint">(optional)</span></label>
         <div class="site-field-wrap">
           <input type="text" id="newProjSite" placeholder="e.g. North District" autocomplete="off" autocorrect="off" spellcheck="false">
+          <!-- Two ways to set the site now. The map matters because the old flow captured
+               wherever the person was standing when they made the project — the office, the truck
+               — and that coordinate is what suggests the coordinate system and centres every map
+               the crew opens. -->
+          <button type="button" class="locate-btn" onclick="openSitePicker('site')" title="Pick on map" aria-label="Pick site on map">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </button>
           <button type="button" class="locate-btn" id="locateBtn" onclick="useCurrentLocationForSite()" title="Use current location" aria-label="Use current location">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20.94 11a8.994 8.994 0 0 0-7.94-7.94"/><path d="M3.06 13a8.994 8.994 0 0 0 7.94 7.94"/><path d="M11 3.06a8.994 8.994 0 0 0-7.94 7.94"/><path d="M13 20.94a8.994 8.994 0 0 0 7.94-7.94"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
         <div class="locate-hint" id="locateHint"></div>
+      </div>
+      <!-- Set once, at creation, and it governs every export, readout and drawing for the life of
+           the project. Placed after Site because the site's coordinates are what let the app
+           suggest the right grid instead of making the crew work out their belt. -->
+      <div class="field" style="margin-top:16px;margin-bottom:0;">
+        <label>Coordinate system</label>
+        <button type="button" class="btn btn-outline" id="newProjCrsBtn"
+                style="justify-content:space-between;width:100%;text-align:left;"
+                onclick="openCrsPicker('new')">
+          <span id="newProjCrsLabel">WGS 84 lat/lon (degrees)</span>
+          <span class="hint">Change</span>
+        </button>
+        <div class="hint" id="newProjCrsNote" style="margin-top:6px;"></div>
+      </div>
+      <!-- Optional boundary. Warns, never blocks — a survey legitimately reaches past its own
+           edge for a control point, and a hard refusal teaches a crew to switch the whole thing
+           off. See the note in js/05a-plotbounds.js. -->
+      <div class="field" style="margin-top:16px;margin-bottom:0;">
+        <label>Project area <span class="hint">(optional — catches wildly misplaced captures)</span></label>
+        <button type="button" class="btn btn-outline" style="justify-content:space-between;width:100%;text-align:left;"
+                onclick="openSitePicker('area')">
+          <span id="projBoundsLabel">Not set — captures are never queried</span>
+          <span class="hint">Set</span>
+        </button>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button type="button" class="btn btn-outline" style="flex:1;" onclick="boundsFromFeatures()">From captured data</button>
+          <button type="button" class="btn btn-outline" style="flex:1;" onclick="clearProjectBounds()">Clear</button>
+        </div>
       </div>
     </div>
     <button class="btn btn-primary" style="font-size:16px;padding:16px;" onclick="saveProjectForm()">
@@ -1127,10 +1162,31 @@ try {
           <span id="extGpsBtnLabel">Connect external GPS</span>
         </button>
         <div class="ext-gps-status" id="extGpsStatus" style="display:none;"></div>
+        <!-- PlotFix (js/17d-plotfix.js): fix type, satellites, and an accuracy figure that states
+             whether the receiver MEASURED it (GST) or this app estimated it from HDOP. Those two
+             should never be presented identically. -->
+        <div class="hint" id="plotfixStatus" style="margin-top:6px;"></div>
+        <!-- Why Capture is refusing, shown next to the button rather than only on save. -->
+        <div class="hint" id="fixGateNote" style="display:none;margin-top:6px;color:var(--danger);"></div>
+        <div class="field" style="margin-top:10px;">
+          <label>Accuracy standard <span class="hint">(this project)</span></label>
+          <div class="select-wrap">
+            <select id="fixGateSelect" onchange="applyFixGatePreset(this.value)"></select>
+          </div>
+        </div>
       </div>
       <div class="coords-grid">
         <div class="coord-box"><div class="cl">Latitude</div><div class="cv" id="latVal">—</div></div>
         <div class="coord-box"><div class="cl">Longitude</div><div class="cv" id="lonVal">—</div></div>
+      </div>
+      <!-- The same position in the project's working grid. Shown only when a grid is actually
+           selected: repeating lat/lon under a heading that says "WGS 84 lat/lon" would be noise.
+           This is what a crew reads out over the radio when the office works in Lo31. -->
+      <div class="coord-grid" id="gridCoordRow" style="display:none;">
+        <div class="coord-box" style="grid-column:1 / -1;">
+          <div class="cl" id="gridCoordLabel">Grid</div>
+          <div class="cv" id="gridCoordVal" style="font-family:var(--font-mono);">—</div>
+        </div>
       </div>
       <!-- Altitude/Accuracy collapsed by default — accuracy is already visible at a glance up in
            the GPS status row above, so this is just the detail most captures never need to check. -->
@@ -1454,6 +1510,23 @@ try {
         <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="card-collapse-body">
+      <!-- PlotGrid (js/16b-plotgrid.js). Placed here rather than in Settings because this is the
+           only screen where the choice has a consequence: capture is always stored as WGS84
+           lat/lon, and the CRS decides what the exported numbers mean. -->
+      <div class="field">
+        <label>Working coordinate system</label>
+        <div class="select-wrap">
+          <select id="projectCrsSelect" onchange="setProjectCrs(this.value)"></select>
+        </div>
+        <div class="hint" id="projectCrsNote" style="margin-top:6px;"></div>
+      </div>
+      <div class="field" id="geoidOffsetField">
+        <label>Height offset <span class="hint">metres, from a known benchmark</span></label>
+        <input type="number" step="0.01" id="geoidOffsetInput" placeholder="0.00"
+               onchange="setProjectGeoidOffset(this.value)">
+        <div class="hint" style="margin-top:6px;">GNSS altitude is height above the ellipsoid, not sea level. One offset taken from a benchmark converts it across a small site.</div>
+      </div>
+
       <div class="field">
         <label>Choose a format</label>
         <div class="select-wrap">
@@ -1652,17 +1725,57 @@ try {
      explains itself the first time it is opened rather than being renamed into plain English. -->
 <div class="plotwords-layer" id="plotwordsLayer" aria-live="polite"></div>
 
-<div class="plotwords-screen" id="plotWordsScreen" role="dialog" aria-modal="true" aria-label="What the names mean">
-  <div class="plotwords-screen-head">
+<!-- ══ COORDINATE SYSTEM PICKER ══
+     A searchable sheet rather than a <select>: the registry has two dozen entries and the useful
+     queries are "harare", "2048" and "zone 36", none of which a dropdown can answer. See
+     crsSearch() in js/16b-plotgrid.js. -->
+<!-- ══ SITE / PROJECT AREA PICKER ══
+     One map doing two jobs (js/05a-plotbounds.js): placing the site pin accurately, and framing
+     the working area. The pin is fixed to the viewport centre and the map moves under it, which
+     is how placement works on a phone — a dragged marker spends the whole gesture under a thumb. -->
+<div class="modal-overlay" id="sitePickerModal" onclick="if(event.target===this)closeSitePicker()">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-title" id="sitePickerTitle">Site location</div>
+    <div class="hint" id="sitePickerHint" style="margin-bottom:10px;"></div>
+    <div class="site-picker-map-wrap">
+      <div id="sitePickerMap"></div>
+      <div class="site-pin-marker" id="sitePinMarker" aria-hidden="true"></div>
+      <div class="site-area-frame" id="siteAreaFrame" aria-hidden="true"></div>
+    </div>
+    <div class="site-picker-readout">
+      <span id="sitePickerCoord">—</span>
+      <span id="sitePickerSize" class="hint"></span>
+    </div>
+    <button class="btn btn-primary" style="margin-top:12px;" onclick="confirmSitePicker()">Use this</button>
+    <button class="btn btn-outline" style="margin-top:8px;" onclick="closeSitePicker()">Cancel</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="crsPickerModal" onclick="if(event.target===this)closeCrsPicker()">
+  <div class="modal-box">
+    <div class="modal-title">Coordinate system</div>
+    <div class="hint" style="margin-bottom:12px;">Capture is always stored as GPS lat/lon. This decides what your exports, readouts and CAD drawings are measured in.</div>
+    <div class="field">
+      <input type="text" id="crsSearchInput" placeholder="Search country, town, EPSG code…"
+             autocomplete="off" autocorrect="off" spellcheck="false" oninput="renderCrsResults()">
+    </div>
+    <div id="crsSuggestion"></div>
+    <div id="crsResults" class="crs-results"></div>
+    <button class="btn btn-outline" style="margin-top:12px;" onclick="closeCrsPicker()">Cancel</button>
+  </div>
+</div>
+
+<div class="view" id="view-plotwords">
+  <div class="subpage-header">
     <button class="icon-back" onclick="closePlotWords()" aria-label="Back">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     </button>
-    <div class="plotwords-screen-title">What the names mean</div>
+    <h2>What the names mean</h2>
   </div>
-  <div class="plotwords-screen-body">
+  <div class="subpage-body">
     <div class="plotwords-note" id="plotWordsNote"></div>
     <div id="plotWordsList"></div>
-    <button class="plotwords-row-open" style="margin-top:18px;" onclick="plotwordsResetAll();renderPlotWords();">Show all explanations again</button>
+    <button class="btn btn-secondary" style="margin-top:18px;width:100%;" onclick="plotwordsResetAll();renderPlotWords();">Show all explanations again</button>
   </div>
 </div>
 
@@ -2466,6 +2579,7 @@ try {
 <script src="js/04-store.js"></script>
 <script src="js/04a-photostore.js"></script>
 <script src="js/05-projects.js"></script>
+<script src="js/05a-plotbounds.js"></script>
 <script src="js/06-collect.js"></script>
 <script src="js/06a-capture-stack.js"></script>
 <script src="js/07-navigation.js"></script>

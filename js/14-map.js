@@ -239,7 +239,7 @@ function vertexPopupHtml(f, v, idx, total, info, color){
     <div class="pe-popup-type" style="color:${color};">Vertex ${idx+1} of ${total}</div>
     <div class="pe-popup-name">${escapeHtml(f.name || '(unnamed)')}</div>
     <div class="pe-popup-meta">${escapeHtml(info.label)}</div>
-    <div class="pe-popup-coord">${v.lat.toFixed(6)}, ${v.lon.toFixed(6)}</div>
+    <div class="pe-popup-coord">${(typeof crsFormat === 'function') ? escapeHtml(crsFormat(v.lat, v.lon)) : v.lat.toFixed(6) + ', ' + v.lon.toFixed(6)}</div>
     ${bits.length ? `<div class="pe-popup-meta">${escapeHtml(bits.join(' · '))}</div>` : ''}
     ${popupAttrRows(ft, v.attrs || {}, 'vertex', 4, f.geometryType || 'point')}
     ${photos.length ? popupPhotoStrip(photos) : '<div class="pe-popup-hint">No photos at this vertex.</div>'}

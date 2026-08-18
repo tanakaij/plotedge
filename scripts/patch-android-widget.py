@@ -97,6 +97,75 @@ COLORS_NIGHT_XML = """<?xml version="1.0" encoding="utf-8"?>
 </resources>
 """
 
+# ══ DYNAMIC COLOUR (MATERIAL YOU) ══
+# The two palettes above are PlotEdge's own brand colours. They are correct on
+# any device, but on a phone running Android 12+ every first-party widget on the
+# home screen is tinted from the wallpaper — so a widget carrying fixed brand
+# blue sits next to Clock, Weather and Calendar all sharing a palette, and reads
+# as the one thing that does not belong. That is the complaint, and it is not a
+# Pixel complaint: dynamic colour is part of AOSP from API 31, so Samsung One UI
+# 4+, OnePlus, Xiaomi, Oppo and Motorola all do the same thing.
+#
+# Android exposes the wallpaper-derived palette as REAL COLOUR RESOURCES from
+# API 31 — @android:color/system_accent1_600 and friends. That matters here,
+# because RemoteViews cannot resolve theme attributes (?attr/colorPrimary) but
+# it resolves @color and @android:color references perfectly well. So this needs
+# no Java, no MaterialDynamicColors dependency, and no runtime branch: it is the
+# same trick as values-night/, one qualifier further along.
+#
+# -v31 means a device below Android 12 never sees these files and falls back to
+# the brand palette above, which is exactly right — the system_* resources do
+# not exist there and referencing them would be a build-time link error on those
+# devices' resource set.
+#
+# ── WHY THESE PARTICULAR SLOTS ──
+# accent1 is the primary wallpaper hue, accent2 a desaturated companion, and
+# neutral1/neutral2 the greys derived from it. The convention Android's own
+# widgets follow is: surfaces from accent2/neutral at the light end, text from
+# neutral at the dark end, and the one emphasis colour from accent1. The number
+# is lightness, 0 (white) to 1000 (black), so the light and dark files are
+# near-mirrors of each other.
+COLORS_DYNAMIC_XML = """<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ light. Wallpaper-derived; see the note in the patch script. -->
+<resources>
+    <color name="pe_widget_bg">@android:color/system_accent2_50</color>
+    <color name="pe_widget_stroke">@android:color/system_accent2_100</color>
+    <color name="pe_widget_eyebrow">@android:color/system_neutral2_600</color>
+    <color name="pe_widget_title">@android:color/system_neutral1_900</color>
+    <color name="pe_widget_body">@android:color/system_neutral2_700</color>
+    <color name="pe_widget_accent">@android:color/system_accent1_600</color>
+    <!-- Deliberately NOT wallpaper-derived. A warning that turns lilac because
+         the user picked a purple wallpaper has stopped being a warning; amber
+         is doing semantic work here, not decorative work. -->
+    <color name="pe_widget_warn">#B45309</color>
+    <color name="pe_widget_btn_primary">@android:color/system_accent1_600</color>
+    <color name="pe_widget_btn_primary_text">@android:color/system_accent1_0</color>
+    <color name="pe_widget_btn">@android:color/system_accent2_100</color>
+    <color name="pe_widget_btn_stroke">@android:color/system_accent2_200</color>
+    <color name="pe_widget_btn_text">@android:color/system_neutral1_900</color>
+</resources>
+"""
+
+COLORS_DYNAMIC_NIGHT_XML = """<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ dark. The mirror of the file above: surfaces move to the dark
+     end of the neutral ramp and the accent moves to the light end, so contrast
+     is preserved whatever hue the wallpaper produced. -->
+<resources>
+    <color name="pe_widget_bg">@android:color/system_neutral1_800</color>
+    <color name="pe_widget_stroke">@android:color/system_accent2_700</color>
+    <color name="pe_widget_eyebrow">@android:color/system_neutral2_300</color>
+    <color name="pe_widget_title">@android:color/system_neutral1_50</color>
+    <color name="pe_widget_body">@android:color/system_neutral2_200</color>
+    <color name="pe_widget_accent">@android:color/system_accent1_200</color>
+    <color name="pe_widget_warn">#F59E0B</color>
+    <color name="pe_widget_btn_primary">@android:color/system_accent1_200</color>
+    <color name="pe_widget_btn_primary_text">@android:color/system_accent1_900</color>
+    <color name="pe_widget_btn">@android:color/system_accent2_700</color>
+    <color name="pe_widget_btn_stroke">@android:color/system_accent2_600</color>
+    <color name="pe_widget_btn_text">@android:color/system_neutral1_50</color>
+</resources>
+"""
+
 WIDGET_JAVA = """package com.plotedge.app;
 
 import android.app.PendingIntent;
@@ -692,6 +761,11 @@ def main() -> int:
     # build error rather than something we could resolve idempotently.
     write(RES / "values" / "plotedge_widget_colors.xml", COLORS_XML)
     write(RES / "values-night" / "plotedge_widget_colors.xml", COLORS_NIGHT_XML)
+    # Same names again under -v31, so Android 12+ picks the wallpaper-derived
+    # palette and everything older keeps the brand one. Four files, one set of
+    # names, no runtime branch — the resource system does the choosing.
+    write(RES / "values-v31" / "plotedge_widget_colors.xml", COLORS_DYNAMIC_XML)
+    write(RES / "values-night-v31" / "plotedge_widget_colors.xml", COLORS_DYNAMIC_NIGHT_XML)
 
     # Description + label both live in strings.xml so the widget picker can show them.
     strings = RES / "values" / "strings.xml"

@@ -299,6 +299,7 @@ const VIEW_SCREEN_STATE = {
   'view-backup':           'settings',  // lists of controls, read but not filled in
   'view-storage':          'settings',
   'view-featuretypes':     'settings',
+  'view-plotwords':        'settings',  // a glossary is read, not filled in — same band as Help
   'view-featuretype-edit': 'form',      // schema editing is data entry
   'view-newproject':       'form',
   'view-media':            'map',       // a photo wall must not be tinted, same reason as tiles

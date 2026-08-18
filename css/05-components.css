@@ -56,7 +56,7 @@
   .kpi-signal-marker {
     position:absolute; top:50%; width:13px; height:13px; margin-left:-6.5px; border-radius:50%;
     transform:translateY(-50%); background:var(--card-bg); border:3px solid var(--white);
-    box-shadow:0 1px 4px rgba(0,0,0,0.45); transition:left 0.35s ease;
+    box-shadow:var(--elev-1); transition:left 0.35s ease;
   }
   .kpi-card[data-kpi="accuracy"].no-fix .kpi-signal { opacity:0.3; }
   .kpi-card[data-kpi="accuracy"].no-fix .kpi-signal-marker { display:none; }
@@ -64,9 +64,9 @@
        fix type, HDOP, satellites when an external NMEA receiver supplies them) plus a
        best/average/worst breakdown across captured vertices, without leaving the dashboard.
        Reuses the same max-height accordion technique as .dash-insights-body below. */
-  .acc-chevron { width:13px; height:13px; flex-shrink:0; color:var(--text-tertiary); margin-left:4px; transition:transform 0.2s ease; }
+  .acc-chevron { width:13px; height:13px; flex-shrink:0; color:var(--text-tertiary); margin-left:4px; transition:transform var(--dur-base) ease; }
   .kpi-card[data-kpi="accuracy"].expanded .acc-chevron { transform:rotate(180deg); }
-  .acc-detail { max-height:0; overflow:hidden; transition:max-height 0.25s ease; }
+  .acc-detail { max-height:0; overflow:hidden; transition:max-height var(--dur-slow) ease; }
   .kpi-card[data-kpi="accuracy"].expanded .acc-detail { max-height:260px; margin-top:10px; padding-top:10px; border-top:1px solid var(--card-border); }
   .acc-detail-row { display:flex; justify-content:space-between; gap:8px; font-size:11.5px; padding:4px 0; color:var(--text-secondary); }
   .acc-detail-row strong { color:var(--white); font-weight:700; }
@@ -154,7 +154,7 @@
     flex-direction:column; align-items:center; justify-content:flex-start; text-align:center;
     gap:6px; min-height:70px; padding:10px 4px 8px;
   }
-  .qa-tile-compact .qa-icon-badge { width:30px; height:30px; border-radius:9px; }
+  .qa-tile-compact .qa-icon-badge { width:30px; height:30px; border-radius:var(--radius-sm); }
   .qa-tile-compact .qa-icon { width:16px; height:16px; }
   .qa-tile-compact .qa-text {
     flex:none; font-size:10px; font-weight:700; line-height:1.22; letter-spacing:-0.005em;
@@ -262,12 +262,12 @@
   .dash-insights-headline { flex:1; min-width:0; }
   .dash-insights-title { display:block; font-size:13.5px; font-weight:800; color:var(--white); }
   .dash-insights-summary { display:block; font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
-  .dash-insights-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform 0.2s ease; }
+  .dash-insights-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform var(--dur-base) ease; }
   .dash-insights.open .dash-insights-chevron { transform:rotate(180deg); }
   /* Collapsed via max-height rather than display:none so the transition can animate, and so the
      sparkline SVG inside keeps real dimensions instead of laying out at 0×0 when it is drawn
      while shut. */
-  .dash-insights-body { max-height:0; overflow:hidden; transition:max-height 0.28s ease; }
+  .dash-insights-body { max-height:0; overflow:hidden; transition:max-height var(--dur-slow) ease; }
   .dash-insights.open .dash-insights-body { max-height:1400px; }
   .dash-insights-body > * { margin-left:15px; margin-right:15px; }
   .dash-insights-body > *:last-child { margin-bottom:15px; }
@@ -357,7 +357,7 @@
   .card-collapsible .card-collapse-header .export-heading { flex:1; margin-bottom:0; }
   .card-chevron { color:var(--text-tertiary); flex-shrink:0; transition:transform 0.22s cubic-bezier(0.17,0.84,0.44,1); }
   .card-collapsible.collapsed .card-chevron { transform:rotate(-90deg); }
-  .card-collapse-body { margin-top:14px; max-height:1400px; opacity:1; overflow:hidden; transition:max-height 0.28s ease, opacity 0.2s ease, margin-top 0.28s ease; }
+  .card-collapse-body { margin-top:14px; max-height:1400px; opacity:1; overflow:hidden; transition:max-height var(--dur-slow) ease, opacity var(--dur-base) ease, margin-top var(--dur-slow) ease; }
   .card-collapsible.collapsed .card-collapse-body { max-height:0; opacity:0; margin-top:0; }
 
   /* ══ FIELDS ══ */
@@ -419,7 +419,7 @@
   .ext-gps-status.fix-rtk { color:#2FB159; border-color:rgba(47,177,89,0.4); }
   .ext-gps-status.fix-dgps { color:#8FBFFF; border-color:rgba(59,130,246,0.35); }
   .ext-gps-status.fix-none { color:var(--danger); border-color:rgba(var(--danger-rgb),0.35); }
-  .gps-ring { width:36px; height:36px; border-radius:50%; border:3px solid #333; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:border-color 0.3s; }
+  .gps-ring { width:36px; height:36px; border-radius:50%; border:3px solid #333; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:border-color var(--dur-slow); }
   .indoor-gps-banner { display:flex; align-items:center; gap:8px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.32); color:var(--accent-hover); font-size:12px; font-weight:600; border-radius:12px; padding:10px 12px; margin:10px 0; }
   .indoor-gps-banner svg { flex-shrink:0; }
   .indoor-gps-banner span { flex:1; }
@@ -462,7 +462,7 @@
   .locate-hint.err { color:var(--warn); }
 
   /* CAPTURE BTN */
-  .btn-capture { width:100%; padding:18px; background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:12px; font-size:16px; font-weight:800; font-family:var(--font); letter-spacing:0.01em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:filter 0.15s,transform 0.1s,box-shadow 0.15s; position:relative; overflow:hidden; box-shadow: var(--clay-shadow); }
+  .btn-capture { width:100%; padding:18px; background:var(--accent-primary); color:var(--on-accent); border:none; border-radius:12px; font-size:16px; font-weight:800; font-family:var(--font); letter-spacing:0.01em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:filter 0.15s,transform var(--dur-fast),box-shadow 0.15s; position:relative; overflow:hidden; box-shadow: var(--clay-shadow); }
   .btn-capture:disabled { background:var(--surface-sunken); color:var(--text-tertiary); cursor:not-allowed; box-shadow:none; }
   .btn-capture:not(:disabled):active { transform:scale(0.97); filter:brightness(0.92); box-shadow: var(--clay-shadow-active); }
   .btn-capture .ripple { position:absolute; border-radius:50%; background:rgba(0,0,0,0.18); transform:scale(0); animation:ripple 0.5s linear; pointer-events:none; }
@@ -502,10 +502,10 @@
      corner blocked by a building). Collapsed by default (a live tile map costs data/battery a
      plain SVG doesn't), so it's opt-in per capture rather than always running. */
   .vertex-map-toggle { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:9px 12px; margin-bottom:10px; border-radius:12px; border:1px solid var(--card-border); background:var(--surface-sunken); color:var(--text-primary); font-size:12px; font-weight:700; cursor:pointer; transition:background 0.15s ease, border-color 0.15s ease; }
-  .vertex-map-toggle:active { background:var(--surface3, var(--surface-sunken)); }
+  .vertex-map-toggle:active { background:var(--surface-sunken); }
   .vertex-map-toggle.on { border-color:var(--accent-primary); color:var(--accent-primary); }
   .vertex-map-toggle svg { flex-shrink:0; }
-  .vertex-map-wrap { display:none; margin-bottom:10px; border-radius:14px; overflow:hidden; border:1px solid var(--card-border); box-shadow:0 6px 20px rgba(0,0,0,0.22); }
+  .vertex-map-wrap { display:none; margin-bottom:10px; border-radius:var(--radius-md); overflow:hidden; border:1px solid var(--card-border); box-shadow:var(--elev-3); }
   .vertex-map-wrap.show { display:block; }
   /* position:relative so the .digi-readout overlay anchors to the map, not the page. Leaflet
      sets its own position on this element at init, but the readout is in the DOM before
@@ -515,7 +515,7 @@
   /* Leaflet's default marker is a fussy multi-image sprite; a plain CSS pin matches the app's own
      vector-icon language (see the GPS/pin glyphs used elsewhere) and re-colors with the theme for
      free instead of shipping separate light/dark marker PNGs. */
-  .vmap-pin { width:26px; height:26px; border-radius:50% 50% 50% 0; background:var(--accent-primary); border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.4); transform:rotate(-45deg); cursor:grab; display:flex; align-items:center; justify-content:center; }
+  .vmap-pin { width:26px; height:26px; border-radius:50% 50% 50% 0; background:var(--accent-primary); border:2px solid #fff; box-shadow:var(--elev-2); transform:rotate(-45deg); cursor:grab; display:flex; align-items:center; justify-content:center; }
   .vmap-pin span { transform:rotate(45deg); color:#fff; font-size:10px; font-weight:800; }
   .vmap-pin.vmap-pin-open { background:var(--accent-hover); width:30px; height:30px; }
   .vmap-pin:active { cursor:grabbing; }
@@ -527,7 +527,7 @@
   @keyframes ripple { to { transform:scale(4); opacity:0; } }
 
   /* GENERIC BTNS */
-  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; padding:13px 16px; border:none; border-radius:var(--rl); font-size:14px; font-weight:700; font-family:var(--font); cursor:pointer; transition:filter 0.15s,transform 0.1s,box-shadow 0.15s; box-shadow: var(--clay-shadow); }
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; padding:13px 16px; border:none; border-radius:var(--rl); font-size:14px; font-weight:700; font-family:var(--font); cursor:pointer; transition:filter 0.15s,transform var(--dur-fast),box-shadow 0.15s; box-shadow: var(--clay-shadow); }
   .btn:active { transform:scale(0.98); filter:brightness(1.1); box-shadow: var(--clay-shadow-active); }
   .btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
   .btn-primary { background:var(--cta); color:var(--on-cta); }
@@ -590,12 +590,12 @@
      back to manual typing on browsers without it (notably Safari/iOS as of this writing). */
   .barcode-row { display:flex; gap:8px; align-items:stretch; }
   .barcode-row input { flex:1; min-width:0; }
-  .barcode-scan-btn { flex-shrink:0; width:44px; background:var(--surface-sunken); border:1.5px solid var(--card-border); border-radius:10px; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .barcode-scan-btn { flex-shrink:0; width:44px; background:var(--surface-sunken); border:1.5px solid var(--card-border); border-radius:var(--radius-sm); color:var(--text-secondary); display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .barcode-scan-btn:active { background:var(--raised); border-color:var(--accent-primary); color:var(--accent-primary); }
   .barcode-scanner-overlay { position:fixed; inset:0; background:#000; z-index:900; display:none; flex-direction:column; }
   .barcode-scanner-overlay.show { display:flex; }
   .barcode-scanner-video { flex:1; width:100%; object-fit:cover; }
-  .barcode-scanner-frame { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; max-width:340px; aspect-ratio:1.6; border:2.5px solid var(--accent-primary); border-radius:14px; box-shadow:0 0 0 2000px rgba(0,0,0,0.45); pointer-events:none; }
+  .barcode-scanner-frame { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; max-width:340px; aspect-ratio:1.6; border:2.5px solid var(--accent-primary); border-radius:var(--radius-md); box-shadow:0 0 0 2000px rgba(0,0,0,0.45); pointer-events:none; }
   /* The overlay itself stays inset:0 — the camera preview SHOULD run under the status bar, that's
      the point of a full-bleed scanner. Only the chrome on top of it needs to clear the system UI,
      otherwise the close button and the scan hint sit underneath the clock and battery once the app
@@ -603,7 +603,8 @@
      in landscape, where the gesture bar and any camera cutout move to the sides. */
   .barcode-scanner-bar { position:absolute; top:0; left:0; right:0; padding:calc(16px + var(--sat)) calc(16px + var(--sar)) 16px calc(16px + var(--sal)); display:flex; align-items:center; justify-content:space-between; z-index:2; }
   .barcode-scanner-title { color:#fff; font-size:14px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.6); }
-  .barcode-scanner-close { background:rgba(0,0,0,0.5); border:none; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .barcode-scanner-close { background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.2); color:#fff; width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.15s, transform 0.12s; }
+  .barcode-scanner-close:active { background:rgba(0,0,0,0.75); transform:scale(0.92); }
   .barcode-scanner-hint { position:absolute; bottom:calc(24px + var(--sab)); left:0; right:0; text-align:center; color:rgba(255,255,255,0.85); font-size:12px; z-index:2; padding:0 20px; }
 
   /* PHOTOS */
@@ -659,12 +660,19 @@
      navigation between the photos on the same vertex/feature. Built with plain CSS/JS, no library. */
   /* Same visibility handling as .modal-overlay above, and for the same reasons — the lightbox's
      close/share/delete controls were tab-reachable while it was shut. */
-  .lightbox { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.94); display:flex; flex-direction:column; opacity:0; visibility:hidden; pointer-events:none; transition:opacity 0.2s ease, visibility 0s linear 0.2s; }
-  .lightbox.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.2s ease, visibility 0s linear 0s; }
+  .lightbox { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.94); display:flex; flex-direction:column; opacity:0; visibility:hidden; pointer-events:none; transition:opacity var(--dur-base) ease, visibility 0s linear var(--dur-base); }
+  .lightbox.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity var(--dur-base) ease, visibility 0s linear 0s; }
   .lightbox-stage { flex:1; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; touch-action:none; }
   .lightbox-stage img { max-width:92%; max-height:92%; object-fit:contain; border-radius:8px; user-select:none; -webkit-user-drag:none; }
-  .lb-close { position:absolute; top:calc(14px + var(--sat)); right:14px; width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:20px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; }
+  .lb-close { position:absolute; top:calc(14px + var(--sat)); right:14px; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.12); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); border:1px solid rgba(255,255,255,0.18); color:#fff; font-size:20px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; transition:background 0.15s, transform 0.12s; }
+  /* Over a photo, so it brightens rather than darkens — a darker press on dark image content is
+     invisible, which is how this one came to feel dead. */
+  .lb-close:active { background:rgba(255,255,255,0.3); transform:scale(0.92); }
   .lb-nav { position:absolute; top:50%; transform:translateY(-50%); width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; }
+  .lb-nav { transition:background 0.15s, transform 0.12s; }
+  .lb-nav:active { background:rgba(255,255,255,0.3); transform:translateY(-50%) scale(0.9); }
+  .lb-prev, .lb-next { left:auto; }
+  .lb-prev:active, .lb-next:active { background:rgba(255,255,255,0.3); transform:translateY(-50%) scale(0.9); }
   .lb-prev { left:10px; } .lb-next { right:10px; }
   .lb-footer { padding:10px 16px calc(16px + var(--sab)); text-align:center; }
   .lb-caption { color:#fff; font-size:13px; font-weight:600; min-height:16px; }
@@ -718,17 +726,17 @@
   .map-legend { display:flex; flex-wrap:wrap; gap:6px 10px; padding:10px 12px; border-top:1px solid var(--card-border); }
   .map-legend-chip { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); font-weight:500; letter-spacing:0.5px; }
   .map-legend-swatch { width:10px; height:10px; border-radius:8px; flex-shrink:0; }
-  .map-basemap-toggle { position:absolute; top:10px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-basemap-toggle { position:absolute; top:10px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }
   .map-basemap-toggle:active { filter:brightness(0.92); }
-  .map-raster-toggle { position:absolute; top:54px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-raster-toggle { position:absolute; top:54px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }
   .map-raster-toggle:active { filter:brightness(0.92); }
   .map-raster-toggle.active { color:#fff; background:var(--accent-primary); border-color:transparent; }
   /* Stacked down the right edge under Basemap (10px) and Raster (54px). Both share the raster
      button's pill so the corner reads as one column of controls rather than four unrelated chips. */
-  .map-layer-toggle { position:absolute; top:98px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
-  .map-goto-toggle { position:absolute; top:142px; right:10px; z-index:2; display:flex; align-items:center; justify-content:center; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-layer-toggle { position:absolute; top:98px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }
+  .map-goto-toggle { position:absolute; top:142px; right:10px; z-index:2; display:flex; align-items:center; justify-content:center; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }
   .map-layer-toggle:active, .map-goto-toggle:active { filter:brightness(0.92); }
-  .map-raster-panel { position:absolute; bottom:10px; left:10px; right:10px; z-index:2; display:none; align-items:center; gap:8px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:14px; padding:8px 12px; font-size:12px; color:var(--text-primary); box-shadow:0 4px 14px rgba(0,0,0,0.22); }
+  .map-raster-panel { position:absolute; bottom:10px; left:10px; right:10px; z-index:2; display:none; align-items:center; gap:8px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:var(--radius-md); padding:8px 12px; font-size:12px; color:var(--text-primary); box-shadow:var(--elev-2); }
   .map-raster-panel.show { display:flex; }
   .map-raster-panel span.raster-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
   .map-raster-panel input[type=range] { width:70px; }
@@ -739,7 +747,7 @@
   .leaflet-popup-content { margin:11px 13px; }
   /* Rounded to match the app's card language rather than Leaflet's default square-ish card —
      the popup is the one piece of app UI that renders on the light map surface. */
-  .leaflet-popup-content-wrapper { border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,0.22); }
+  .leaflet-popup-content-wrapper { border-radius:var(--radius-md); box-shadow:var(--elev-3); }
   /* Colours here are deliberately literal rather than theme tokens: this content sits on
      Leaflet's white popup card on top of map tiles, so it must stay legible in dark mode too —
      var(--text-primary) would render white-on-white the moment the app theme flipped. */
@@ -759,7 +767,7 @@
   .pe-popup-photos img:active { opacity:0.75; }
   .pe-popup-more { width:52px; height:52px; border-radius:8px; border:1px dashed #C7CBD1; background:#F3F4F6; color:#4B5563; font-size:12px; font-weight:800; font-family:var(--font); cursor:pointer; }
   .pe-popup-hint { font-size:10.5px; color:#9CA3AF; font-weight:600; margin-top:8px; line-height:1.4; }
-  .pe-popup-btn { margin-top:8px; width:100%; padding:8px; border:none; border-radius:9px; font-weight:700; font-size:12px; font-family:var(--font); cursor:pointer; }
+  .pe-popup-btn { margin-top:8px; width:100%; padding:8px; border:none; border-radius:var(--radius-sm); font-weight:700; font-size:12px; font-family:var(--font); cursor:pointer; }
   .pe-popup-btn-ghost { background:transparent; border:1px solid currentColor; margin-top:5px; }
   /* Vertex handles sit on top of their own line/polygon, which Leaflet would otherwise let the
      geometry's larger hit area swallow on a tap near the stroke. */
@@ -768,7 +776,7 @@
   .pt-insert {
     flex-shrink:0; width:26px; height:26px;
     display:flex; align-items:center; justify-content:center;
-    background:transparent; border:1px solid var(--card-border); border-radius:7px;
+    background:transparent; border:1px solid var(--card-border); border-radius:var(--radius-sm);
     color:var(--text-tertiary); cursor:pointer; padding:0;
   }
   .pt-insert.armed {
@@ -781,12 +789,12 @@
   .insert-armed-banner {
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     background:rgba(var(--accent-rgb),0.12); border:1px solid rgba(var(--accent-rgb),0.4);
-    border-radius:10px; padding:8px 10px; margin-bottom:8px;
+    border-radius:var(--radius-sm); padding:8px 10px; margin-bottom:8px;
     font-size:11.5px; font-weight:700; color:var(--accent-primary);
   }
   .insert-armed-banner button {
     flex-shrink:0; background:transparent; border:1px solid rgba(var(--accent-rgb),0.45);
-    border-radius:7px; color:var(--accent-primary);
+    border-radius:var(--radius-sm); color:var(--accent-primary);
     font-family:var(--font); font-size:11px; font-weight:700; padding:4px 9px; cursor:pointer;
   }
 
@@ -797,7 +805,7 @@
     position:absolute; left:8px; bottom:8px; z-index:500;
     display:flex; align-items:center; gap:5px;
     min-height:30px; padding:0 9px;
-    background:var(--nav-bg); border:1px solid var(--card-border); border-radius:9px;
+    background:var(--nav-bg); border:1px solid var(--card-border); border-radius:var(--radius-sm);
     color:var(--text-secondary);
     font-family:var(--font); font-size:11px; font-weight:700;
     cursor:pointer; -webkit-tap-highlight-color:transparent;
@@ -806,7 +814,7 @@
   .course-up-toggle.is-on { color:var(--accent-primary); border-color:rgba(var(--accent-rgb),0.45); }
   /* The arrow points up only when the map is actually turned to travel; facing
      north it lies flat, so the icon states the mode rather than just decorating it. */
-  .course-up-toggle svg { transition:transform 0.2s ease; }
+  .course-up-toggle svg { transition:transform var(--dur-base) ease; }
   .course-up-toggle:not(.is-on) svg { transform:rotate(90deg); opacity:0.65; }
 
   .pe-vertex-marker { cursor:pointer; }
@@ -861,7 +869,7 @@
      should read closer to the unsaved-changes banner than to a neutral list. */
   .cap-stack-bar {
     background:rgba(var(--warn-rgb),0.10); border:1px solid rgba(var(--warn-rgb),0.34);
-    border-radius:14px; padding:10px 11px; margin-bottom:12px;
+    border-radius:var(--radius-md); padding:10px 11px; margin-bottom:12px;
   }
   /* The resting state is this header plus one button — see the comment on
      renderCaptureStack(). It is a real <button> because it toggles disclosure,
@@ -876,7 +884,7 @@
   }
   .cap-stack-head-icon { flex-shrink:0; }
   .cap-stack-head-text { flex:1; min-width:0; }
-  .cap-stack-chev { flex-shrink:0; transition:transform 0.18s ease; }
+  .cap-stack-chev { flex-shrink:0; transition:transform var(--dur-base) ease; }
   .cap-stack-chev.open { transform:rotate(180deg); }
   /* The 90% action, at full width so it is unmissable and thumb-sized. Naming the
      capture inside the button is what makes it safe to tap without expanding
@@ -885,13 +893,13 @@
     display:flex; align-items:center; justify-content:center; gap:7px;
     width:100%; min-height:38px; margin-top:8px; padding:0 12px;
     background:var(--accent-primary); color:var(--on-accent,#fff);
-    border:none; border-radius:10px;
+    border:none; border-radius:var(--radius-sm);
     font-family:var(--font); font-size:13px; font-weight:800; cursor:pointer;
   }
   .cap-stack-quick:active { transform:scale(0.99); }
   .cap-stack-quick-more {
     font-size:10.5px; font-weight:700; opacity:0.78;
-    padding:2px 6px; border-radius:99px; background:rgba(0,0,0,0.18);
+    padding:2px 6px; border-radius:var(--radius-pill); background:rgba(0,0,0,0.18);
   }
   .cap-stack-body { margin-top:9px; }
   /* States what tapping Resume is about to DO while another capture is on screen.
@@ -906,7 +914,7 @@
   .cap-stack-note strong { color:var(--text-primary); font-weight:800; }
   .cap-stack-row {
     background:var(--card-bg); border:1px solid var(--card-border);
-    border-radius:11px; padding:8px 9px;
+    border-radius:var(--radius-md); padding:8px 9px;
   }
   .cap-stack-row + .cap-stack-row { margin-top:6px; }
   .cap-stack-row-head { display:flex; align-items:center; gap:9px; }
@@ -929,7 +937,7 @@
   .cap-stack-resume {
     flex:1 1 auto; min-height:34px; padding:0 13px;
     background:var(--accent-primary); color:var(--on-accent,#fff);
-    border:none; border-radius:9px;
+    border:none; border-radius:var(--radius-sm);
     font-family:var(--font); font-size:12px; font-weight:800; cursor:pointer;
   }
   .cap-stack-resume:active { transform:scale(0.97); }
@@ -938,13 +946,13 @@
   .cap-stack-swapoff {
     flex:1 1 auto; min-height:34px; padding:0 11px;
     background:transparent; border:1.5px solid rgba(var(--danger-rgb),0.42);
-    border-radius:9px; color:var(--danger);
+    border-radius:var(--radius-sm); color:var(--danger);
     font-family:var(--font); font-size:12px; font-weight:700; cursor:pointer;
   }
   .cap-stack-swapoff:active { transform:scale(0.97); }
   .cap-stack-drop {
     flex-shrink:0; width:30px; height:34px;
-    background:transparent; border:1px solid var(--card-border); border-radius:9px;
+    background:transparent; border:1px solid var(--card-border); border-radius:var(--radius-sm);
     color:var(--text-tertiary); font-size:13px; font-family:var(--font); cursor:pointer;
   }
   .cap-stack-drop:active { color:var(--danger); border-color:rgba(var(--danger-rgb),0.5); }
@@ -976,7 +984,7 @@
   .stat-lbl { font-size:10px; color:var(--text-secondary); margin-top:4px; letter-spacing:0.05em; text-transform:uppercase; }
   .storage-meter-wrap { margin-top:14px; }
   .storage-meter-track { height:6px; border-radius:8px; background:var(--surface-sunken); overflow:hidden; }
-  .storage-meter-fill { height:100%; background:var(--success); border-radius:8px; transition:width 0.3s, background 0.3s; position:relative; }
+  .storage-meter-fill { height:100%; background:var(--success); border-radius:8px; transition:width var(--dur-slow), background var(--dur-slow); position:relative; }
   .storage-meter-label { font-size:11.5px; color:var(--text-secondary); margin-top:7px; }
   .storage-meter-wrap.warn .storage-meter-fill { background:var(--warn); }
   .storage-meter-wrap.warn .storage-meter-label { color:var(--warn); font-weight:700; }
@@ -1020,12 +1028,12 @@
      entirely until the map is actually twisted off north. */
   .review-map-wrap .leaflet-control-rotate-toggle {
     width:30px; height:30px;
-    border-radius:10px;
+    border-radius:var(--radius-sm);
     border:1px solid var(--card-border) !important;
     background:var(--nav-bg);
     backdrop-filter:var(--glass-12);
     -webkit-backdrop-filter:var(--glass-12);
-    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+    box-shadow:var(--elev-2);
   }
   .map-fullscreen-toggle { position:absolute; top:10px; left:10px; z-index:2; width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:12px; color:var(--text-primary); cursor:pointer; }
   .review-map-wrap.fullscreen .map-fullscreen-toggle { top:calc(10px + var(--sat)); }
@@ -1068,7 +1076,7 @@
   .webmap-status-badge.live::before { background:var(--success); }
   .webmap-status-badge.offline { background:var(--surface-sunken); color:var(--text-secondary); border:1px solid var(--card-border); }
   .webmap-status-badge.offline::before { background:var(--text-tertiary); }
-  .webmap-url-row { display:flex; align-items:center; gap:8px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:10px; padding:9px 12px; font-size:12.5px; margin:4px 0 12px; overflow:hidden; }
+  .webmap-url-row { display:flex; align-items:center; gap:8px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:var(--radius-sm); padding:9px 12px; font-size:12.5px; margin:4px 0 12px; overflow:hidden; }
   .webmap-url-row a { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary); text-decoration:none; font-weight:600; }
   .webmap-url-row button { flex-shrink:0; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; display:flex; }
   .webmap-url-row button:active { color:var(--text-primary); }
@@ -1123,7 +1131,7 @@
   .no-ft-banner-title { font-size:13px; font-weight:800; color:var(--warn-ink); }
   .no-ft-banner-sub { font-size:12px; color:var(--text-secondary); margin-top:2px; line-height:1.4; }
   .no-ft-banner-btn {
-    flex-shrink:0; align-self:center; padding:8px 13px; border-radius:10px; cursor:pointer;
+    flex-shrink:0; align-self:center; padding:8px 13px; border-radius:var(--radius-sm); cursor:pointer;
     font-size:12.5px; font-weight:800; font-family:var(--font); white-space:nowrap;
     border:1px solid var(--warn); background:var(--warn); color:#1A1200;
   }
@@ -1134,7 +1142,7 @@
   .btn-cancel-edit:active { background:var(--surface-sunken); }
 
   /* CLEAR */
-  .btn-clear-all { background:var(--surface-sunken); border:1.5px solid rgba(var(--danger-rgb),0.4); color:var(--danger); font-size:13px; font-weight:700; font-family:var(--font); width:100%; padding:12px; border-radius:12px; cursor:pointer; margin-top:8px; display:flex; align-items:center; justify-content:center; gap:6px; transition:background 0.15s, box-shadow 0.15s, filter 0.15s, transform 0.1s; box-shadow: var(--clay-shadow); }
+  .btn-clear-all { background:var(--surface-sunken); border:1.5px solid rgba(var(--danger-rgb),0.4); color:var(--danger); font-size:13px; font-weight:700; font-family:var(--font); width:100%; padding:12px; border-radius:12px; cursor:pointer; margin-top:8px; display:flex; align-items:center; justify-content:center; gap:6px; transition:background 0.15s, box-shadow 0.15s, filter 0.15s, transform var(--dur-fast); box-shadow: var(--clay-shadow); }
   .btn-clear-all:active { background:rgba(var(--danger-rgb),0.12); box-shadow: var(--clay-shadow-active); filter:brightness(1.05); transform:scale(0.98); }
 
   /* TOAST */
@@ -1144,7 +1152,7 @@
      consumes no layout height: showing a toast can't expand a page container, shift content, or
      add scroll. It simply floats above the background gradient (z-index:100, above the docked
      nav's 50). pointer-events are off until .show so a hidden toast can never swallow taps. */
-  .toast { position:fixed; bottom:calc(24px + var(--sab)); left:50%; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; background:var(--cta); color:var(--on-cta); padding:12px 20px; border-radius:999px; font-size:13px; font-weight:700; z-index:100; box-shadow:0 8px 30px rgba(0,0,0,0.5); transition:transform 0.22s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s; max-width:calc(100vw - 32px); white-space:normal; text-align:center; }
+  .toast { position:fixed; bottom:calc(24px + var(--sab)); left:50%; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; background:var(--cta); color:var(--on-cta); padding:12px 20px; border-radius:999px; font-size:13px; font-weight:700; z-index:100; box-shadow:var(--elev-4); transition:transform 0.22s cubic-bezier(0.34,1.56,0.64,1), opacity var(--dur-base); max-width:calc(100vw - 32px); white-space:normal; text-align:center; }
   .toast.show { transform:translateX(-50%) translateY(0); opacity:1; pointer-events:auto; }
   /* On main app screens the bottom nav is docked over that same 24px band, so lift the toast to
      clear it. The toasts are DOM siblings that follow #view-app, so a plain sibling combinator
@@ -1216,7 +1224,7 @@
        bottom/height) keeps this cheap: no layout thrash on a bar that may re-appear several
        times a minute during a capture session. */
     transform: translateY(0);
-    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform var(--dur-slow) cubic-bezier(0.4, 0, 0.2, 1);
   }
   body.collect-nav-hidden .bottom-nav { transform: translateY(100%); pointer-events: none; }
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
@@ -1247,20 +1255,24 @@
      state (pressed), where a wash that fades downward reads as the cell being lit from the accent
      bar above it — the same light source the top bar implies. Sits in ::after at z-index 0 with
      the icon and label above it, so it tints the cell without washing out the glyph. */
-  .nav-btn.active::after {
+  .nav-btn::after {
     content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
     background:linear-gradient(to bottom,
       rgba(var(--accent-rgb),0.16) 0%,
       rgba(var(--accent-rgb),0.06) 55%,
       rgba(var(--accent-rgb),0) 100%);
+    opacity:0; transition:opacity 0.15s ease;
   }
+  .nav-btn.active::after { opacity:1; }
   /* Both children have to be lifted above the wash explicitly — ::after is painted after them in
      the absence of a stacking order, which would put the tint over the icon. */
   .nav-btn svg, .nav-btn span { position:relative; z-index:1; }
-  .nav-btn.active::before {
+  .nav-btn::before {
     content:''; position:absolute; top:0; left:0; right:0; height:2px;
     background:var(--accent-primary); border-radius:0 0 2px 2px;
+    opacity:0; transition:opacity 0.15s ease;
   }
+  .nav-btn.active::before { opacity:1; }
   /* Collect previously carried a standing accent pill (background/border) whether or not it was
      the current tab, meant to mark importance rather than selection. That created a second
      visual "active-looking" tab alongside the real active tab, which reads as ambiguous
@@ -1278,7 +1290,7 @@
      without that). transform-origin stays centered so growth doesn't push the icon toward one
      edge of its button; ease-out (quick start, gentle finish) matches responsive tap feedback
      rather than a linear or ease-in curve, which would feel sluggish on the way in. */
-  .nav-btn svg { transform: scale(1); transform-origin: center; transition: transform 0.18s cubic-bezier(0.17,0.84,0.44,1), stroke-width 0.18s cubic-bezier(0.17,0.84,0.44,1); fill: none; }
+  .nav-btn svg { transform: scale(1); transform-origin: center; transition: transform var(--dur-base) cubic-bezier(0.17,0.84,0.44,1), stroke-width var(--dur-base) cubic-bezier(0.17,0.84,0.44,1); fill: none; }
   .nav-btn.active svg { transform: scale(1.2); stroke-width: 2.9; fill: currentColor; fill-opacity: 0.16; }
 
   /* ══ COLLECT ACTION DOCK ══
@@ -1308,7 +1320,7 @@
     opacity: 0;
     transform: translateY(100%);
     pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.4,0,0.2,1);
+    transition: opacity var(--dur-base) ease, transform var(--dur-slow) cubic-bezier(0.4,0,0.2,1);
   }
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     .capture-fab { backdrop-filter: var(--glass-12); -webkit-backdrop-filter: var(--glass-12); }
@@ -1332,10 +1344,10 @@
   .cd-dot[data-fix="poor"] { background:var(--danger,#EF4444); }
   .cd-save {
     flex-shrink: 0; display: flex; align-items: center; gap: 6px;
-    height: 44px; padding: 0 16px; border-radius: 14px; cursor: pointer;
+    height: 44px; padding: 0 16px; border-radius:var(--radius-md); cursor: pointer;
     border: 1px solid var(--card-border); background: var(--surface-sunken);
     color: var(--text-primary); font-family: var(--font); font-size: 13px; font-weight: 800;
-    transition: transform 0.1s ease, border-color 0.15s, background 0.15s, color 0.15s;
+    transition: transform var(--dur-fast) ease, border-color 0.15s, background 0.15s, color 0.15s;
   }
   .cd-save:active { transform: scale(0.96); }
   /* Save only lights up once there is geometry worth committing — an always-green Save on an
@@ -1351,7 +1363,7 @@
   .capture-fab.measure-ring { position: fixed; }
   /* Icon-only circular button — the full-width bar was too heavy floating over content;
      this keeps the same tap/hold behavior in a much smaller footprint. */
-  .capture-fab .btn-capture { width:54px; height:54px; margin:0; padding:0; border-radius:50%; gap:0; box-shadow: 0 8px 24px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.16); transition: box-shadow 0.12s, transform 0.1s; }
+  .capture-fab .btn-capture { width:54px; height:54px; margin:0; padding:0; border-radius:50%; gap:0; box-shadow: 0 8px 24px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.16); transition: box-shadow 0.12s, transform var(--dur-fast); }
   .capture-fab .btn-capture:active { box-shadow: var(--clay-shadow-active), 0 4px 14px rgba(0,0,0,0.28); transform: scale(0.94); }
   .capture-fab-label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   .capture-fab .capture-photo-badge { top:-6px; right:-6px; font-size:9px; padding:2px 6px; }
@@ -1373,7 +1385,7 @@
   .geo-opt { flex:1; padding:12px 8px; border:1.5px solid var(--card-border); border-radius:12px; background:var(--surface-sunken); color:var(--text-secondary); font-size:12px; font-weight:700; text-align:center; cursor:pointer; transition:border-color 0.15s,color 0.15s,background 0.15s; }
   .geo-opt.sel { border-color:var(--accent-primary); color:var(--accent-hover); background:rgba(var(--accent-rgb),0.1); }
   .ft-swatch-row { display:flex; flex-wrap:wrap; gap:10px; padding-top:2px; }
-  .ft-swatch { width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:transform 0.1s; flex-shrink:0; }
+  .ft-swatch { width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:transform var(--dur-fast); flex-shrink:0; }
   .ft-swatch:active { transform:scale(0.9); }
   .ft-swatch.sel { transform:scale(1.08); box-shadow:0 0 0 2px var(--card-bg); }
   .ft-swatch-auto { display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; border-style:solid; }
@@ -1440,10 +1452,10 @@
   .settings-row:last-of-type { border-bottom:none; }
   .settings-row-label { font-size:14px; font-weight:700; color:var(--white); }
   .settings-row-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; font-weight:500; }
-  .seg-control { display:flex; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:10px; padding:2px; flex-shrink:0; }
+  .seg-control { display:flex; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:var(--radius-sm); padding:2px; flex-shrink:0; }
   .seg-control button { border:none; background:transparent; color:var(--text-secondary); font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:8px; cursor:pointer; transition:background 0.15s, color 0.15s; white-space:nowrap; }
   .seg-control button.active { background:var(--accent-primary); color:var(--on-accent); box-shadow:0 0 10px 0 rgba(var(--grad-tint2),0.4); }
-  .settings-select { background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--white); font-size:12.5px; font-weight:700; padding:8px 10px; border-radius:10px; flex-shrink:0; max-width:170px; }
+  .settings-select { background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--white); font-size:12.5px; font-weight:700; padding:8px 10px; border-radius:var(--radius-sm); flex-shrink:0; max-width:170px; }
   .settings-gear { transition:transform 0.4s cubic-bezier(0.22,1,0.36,1); }
   /* ══ DOMAIN PALETTE PICKER ══ stacks its control under its label instead of beside it, because
      five colour previews cannot share a row with a description on a handset. */
@@ -1452,7 +1464,7 @@
   .domain-swatch {
     display:flex; flex-direction:column; align-items:center; gap:7px; padding:10px 6px; cursor:pointer;
     border:1.5px solid var(--border-subtle); border-radius:12px; background:var(--surface-sunken);
-    font-family:var(--font); transition:border-color 0.15s, background 0.15s, transform 0.1s;
+    font-family:var(--font); transition:border-color 0.15s, background 0.15s, transform var(--dur-fast);
   }
   .domain-swatch:active { transform:scale(0.96); }
   .domain-swatch.sel { border-color:var(--primary-accent); background:rgba(var(--accent-rgb),0.10); }
@@ -1464,7 +1476,7 @@
   .ds-name { font-size:10.5px; font-weight:800; color:var(--text-secondary); letter-spacing:-0.01em; }
   .domain-swatch.sel .ds-name { color:var(--text-primary); }
   .settings-gear:active svg { transform:rotate(45deg); }
-  .settings-gear svg { transition:transform 0.3s ease; }
+  .settings-gear svg { transition:transform var(--dur-slow) ease; }
 
   /* ══ CONFIRM MODAL ══ */
   /* KEYBOARD-SAFE SIZING: height (not inset:0's implicit 100%) is driven by --vvh, a JS-tracked
@@ -1629,7 +1641,7 @@
        HERE and only here: a centred dialog has no edge to travel from, and it is the sheet's own
        opacity (not an ancestor's), so it still composites as one layer with its own background —
        the card and its content fade together as a single unit, never separately. */
-    .modal-box { border-radius:24px; transform:translate3d(0, 8px, 0) scale(0.96); opacity:0; transition:transform var(--sheet-t) var(--sheet-ease), opacity var(--sheet-t) var(--sheet-ease); }
+    .modal-box { border-radius:var(--radius-xl); transform:translate3d(0, 8px, 0) scale(0.96); opacity:0; transition:transform var(--sheet-t) var(--sheet-ease), opacity var(--sheet-t) var(--sheet-ease); }
     .modal-overlay.show .modal-box { transform:translate3d(0, 0, 0) scale(1); opacity:1; }
   }
   /* ── ALWAYS-REACHABLE CLOSE ──
@@ -1675,10 +1687,10 @@
      tall onboarding card on a short screen can push its top row under the clock and its buttons
      under the gesture bar. Adding the insets to the flex container's padding keeps the card
      centred in the *usable* area rather than the physical screen. */
-  .onboard-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; display:flex; align-items:center; justify-content:center; padding:calc(20px + var(--sat)) calc(20px + var(--sar)) calc(20px + var(--sab)) calc(20px + var(--sal)); opacity:0; visibility:hidden; pointer-events:none; transition:opacity 0.2s, visibility 0s linear 0.2s; }
-  .onboard-overlay.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.2s, visibility 0s linear 0s; }
+  .onboard-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; display:flex; align-items:center; justify-content:center; padding:calc(20px + var(--sat)) calc(20px + var(--sar)) calc(20px + var(--sab)) calc(20px + var(--sal)); opacity:0; visibility:hidden; pointer-events:none; transition:opacity var(--dur-base), visibility 0s linear var(--dur-base); }
+  .onboard-overlay.show { opacity:1; visibility:visible; pointer-events:auto; transition:opacity var(--dur-base), visibility 0s linear 0s; }
   .onboard-box { width:100%; max-width:360px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--rl); padding:26px 22px 20px; box-shadow:var(--card-shadow); text-align:center; }
-  .onboard-icon { width:56px; height:56px; border-radius:16px; background:rgba(var(--accent-rgb),0.12); border:1px solid rgba(var(--accent-rgb),0.3); color:var(--accent-primary); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
+  .onboard-icon { width:56px; height:56px; border-radius:var(--radius-lg); background:rgba(var(--accent-rgb),0.12); border:1px solid rgba(var(--accent-rgb),0.3); color:var(--accent-primary); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
   .onboard-step-lbl { font-size:10px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-tertiary); margin-bottom:6px; }
   .onboard-title { font-size:17px; font-weight:800; color:var(--white); margin-bottom:8px; }
   .onboard-sub { font-size:13px; color:var(--text-secondary); line-height:1.55; margin-bottom:20px; }
@@ -1747,7 +1759,7 @@
      that opens the sheet, and on touch there's no hover to disambiguate the two. */
   .sum-drag {
     flex-shrink:0; width:26px; height:30px; display:flex; align-items:center; justify-content:center;
-    color:var(--text-tertiary); cursor:grab; touch-action:none; border-radius:7px;
+    color:var(--text-tertiary); cursor:grab; touch-action:none; border-radius:var(--radius-sm);
   }
   .sum-drag:active { cursor:grabbing; background:var(--card-bg); color:var(--text-primary); }
   .sum-body { flex:1; min-width:0; }
@@ -1767,7 +1779,7 @@
   .sum-pill.req { background:rgba(245,158,11,0.16); color:var(--warn-ink); }
   .sum-pill.vtx { background:rgba(var(--accent-rgb),0.15); color:var(--accent-hover); }
   .sum-edit {
-    flex-shrink:0; width:32px; height:32px; border-radius:9px; border:none;
+    flex-shrink:0; width:32px; height:32px; border-radius:var(--radius-sm); border:none;
     background:none; color:var(--text-tertiary); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
   }
@@ -1862,7 +1874,7 @@
   .repeat-group { display:flex; flex-direction:column; gap:10px; }
   .repeat-instances { display:flex; flex-direction:column; gap:10px; }
   .repeat-empty-hint { padding:4px 0; }
-  .repeat-instance-card { border:1.5px solid var(--card-border); border-radius:14px; padding:12px; background:var(--surface-sunken); display:flex; flex-direction:column; gap:10px; }
+  .repeat-instance-card { border:1.5px solid var(--card-border); border-radius:var(--radius-md); padding:12px; background:var(--surface-sunken); display:flex; flex-direction:column; gap:10px; }
   .repeat-instance-head { display:flex; align-items:center; justify-content:space-between; }
   .repeat-instance-num { font-size:12px; font-weight:800; letter-spacing:0.02em; text-transform:uppercase; color:var(--text-secondary); }
   .repeat-remove-btn { width:26px; height:26px; border-radius:50%; border:none; background:rgba(239,68,68,0.12); color:#EF4444; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
@@ -2067,8 +2079,56 @@
   .ripple { position:absolute; border-radius:50%; background:rgba(255,255,255,0.35); transform:scale(0); animation:ripple 0.5s linear; pointer-events:none; }
   .btn, .btn-pill, .dash-action, .ft-row, .project-row, .icon-back, .contrast-toggle,
   .ext-gps-btn, .gps-detail-toggle, .vertex-map-toggle, .pt-edit, .pt-del, .pt-move, .nav-btn,
-  .plotwords-strip-x, .plotwords-row-open {
+  .plotwords-strip-x, .plotwords-row-open,
+  .icon-back, .lb-close, .pl-close, .barcode-scanner-close, .install-banner-close {
     position:relative; overflow:hidden;
+  }
+
+/* ══ THE PRESS-FEEDBACK BACKSTOP ══
+   A sweep of every class used on a <button> in this app found fifteen with no :active rule at
+   all. Tapping them changed nothing until whatever they did finished — and on a slow frame that
+   reads as a missed tap, so it gets tapped again. Double-fired deletes and double-added rows come
+   from exactly this.
+   
+   They are fixed as one group rather than fifteen bespoke rules because there is nothing
+   individual about the requirement: every button in a touch app must acknowledge the touch. The
+   values are deliberately restrained — a slight inset and a fractional scale — so this does not
+   override the richer, purpose-built states that .btn and the nav tabs already have. Anything
+   needing something specific declares its own :active later in the cascade and wins.
+   
+   A button added tomorrow still needs its own entry here. The alternative — a bare `button:active`
+   rule — would reach into Leaflet's controls, the file inputs and every third-party widget in the
+   app, which is a much larger blast radius than the problem justifies. */
+  .an-inline-btn:active, .an-legend-row:active, .aq-x:active, .onboard-next:active,
+  .pe-mode-btn:active, .pe-popup-btn:active, .pe-popup-more:active, .ph-del:active,
+  .pl-head-btn:active, .pl-jump:active, .pm-chip:active, .pv-row-x:active,
+  .repeat-remove-btn:active, .rv-btn:active, .voice-note-btn:active,
+  .atlas-sheet-more:active, .cap-stack-head:active, .course-up-toggle:active {
+    transform:scale(0.96);
+    filter:brightness(0.92);
+  }
+  .an-inline-btn, .an-legend-row, .aq-x, .onboard-next,
+  .pe-mode-btn, .pe-popup-btn, .pe-popup-more, .ph-del,
+  .pl-head-btn, .pl-jump, .pm-chip, .pv-row-x,
+  .repeat-remove-btn, .rv-btn, .voice-note-btn,
+  .atlas-sheet-more, .cap-stack-head, .course-up-toggle {
+    transition:transform 0.12s ease, filter 0.15s ease;
+  }
+
+  /* Destructive buttons get a red wash instead of a neutral dim, because the one press you most
+     want unambiguous confirmation of is the one that removes something. */
+  .ph-del:active, .pv-row-x:active, .repeat-remove-btn:active, .aq-x:active {
+    filter:none;
+    background:rgba(var(--danger-rgb),0.18);
+    color:var(--danger);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .an-inline-btn:active, .an-legend-row:active, .aq-x:active, .onboard-next:active,
+    .pe-mode-btn:active, .pe-popup-btn:active, .pe-popup-more:active, .ph-del:active,
+    .pl-head-btn:active, .pl-jump:active, .pm-chip:active, .pv-row-x:active,
+    .repeat-remove-btn:active, .rv-btn:active, .voice-note-btn:active,
+    .atlas-sheet-more:active, .cap-stack-head:active, .course-up-toggle:active { transform:none; }
   }
   /* A dark ink-blot reads better than a light bloom on the app's own bright/filled surfaces (the
      orange CTA, the active nav tab); the light bloom above stays the default everywhere else. */
@@ -2083,7 +2143,7 @@
      detail toggle, per-vertex edit/delete/reorder) had no pressed state of their own before this —
      a tap on them felt inert until whatever it triggered elsewhere on screen showed up. */
   .icon-back, .contrast-toggle, .ext-gps-btn, .gps-detail-toggle, .pt-edit, .pt-del, .pt-move {
-    transition: transform 0.1s ease, filter 0.15s ease;
+    transition: transform var(--dur-fast) ease, filter 0.15s ease;
   }
   .icon-back:active, .contrast-toggle:active, .ext-gps-btn:active, .gps-detail-toggle:active,
   .pt-edit:active, .pt-del:active, .pt-move:active { transform: scale(0.9); filter: brightness(1.15); }
@@ -2249,3 +2309,22 @@
     background: var(--modal-backdrop) !important;
     backdrop-filter: none; -webkit-backdrop-filter: none;
   }
+
+
+  /* ── Two buttons that need their own pressed state rather than the shared backstop ── */
+  /* Over map tiles: a brightness dim on imagery is invisible, so this lifts instead. */
+  .map-fullscreen-toggle { transition:background 0.15s, transform 0.12s; }
+  .map-fullscreen-toggle:active { background:var(--accent-primary); color:var(--text-on-accent); transform:scale(0.92); }
+
+  /* A text-only button, where a 4% scale reads as nothing. The underline plus a colour shift is
+     what actually registers as a press on a label with no box around it. */
+  .onboard-skip { transition:color 0.15s, opacity 0.15s; }
+  .onboard-skip:active { color:var(--text-primary); text-decoration:underline; opacity:0.75; }
+
+  /* ── The remaining components found by the button sweep in tests/survey.test.js ──
+     Grouped rather than given bespoke states because none of them needs one: they are ordinary
+     tap targets that simply had no acknowledgement at all. Modifier classes the scan also
+     surfaced (.primary, .wide, .tone-danger) are deliberately NOT here — they never appear alone,
+     so a bare rule for them would reach into anything using the same word. */
+  .pe-popup-btn-ghost:active,   .pe-sketch-x:active,   .pill-icon-btn:active,   .pl-tap:active,   .pl-tap-next:active,   .pl-tap-prev:active,   .pl-tray-all:active,   .pmind-ask-hit:active,   .qa-tile-compact:active,   .repeat-add-btn:active,   .wide:active { transform:scale(0.96); filter:brightness(0.92); }
+  .pe-popup-btn-ghost,   .pe-sketch-x,   .pill-icon-btn,   .pl-tap,   .pl-tap-next,   .pl-tap-prev,   .pl-tray-all,   .pmind-ask-hit,   .qa-tile-compact,   .repeat-add-btn,   .wide { transition:transform 0.12s ease, filter 0.15s ease; }

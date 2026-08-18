@@ -216,13 +216,21 @@ function plotwordsOpen(key){
   fn();
 }
 
+// Opened as a view rather than an overlay, so it inherits the app's own screen transition and is
+// already understood by the back-button chain, the chrome routing and the history stack — none of
+// which had to be told about it.
 function showPlotWords(){
   renderPlotWords();
-  const el = document.getElementById('plotWordsScreen');
-  if (el) el.classList.add('show');
+  activateView('view-plotwords');
 }
 
+// Returns to Settings' own screen rather than wherever the user happened to be, because Settings
+// is where this is reached from and dropping them somewhere else after a Back is disorienting.
 function closePlotWords(){
-  const el = document.getElementById('plotWordsScreen');
-  if (el) el.classList.remove('show');
+  // Back to the Data hub, which is where Settings lives — dropping the user on whatever view
+  // happened to be active underneath is disorienting after they went looking for help.
+  // No fallback branch: showDataHub is defined in js/05-projects.js and always loaded. An
+  // activateView() fallback here named a view that does not exist, which the ambient-band test
+  // caught immediately — a dead branch is still a claim about what the app contains.
+  showDataHub();
 }

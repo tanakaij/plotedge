@@ -574,7 +574,11 @@ function atlasOpenSheet(featureId, vertexIndex){
 
   const coordSource = (v && v.lat != null && v.lon != null) ? v : verts[0];
   const coordLine = coordSource
-    ? `<button type="button" class="atlas-sheet-coord" onclick="atlasCopyText('${coordSource.lat.toFixed(6)}, ${coordSource.lon.toFixed(6)}')">${coordSource.lat.toFixed(6)}, ${coordSource.lon.toFixed(6)}<span>copy</span></button>`
+    ? (function(){
+        const shown = (typeof crsFormat === 'function') ? crsFormat(coordSource.lat, coordSource.lon)
+                                                        : `${coordSource.lat.toFixed(6)}, ${coordSource.lon.toFixed(6)}`;
+        return `<button type="button" class="atlas-sheet-coord" onclick="atlasCopyText('${shown.replace(/'/g, "\\'")}')">${escapeHtml(shown)}<span>copy</span></button>`;
+      })()
     : `<div class="atlas-sheet-nocoord">This feature has no coordinates, so it cannot be drawn on the map. Usually an import whose latitude/longitude columns were not mapped.</div>`;
 
   const photoStrip = photos.length
@@ -646,14 +650,17 @@ function atlasOnMapClick(ev){
 function atlasDropPin(latlng){
   if (!atlasPinLayer) return;
   atlasPinLayer.clearLayers();
+  // Projected where the project uses a grid; identical to the old output on a WGS84 project.
+  const shownCoord = (typeof crsFormat === 'function') ? crsFormat(latlng.lat, latlng.lng) : null;
   const lat = latlng.lat.toFixed(6), lon = latlng.lng.toFixed(6);
   L.marker(latlng, {
     icon: L.divIcon({ className:'atlas-pin', html:'<div class="atlas-pin-dot"></div>', iconSize:[18,18], iconAnchor:[9,9] })
   }).addTo(atlasPinLayer);
   const bar = document.getElementById('atlasPinBar');
   if (bar){
-    bar.innerHTML = `<span class="atlas-pin-coord">${lat}, ${lon}</span>
-      <button onclick="atlasCopyText('${lat}, ${lon}')">Copy</button>
+    const pinText = shownCoord || `${lat}, ${lon}`;
+    bar.innerHTML = `<span class="atlas-pin-coord">${escapeHtml(pinText)}</span>
+      <button onclick="atlasCopyText('${pinText.replace(/'/g, "\\'")}')">Copy</button>
       <button onclick="atlasClearPin()">Clear</button>`;
     bar.classList.add('show');
   }

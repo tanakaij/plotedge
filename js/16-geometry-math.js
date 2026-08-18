@@ -34,7 +34,12 @@ function peMeasure(){
   const v = s.vertices;
   const lines = [`Type      ${s.type}`, `Vertices  ${v.length}`];
   if (s.type==='point'){
-    lines.push(`Lat       ${v[0].lat.toFixed(6)}`, `Lon       ${v[0].lon.toFixed(6)}`);
+    // Labelled from the CRS itself rather than hardcoded "Lat/Lon", so a Gauss belt shows Y/X in
+    // the order its own axes are quoted — printing an easting under a heading that says "Lat" is
+    // how a coordinate ends up entered in the wrong field.
+    const pr = (typeof crsProject === 'function') ? crsProject(v[0].lat, v[0].lon) : null;
+    if (pr && pr.units !== 'degrees') lines.push(`${pr.yLabel}  ${pr.y.toFixed(3)}`, `${pr.xLabel}  ${pr.x.toFixed(3)}`);
+    else lines.push(`Lat       ${v[0].lat.toFixed(6)}`, `Lon       ${v[0].lon.toFixed(6)}`);
   } else if (s.type==='polygon'){
     // Deliberately no "Length" row here. lineLengthM() walks an open path, so on a closed ring it
     // returns the perimeter minus the closing edge — a number that looks authoritative, sits right
@@ -96,7 +101,11 @@ function peCentroid(){
     }
   }
   peAddSketch('point', [c], `${s.name} centroid`, { derived:true, note:'centroid' });
-  peShowResult(`Centroid — ${s.name}`, [`Lat  ${c.lat.toFixed(6)}`, `Lon  ${c.lon.toFixed(6)}`], 'Added as a new derived sketch.');
+  const cp = (typeof crsProject === 'function') ? crsProject(c.lat, c.lon) : null;
+  const cLines = (cp && cp.units !== 'degrees')
+    ? [`${cp.yLabel}  ${cp.y.toFixed(3)}`, `${cp.xLabel}  ${cp.x.toFixed(3)}`]
+    : [`Lat  ${c.lat.toFixed(6)}`, `Lon  ${c.lon.toFixed(6)}`];
+  peShowResult(`Centroid — ${s.name}`, cLines, 'Added as a new derived sketch.');
 }
 
 
@@ -357,7 +366,27 @@ function parseCoordInput(raw){
 }
 
 function gotoCoordinate(){
-  const c = parseCoordInput(document.getElementById('gotoCoordInput').value);
+  const raw = document.getElementById('gotoCoordInput').value;
+  let c = parseCoordInput(raw);
+  // Grid coordinates, if the project is working in one. A crew handed an easting/northing by the
+  // office should be able to type it in as given, rather than converting it by hand first — which
+  // is both a chore and a place to make an error nobody would catch.
+  // Tried only AFTER lat/lon parsing fails, so a legitimate lat/lon is never reinterpreted as a
+  // grid pair by a project that happens to have a CRS set.
+  if (!c && typeof crsUnproject === 'function'){
+    const pair = String(raw).split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n));
+    if (pair.length === 2){
+      // Entered in the order the axes are LABELLED, which for a south-oriented Gauss belt is
+      // Y then X — the reverse of easting/northing. Reading them the other way round puts the
+      // point in the wrong hemisphere, so the order follows what the read-out shows.
+      const g = crsUnproject(pair[0], pair[1]);
+      if (g && Number.isFinite(g.lat) && Number.isFinite(g.lon) &&
+          Math.abs(g.lat) <= 90 && Math.abs(g.lon) <= 180){
+        c = g;
+        showToast('Read as ' + (typeof projectCrs === 'function' ? projectCrs().label : 'grid') + ' coordinates');
+      }
+    }
+  }
   if (!c){ showToast('Couldn\'t read that coordinate'); return; }
   // Whichever map the user is actually looking at is the one that should move — PlotAtlas is an
   // overlay (not a `.view`), so it has to be checked explicitly before the `.view.active` check
@@ -368,12 +397,12 @@ function gotoCoordinate(){
     closeGotoModal();
     atlasMap.setView([c.lat, c.lon], 18);
     if (typeof atlasDropPin === 'function') atlasDropPin({ lat:c.lat, lng:c.lon });
-    showToast(`Moved to ${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
+    showToast(`Moved to ${(typeof crsFormat === 'function') ? crsFormat(c.lat, c.lon) : c.lat.toFixed(5) + ', ' + c.lon.toFixed(5)}`);
   } else if (onPlotEtch && peMap){
     closeGotoModal();
     peMap.setView([c.lat, c.lon], 18);
     L.circleMarker([c.lat,c.lon],{radius:9,color:'#F59E0B',weight:3,fillOpacity:0}).addTo(peDraftGroup);
-    showToast(`Moved to ${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
+    showToast(`Moved to ${(typeof crsFormat === 'function') ? crsFormat(c.lat, c.lon) : c.lat.toFixed(5) + ', ' + c.lon.toFixed(5)}`);
   } else {
     // Opened from somewhere with no map underneath it (Quick Actions, Dashboard, …) — ask which
     // map should open instead of guessing Review every time.

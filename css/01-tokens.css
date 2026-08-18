@@ -135,7 +135,66 @@
     --nav-bg:  rgba(15,23,42,0.86);
     --r:       2px;
     --rl:      16px;
+
+    /* ══ THE SHAPE, MOTION AND ELEVATION SCALE ══
+       An audit of the stylesheets found eighteen distinct border-radius values, ten transition
+       durations, fifty-one different box-shadows and fourteen font sizes inside a three-pixel
+       band. None of that is a bug — every screen looks deliberate on its own. But a 9px corner
+       beside an 11px one, or a 0.16s fade beside a 0.18s one, is a difference the eye registers
+       without being able to name, and the cumulative effect is an app that reads as assembled
+       rather than designed. Premium is mostly consistency: fewer decisions, applied everywhere.
+
+       These are the decisions. A new rule should reach for a step on one of these scales, and if
+       none of them fits, that is a sign the design needs a reason rather than a new value. The
+       tests in tests/survey.test.js hold the line.
+
+       ── Radius ──
+       Four steps and two shapes. The gaps are wide enough to be legible as intent: 8 is a control,
+       12 is a card, 16 is a surface, and the pills/circles are self-evident. Values like 9, 11 and
+       14 are the ones that made the app feel slightly out of register. */
+    --radius-xs:    6px;   /* chips, badges, inline code */
+    --radius-sm:    8px;   /* inputs, small buttons, list rows */
+    --radius-md:   12px;   /* cards, tiles, modals' inner blocks */
+    --radius-lg:   16px;   /* panels, major surfaces */
+    --radius-xl:   24px;   /* bottom sheets — the largest surface, and the only thing that needs it */
+    --radius-pill: 999px;  /* anything capsule-shaped */
+    --radius-circle: 50%;
+
+    /* ── Motion ──
+       Three durations, and one easing for almost everything. The exception is --sheet-t (0.22s,
+       declared on .modal-overlay), which is deliberately its own value because it is matched to
+       the platform's keyboard animation rather than to the app's own rhythm — changing it would
+       desynchronise the sheet from the IME. See the note in css/05-components.css. */
+    --dur-fast:  0.12s;  /* presses and state flips — must feel instant */
+    --dur-base:  0.15s;  /* the default: hovers, fades, colour changes */
+    --dur-slow:  0.28s;  /* entrances and anything travelling a distance */
+    --ease:      cubic-bezier(0.32, 0.72, 0, 1);   /* decelerating; matches --sheet-ease */
+    --ease-out:  cubic-bezier(0.17, 0.84, 0.44, 1);
+
+    /* ── Elevation ──
+       Four levels, because fifty-one shadows is not four levels — it is fifty-one guesses. Each
+       is a two-part shadow: a tight contact shadow that anchors the element to the surface, and a
+       wider ambient one that gives it height. Both scale together, so an element cannot end up
+       looking simultaneously close and far away. */
+    --elev-1: 0 1px 2px rgba(0,0,0,0.16), 0 1px 3px rgba(0,0,0,0.10);
+    --elev-2: 0 2px 4px rgba(0,0,0,0.18), 0 4px 10px rgba(0,0,0,0.14);
+    --elev-3: 0 4px 8px rgba(0,0,0,0.20), 0 10px 24px rgba(0,0,0,0.18);
+    --elev-4: 0 8px 16px rgba(0,0,0,0.24), 0 20px 48px rgba(0,0,0,0.24);
+
+    /* ── Type ──
+       Seven steps. The app had 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 15, 16 — the
+       half-pixels being the tell that sizes were nudged individually rather than chosen from a
+       set. Ratios here are roughly 1.15, which is tight enough for dense field UI while still
+       making each step a real distinction. */
+    --text-2xs:  10px;  /* metadata, counters, axis labels */
+    --text-xs:   11px;  /* captions, chip text, table cells */
+    --text-sm:   12px;  /* secondary body, most labels */
+    --text-md:   13px;  /* body — the default reading size */
+    --text-lg:   15px;  /* card titles, section headings */
+    --text-xl:   18px;  /* screen titles */
+    --text-2xl:  22px;  /* display numbers, hero counts */
     --font:    'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --font-mono:ui-monospace,'SF Mono',Menlo,'Roboto Mono','DejaVu Sans Mono',monospace;
     --font-display: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
     --mono:    'Roboto Mono', 'SF Mono', 'Courier New', monospace;
     /* Claymorphism tokens for filled buttons: a faint light-catch to the top-left, a soft dark

@@ -561,7 +561,10 @@ check('every full-screen panel is registered with the back-button chain', () => 
   const chain = nav.slice(nav.indexOf('function closeTopOverlay'));
   // Panels that take the whole viewport and are dismissed with .show. A modal inside .modal-overlay
   // is covered by the generic block in the chain; these are the ones that need naming.
-  ['plotWordsScreen', 'plotAtlas', 'plPlayer', 'photoLightbox'].forEach(id => {
+  // view-plotwords is a .view rather than an overlay, so it is covered by the view/history
+  // routing — but it still needs its own entry, because Back from it must return to Settings
+  // rather than to whatever view happened to be active underneath.
+  ['view-plotwords', 'plotAtlas', 'plPlayer', 'photoLightbox'].forEach(id => {
     assert(html.includes(`id="${id}"`), `${id} is not in index.html — this check is stale`);
     assert(chain.includes(id), `${id} opens full-screen but Back does not close it — it will strand over the next screen`);
   });
@@ -573,7 +576,7 @@ check('the glossary is checked before the modals it can be opened from', () => {
   // glossary and leave it floating over whatever was behind.
   const nav = fs.readFileSync(path.join(ROOT, 'js/07-navigation.js'), 'utf8');
   const chain = nav.slice(nav.indexOf('function closeTopOverlay'));
-  const words = chain.indexOf('plotWordsScreen');
+  const words = chain.indexOf('view-plotwords');
   const confirm = chain.indexOf('confirmModal');
   assert(words !== -1 && confirm !== -1, 'chain markers not found — this check is stale');
   assert(words < confirm, 'the glossary is checked after the modal block; Back would close the wrong layer first');
@@ -705,6 +708,439 @@ check('focus scrolling cannot run against a sheet that is leaving', () => {
   const fn = src.slice(src.indexOf('function scrollFocusedIntoView'), src.indexOf('function scrollFocusedIntoView') + 700);
   assert(/classList\.contains\('show'\)/.test(fn),
     'a smooth scroll can still be triggered inside a mid-exit sheet, repainting a container that is supposed to be leaving');
+});
+
+check('no stylesheet references a CSS variable that does not exist', () => {
+  // A var() with a fallback fails SILENTLY: an invented token name resolves to the fallback and
+  // the page looks fine to whoever wrote it. css/08-plotwords.css shipped referencing --surface-1,
+  // --text-dim, --border and --accent — none of which exist — so every declaration fell through to
+  // a hardcoded dark fallback and the glossary was dark in light mode. Not because light mode was
+  // unhandled, but because it never reached the theme at all.
+  const strip = t => t.replace(/\/\*[\s\S]*?\*\//g, ''); // comments discuss token names too
+  const cssFiles = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css'));
+  const allCss = cssFiles.map(f => strip(fs.readFileSync(path.join(ROOT, 'css', f), 'utf8'))).join('\n');
+  // A token counts as defined if any stylesheet declares it, OR if JavaScript sets it at runtime —
+  // several (--vvh, --kbh, --pl-dur) only ever exist because a module writes them.
+  const allJs = fs.readdirSync(path.join(ROOT, 'js')).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n');
+  const defined = new Set([
+    ...[...allCss.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]),
+    ...[...allJs.matchAll(/setProperty\(\s*['"`](--[a-z0-9-]+)/g)].map(m => m[1]),
+    // Also written as inline style strings inside template literals — PlotAtlas colours its
+    // cluster dots with style="--cl:${color}". Just as real as setProperty, just less greppable.
+    ...[...allJs.matchAll(/style=\\?["'][^"']*?(--[a-z0-9-]+)\s*:/g)].map(m => m[1]),
+    ...[...allJs.matchAll(/(--[a-z0-9-]+)\s*:\s*\$\{/g)].map(m => m[1])
+  ]);
+  // Set by MainActivity from the native side (Android WebView below v140 reports env() safe-area
+  // insets unreliably, so the app is handed real numbers instead). They exist at runtime but
+  // appear nowhere in the web sources, so they are named here rather than silently skipped.
+  const NATIVE_SET = new Set([
+    '--sb-top', '--sb-bottom', '--sb-left', '--sb-right',
+    // Assigned to an element's inline style from JS in ways no static scan will catch reliably.
+    // Named rather than skipped, so the list stays short and visible: anything added here is a
+    // token nobody can verify from the sources alone, which is worth knowing about.
+    '--measure-ring-color', '--bg'
+  ]);
+  const orphans = [];
+  cssFiles.forEach(f => {
+    const css = strip(fs.readFileSync(path.join(ROOT, 'css', f), 'utf8'));
+    [...css.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].forEach(m => {
+      if (!defined.has(m[1]) && !NATIVE_SET.has(m[1])) orphans.push(`${f}: ${m[1]}`);
+    });
+  });
+  assert(!orphans.length, `CSS variables referenced but never defined:\n        ${[...new Set(orphans)].join('\n        ')}`);
+});
+
+check('the active nav tab fades in rather than popping', () => {
+  // A pseudo-element declared only under .active is created when the class lands and destroyed
+  // when it leaves — there is no prior state to interpolate from, so it snaps while colour, icon
+  // scale and label weight all ease. One part of the tab jumping while the rest glides is exactly
+  // what reads as a glitch on switching tabs.
+  const css = fs.readFileSync(path.join(ROOT, 'css/05-components.css'), 'utf8');
+  ['::before', '::after'].forEach(pseudo => {
+    const base = new RegExp('\\.nav-btn' + pseudo + '\\s*\\{[^}]*opacity\\s*:\\s*0[^}]*transition', 's');
+    assert(base.test(css), `.nav-btn${pseudo} is only declared under .active — it will pop instead of fading`);
+    assert(new RegExp('\\.nav-btn\\.active' + pseudo + '\\s*\\{\\s*opacity\\s*:\\s*1').test(css),
+      `.nav-btn.active${pseudo} does not fade in`);
+  });
+});
+
+check('no stylesheet reaches for env(safe-area-inset) directly', () => {
+  // The app does not trust env() on its own: Android WebView below v140 reports safe-area insets
+  // unreliably, so MainActivity hands in real numbers as --sb-top/--sb-bottom and css/01-tokens.css
+  // wraps them as --sat/--sab via max(). A file using the raw env() therefore fails on exactly the
+  // devices the token exists to handle — which is how the explainer strip ended up under the
+  // status bar while every other surface in the app cleared it.
+  const files = fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css') && f !== '01-tokens.css');
+  const raw = [];
+  files.forEach(f => {
+    const css = fs.readFileSync(path.join(ROOT, 'css', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    if (/env\(\s*safe-area-inset/.test(css)) raw.push(f);
+  });
+  assert(!raw.length, `stylesheets using env(safe-area-inset) instead of --sat/--sab: ${raw.join(', ')}`);
+});
+
+check('the glossary uses the app’s own subpage chrome, not its own', () => {
+  // Three faults at once — content under the status bar, a back button that did not match, and a
+  // header with no press feedback — were all one mistake: reimplementing chrome that already
+  // existed. .subpage-header carries --sat padding, the sticky treatment, and the rules that
+  // .icon-back is scoped through.
+  assert(/<div class="view" id="view-plotwords">/.test(html), 'the glossary is not a standard view');
+  const block = html.slice(html.indexOf('id="view-plotwords"'), html.indexOf('id="view-plotwords"') + 1200);
+  assert(/class="subpage-header"/.test(block), 'the glossary has a bespoke header again');
+  assert(/class="subpage-body"/.test(block), 'the glossary has a bespoke body again');
+  assert(/class="icon-back"/.test(block), 'the back button is not the app’s');
+  const own = fs.readFileSync(path.join(ROOT, 'css/08-plotwords.css'), 'utf8');
+  assert(!/\.plotwords-screen-head\s*\{/.test(own), 'bespoke header styles are back');
+});
+
+check('every button in the app acknowledges being pressed', () => {
+  // A sweep, not a list. Fifteen button classes had no :active rule at all — tapping them changed
+  // nothing until whatever they did finished, and on a slow frame that reads as a missed tap, so
+  // it gets tapped again. Double-fired deletes and double-added repeat rows come from exactly
+  // this. Written as a scan so a button added next month is caught rather than trusted.
+  const allCss = fs.readdirSync(path.join(ROOT, 'css'))
+    .filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  const allJs = fs.readdirSync(path.join(ROOT, 'js'))
+    .filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n');
+  // Buttons are written in markup AND built in template literals, so both are scanned.
+  const classes = new Set();
+  [...(html + '\n' + allJs).matchAll(/<button[^>]*class="([^"]*)"/g)].forEach(m =>
+    m[1].split(/\s+/).forEach(c => { if (/^[a-z][a-z0-9-]*$/.test(c)) classes.add(c); }));
+  assert(classes.size >= 30, `only found ${classes.size} button classes — the scan is not working`);
+  const inert = [...classes].filter(c => {
+    if (/^(btn|is-|has-)/.test(c)) return false;                       // the .btn family has its own states
+    // Modifiers and state flags. These only ever appear alongside a real component class, so a
+    // bare rule for them would reach far wider than intended — they are excluded rather than
+    // styled.
+    if (['active','sel','show','ghost','open','disabled','primary','wide','tone-danger','compact']
+        .includes(c)) return false;
+    if (!new RegExp('\\.' + c + '[\\s,{:]').test(allCss)) return false; // not styled in this app at all
+    return !new RegExp('\\.' + c + '[^{,]*:active').test(allCss);
+  });
+  assert(!inert.length, `button classes with no pressed state:\n        ${inert.sort().join('\n        ')}`);
+});
+
+check('close and back buttons meet the touch target', () => {
+  // These are the buttons most often reached for one-handed, at the very edge of the screen, and
+  // three of the four floating close buttons were 34-38px. Under a thumb that is a miss.
+  const allCss = fs.readdirSync(path.join(ROOT, 'css'))
+    .filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  ['icon-back', 'lb-close', 'pl-close', 'barcode-scanner-close', 'install-banner-close'].forEach(c => {
+    const rule = allCss.match(new RegExp('\\.' + c + '\\s*\\{[^}]*\\}'));
+    assert(rule, `.${c} has no rule`);
+    const w = rule[0].match(/width:\s*(\d+)px/);
+    assert(w && Number(w[1]) >= 44, `.${c} is ${w ? w[1] : '?'}px — below the 44px target`);
+    assert(new RegExp('\\.' + c + ':active').test(allCss), `.${c} has no pressed state`);
+    assert(/transition:/.test(rule[0]), `.${c} snaps between states instead of settling`);
+  });
+});
+
+check('a destructive press is visually distinct from an ordinary one', () => {
+  // The one press you most want unambiguous confirmation of is the one that removes something.
+  const allCss = fs.readdirSync(path.join(ROOT, 'css'))
+    .filter(f => f.endsWith('.css'))
+    .map(f => fs.readFileSync(path.join(ROOT, 'css', f), 'utf8')).join('\n');
+  assert(/\.ph-del:active[^{]*\{[^}]*--danger-rgb/.test(allCss.replace(/\n/g, ' ')) ||
+         /ph-del:active[\s\S]{0,400}danger/.test(allCss),
+    'delete buttons press the same as any other button');
+});
+
+// ══ THE HOME-SCREEN WIDGET ═══════════════════════════════════════════════════
+// The widget is generated by scripts/patch-android-widget.py at APK build time, so it is not
+// exercised by any of the DOM tests above. These read the generator, which is the only place its
+// behaviour is decided.
+
+check('the widget offers a wallpaper-derived palette on Android 12+', () => {
+  // Every first-party widget on a modern Android home screen is tinted from the wallpaper. A
+  // widget carrying fixed brand blue sits next to Clock, Weather and Calendar all sharing a
+  // palette and reads as the one thing that does not belong. This is not Pixel-specific —
+  // dynamic colour is AOSP from API 31, so One UI 4+, OnePlus, Xiaomi and Motorola all do it.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/patch-android-widget.py'), 'utf8');
+  assert(/values-v31/.test(src), 'no Android 12+ colour variant is written');
+  assert(/values-night-v31/.test(src), 'no Android 12+ dark colour variant is written');
+  assert(/@android:color\/system_accent1_/.test(src), 'the wallpaper palette is never referenced');
+  assert(/@android:color\/system_neutral1_/.test(src), 'neutrals are not taken from the system palette');
+});
+
+check('the pre-Android-12 palette still exists to fall back to', () => {
+  // system_* resources do not exist below API 31. The -v31 qualifier is what keeps older devices
+  // on the brand palette; without the unqualified files they would have no colours at all.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/patch-android-widget.py'), 'utf8');
+  assert(/write\(RES \/ "values" \/ "plotedge_widget_colors\.xml"/.test(src), 'no base palette');
+  assert(/write\(RES \/ "values-night" \/ "plotedge_widget_colors\.xml"/.test(src), 'no base dark palette');
+  // All four files must declare the SAME names, or a device resolving to one of them gets an
+  // unresolved reference at inflate time and the widget fails to draw at all.
+  const blocks = [...src.matchAll(/COLORS(?:_NIGHT|_DYNAMIC|_DYNAMIC_NIGHT)?_XML = """([\s\S]*?)"""/g)]
+    .map(m => new Set([...m[1].matchAll(/<color name="([^"]+)"/g)].map(x => x[1])));
+  assert(blocks.length === 4, `expected 4 colour palettes, found ${blocks.length}`);
+  const base = [...blocks[0]].sort().join(',');
+  blocks.forEach((b, i) => {
+    assert([...b].sort().join(',') === base,
+      `palette ${i} declares a different set of names — a device resolving to it would fail to inflate the widget`);
+  });
+});
+
+check('the warning colour is not wallpaper-derived', () => {
+  // A warning that turns lilac because the user picked a purple wallpaper has stopped being a
+  // warning. This one colour is doing semantic work, not decorative work.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/patch-android-widget.py'), 'utf8');
+  const dyn = src.slice(src.indexOf('COLORS_DYNAMIC_XML'), src.indexOf('WIDGET_JAVA'));
+  const warn = dyn.match(/<color name="pe_widget_warn">([^<]+)</g) || [];
+  assert(warn.length >= 2, 'the warning colour is missing from a dynamic palette');
+  warn.forEach(w => assert(!/@android:color/.test(w), `the warning colour follows the wallpaper: ${w}`));
+});
+
+// ══ THE DESIGN SCALE ═══════════════════════════════════════════════════════
+// An audit found eighteen border radii, ten transition durations and fourteen font sizes inside a
+// three-pixel band. None of it was a bug — every screen looked deliberate alone. But a 9px corner
+// beside an 11px one is a difference the eye registers without being able to name, and the
+// cumulative effect is an app that reads as assembled rather than designed. These checks hold the
+// consolidated scale in place, because this is precisely the kind of consistency that decays one
+// reasonable-looking exception at a time.
+
+check('the design scale exists and is documented', () => {
+  const tokens = fs.readFileSync(path.join(ROOT, 'css/01-tokens.css'), 'utf8');
+  ['--radius-xs','--radius-sm','--radius-md','--radius-lg','--radius-pill',
+   '--dur-fast','--dur-base','--dur-slow','--ease',
+   '--elev-1','--elev-2','--elev-3','--elev-4',
+   '--radius-xl','--text-2xs','--text-xs','--text-sm','--text-md','--text-lg','--text-xl','--text-2xl']
+    .forEach(t => assert(new RegExp('\\' + t + '\\s*:').test(tokens), `${t} is not defined`));
+});
+
+check('no stylesheet invents an off-scale corner radius', () => {
+  // The scale is 6 / 8 / 12 / 16 / 999 / 50%. Anything else — 9, 11, 14 — is a value somebody
+  // nudged rather than chose, and it is what made the app look very slightly out of register.
+  // Multi-value radii are SHAPES, not scale steps — a sheet's top-only corners, a teardrop
+  // marker, a tab's accent cap. They are exempt because there is no scale step that could
+  // express them.
+  const ALLOWED = new Set(['0','8px','12px','999px','50%','2px']);
+  const isShape = v => v.split(/\s+/).length > 1;
+  const bad = [];
+  fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css') && f !== '01-tokens.css').forEach(f => {
+    const css = fs.readFileSync(path.join(ROOT, 'css', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    [...css.matchAll(/border-radius:\s*([^;}]+)[;}]/g)].forEach(m => {
+      const v = m[1].trim();
+      if (v.startsWith('var(')) return;                    // already on a token
+      if (ALLOWED.has(v) || isShape(v)) return;
+      bad.push(`${f}: ${v}`);
+    });
+  });
+  assert(!bad.length, `off-scale border radii:\n        ${[...new Set(bad)].join('\n        ')}`);
+});
+
+check('no stylesheet invents an off-scale transition duration', () => {
+  // Three steps: 0.12 / 0.15 / 0.28. 0.22s is the deliberate exception — it is --sheet-t, matched
+  // to the platform keyboard animation rather than to the app's own rhythm, and changing it would
+  // desynchronise every sheet from the IME.
+  // The long ones (0.35s, 0.4s, 0.5s) are entrance choreography — a splash bloom, a first-run
+  // reveal — not interaction feedback, and they are timed to their own sequences.
+  const ALLOWED = new Set(['0s','0.12s','0.15s','.15s','0.22s','0.35s','0.4s','0.5s']);
+  const bad = [];
+  fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css') && f !== '01-tokens.css').forEach(f => {
+    const css = fs.readFileSync(path.join(ROOT, 'css', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    [...css.matchAll(/transition:([^;}]+)[;}]/g)].forEach(m => {
+      [...m[1].matchAll(/(?<![\w.-])(\d*\.?\d+s)/g)].forEach(d => {
+        if (!ALLOWED.has(d[1])) bad.push(`${f}: ${d[1]}`);
+      });
+    });
+  });
+  assert(!bad.length, `off-scale transition durations:\n        ${[...new Set(bad)].join('\n        ')}`);
+});
+
+check('elevation comes from the scale, not from a fresh guess each time', () => {
+  // Fifty-one distinct box-shadows is not fifty-one levels of height — it is fifty-one guesses.
+  // Insets (bevels), coloured shadows (glows) and multi-layer compositions are excluded: those do
+  // a different job and were composed deliberately.
+  const bad = [];
+  fs.readdirSync(path.join(ROOT, 'css')).filter(f => f.endsWith('.css') && f !== '01-tokens.css').forEach(f => {
+    const css = fs.readFileSync(path.join(ROOT, 'css', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    [...css.matchAll(/box-shadow:([^;}]+)[;}]/g)].forEach(m => {
+      const v = m[1].trim();
+      if (v.startsWith('var(') || v === 'none' || v.includes('inset') || v.includes(',')) return;
+      if (/^0 \d+px \d+px rgba\(0,0,0/.test(v)) bad.push(`${f}: ${v}`);
+    });
+  });
+  assert(!bad.length, `plain shadows not on the elevation scale:\n        ${[...new Set(bad)].join('\n        ')}`);
+});
+
+check('every function the app defines is reachable from somewhere', () => {
+  // The check I most needed and did not have. PlotGrid and PlotFix were built, unit-tested and
+  // wired to nothing: setProjectCrs, setPlotfixGate, plotfixCheckGate and plotfixStatusLine all
+  // had passing tests proving they behaved correctly, and no caller anywhere. The capture button
+  // had never once refused a bad fix, which was the entire point of that work.
+  //
+  // Unit tests cannot catch this by construction — they call the function themselves, which is
+  // exactly what a real caller would look like. Only a scan of the whole source can tell you
+  // whether the app can get there.
+  const files = fs.readdirSync(path.join(ROOT, 'js')).filter(f => f.endsWith('.js'));
+  const sources = {};
+  files.forEach(f => { sources[f] = fs.readFileSync(path.join(ROOT, 'js', f), 'utf8'); });
+  const all = Object.values(sources).join('\n') + '\n' + html;
+
+  // Deliberately kept but not called from app code. Each is named with a reason, so the list
+  // stays short and every entry is a decision rather than an oversight.
+  const KEPT = {
+    'ftIsMultiGeometry': 'reads as intent at a call site; kept alongside ftGeometries',
+    'countDraftVertices': 'diagnostic, called from the console when investigating a store issue',
+    'photoQueueIdle': 'test seam for the photo pipeline',
+    'selectAllInAttrQuery': 'attr-query bulk actions, reachable only when that panel gains buttons',
+    'invertAttrSelection': 'same',
+    'canWriteDeviceFiles': 'capability probe used by the export path in some builds',
+    'shareLastExport': 'share-sheet entry point, platform dependent',
+    'peBackupEnvelope': 'backup format helper retained for reading older files',
+    'plotfixIngestBlock': 'diagnostics — pastes raw NMEA to verify a receiver against the parser',
+    'plotvaultClearAll': 'destructive; deliberately not bound to a button'
+  };
+
+  const unreachable = [];
+  files.forEach(f => {
+    [...sources[f].matchAll(/^(?:async )?function ([a-zA-Z_$][\w$]*)\s*\(/gm)].forEach(m => {
+      const n = m[1];
+      if (KEPT[n]) return;
+      const refs = (all.match(new RegExp('(?<![\\w$.])' + n + '(?![\\w$])', 'g')) || []).length;
+      const defs = (all.match(new RegExp('function\\s+' + n + '\\s*\\(', 'g')) || []).length;
+      if (refs - defs === 0) unreachable.push(`${f}: ${n}`);
+    });
+  });
+  assert(!unreachable.length,
+    `functions defined but called from nowhere — features the user cannot reach:\n        ${unreachable.join('\n        ')}`);
+});
+
+check('the accuracy gate is enforced at the capture button', () => {
+  // Specifically, not just "is reachable". The gate has to run where capture becomes pressable,
+  // and it has to run on BOTH position sources — an RTK link dropping to float is exactly when
+  // capture should stop, and no geolocation event accompanies that.
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/function applyFixGateToCaptureButton/.test(gps), 'nothing applies the gate to the button');
+  assert(/plotfixCheckGate\(\)/.test(gps), 'the gate is never evaluated');
+  const calls = (gps.match(/applyFixGateToCaptureButton\(\)/g) || []).length;
+  assert(calls >= 2, `the gate is applied ${calls} time(s) — it must run on the NMEA path as well as the device one`);
+  // And the refusal has to be legible: a disabled button with no explanation is worse than no gate.
+  assert(/fixGateNote/.test(gps) && /fixGateNote/.test(html), 'the gate gives no visible reason for refusing');
+});
+
+check('the coordinate system is selectable, not just implemented', () => {
+  assert(/id="projectCrsSelect"/.test(html), 'no way to choose a coordinate system');
+  assert(/id="geoidOffsetInput"/.test(html), 'no way to set a height offset');
+  const grid = fs.readFileSync(path.join(ROOT, 'js/16b-plotgrid.js'), 'utf8');
+  // The picker is built from the registry, so adding a grid stays a data edit.
+  assert(/Object\.keys\(PLOTGRID_REGISTRY\)\.map/.test(grid), 'the CRS picker is hand-written rather than generated');
+  // The datum caveat must reach the screen, not only the export header.
+  assert(/datum shift is NOT applied/.test(grid), 'a legacy datum is not flagged in the UI');
+});
+
+check('the coordinate system is searchable, not a two-dozen-entry dropdown', () => {
+  // A <select> works at eight entries. The registry now has two dozen, and the useful queries are
+  // "harare", "2048" and "zone 36" — none of which a dropdown can answer.
+  const grid = fs.readFileSync(path.join(ROOT, 'js/16b-plotgrid.js'), 'utf8');
+  assert(/function crsSearch/.test(grid), 'there is no search');
+  assert(/id="crsSearchInput"/.test(html), 'the picker has no search field');
+  // Search has to reach beyond the label, or the two most likely queries both fail.
+  const reg = JSON.parse(w.eval(`JSON.stringify(PLOTGRID_REGISTRY)`));
+  const withFind = Object.keys(reg).filter(k => reg[k].find);
+  assert(withFind.length >= Object.keys(reg).length - 1,
+    `${Object.keys(reg).length - withFind.length} coordinate systems have no search keywords and are effectively unfindable`);
+});
+
+check('searching finds a grid by town, by EPSG code and by belt', () => {
+  const byTown = JSON.parse(w.eval(`JSON.stringify(crsSearch('harare'))`));
+  assert(byTown.includes('lo31'), `"harare" should find Lo31 — got ${byTown.join(', ') || 'nothing'}`);
+  const byEpsg = JSON.parse(w.eval(`JSON.stringify(crsSearch('2048'))`));
+  assert(byEpsg[0] === 'lo31', `an exact EPSG match should rank first — got ${byEpsg.join(', ') || 'nothing'}`);
+  const byZone = JSON.parse(w.eval(`JSON.stringify(crsSearch('utm 36'))`));
+  assert(byZone.length, '"utm 36" found nothing');
+  // Terms must narrow, not widen: an OR search would return every Gauss belt for this.
+  const narrowed = JSON.parse(w.eval(`JSON.stringify(crsSearch('zimbabwe 31'))`));
+  assert(narrowed.length && narrowed.length < 5,
+    `two terms should narrow the result — got ${narrowed.length} matches`);
+});
+
+check('the right grid is suggested from the project site', () => {
+  // So a crew does not have to work out which 2-degree belt they are standing in.
+  const harare = w.eval(`crsSuggestFor(-17.8202, 31.0502)`);
+  assert(harare === 'lo31', `Harare sits in the Lo31 belt — got ${harare}`);
+  const jhb = w.eval(`crsSuggestFor(-26.2041, 28.0473)`);
+  assert(jhb === 'lo27' || jhb === 'lo29', `Johannesburg should suggest a nearby belt — got ${jhb}`);
+  // Hemisphere must agree: a south-oriented belt is not the answer north of the equator.
+  const north = w.eval(`crsSuggestFor(51.5, 31.0)`);
+  assert(north !== 'lo31', 'a south-oriented Gauss belt was suggested for a northern-hemisphere site');
+  // And no answer is better than a wrong one outside the covered regions.
+  const pacific = w.eval(`crsSuggestFor(-20, -140)`);
+  assert(pacific === null, `nothing covers the mid-Pacific — should return null, got ${pacific}`);
+});
+
+check('the coordinate system is chosen at project creation and stored on the project', () => {
+  assert(/id="newProjCrsBtn"/.test(html), 'the project form has no coordinate system control');
+  const proj = fs.readFileSync(path.join(ROOT, 'js/05-projects.js'), 'utf8');
+  assert(/crs, bounds, createdAt:nowIso/.test(proj), 'a new project does not store its coordinate system or its area');
+  assert(/p\.crs = crs;/.test(proj), 'editing a project does not update its coordinate system');
+  assert(/function syncProjectFormCrs/.test(proj), 'the form does not reflect the stored choice');
+});
+
+check('every map read-out speaks the project’s coordinate system', () => {
+  // Setting a CRS is only worth doing if the whole app speaks it. A crew seeing grid numbers on
+  // Collect and degrees on the map is worse off than one seeing degrees everywhere, because it
+  // invites reading one for the other.
+  [['js/14a-plotatlas.js', 'PlotAtlas'], ['js/14-map.js', 'the review map'],
+   ['js/16-geometry-math.js', 'PlotEtch measurements'], ['js/08-gps.js', 'the GPS card']]
+    .forEach(([f, what]) => {
+      const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+      assert(/crsFormat\(|crsProject\(/.test(src), `${what} still prints raw lat/lon`);
+    });
+});
+
+check('the picker sheet is closed by the back button', () => {
+  const nav = fs.readFileSync(path.join(ROOT, 'js/07-navigation.js'), 'utf8');
+  assert(/crsPickerModal/.test(nav), 'Back falls through the coordinate picker');
+});
+
+check('the site can be placed on a map, not only taken from the phone’s position', () => {
+  // The site was only ever settable from the device's own GPS, so it recorded wherever the person
+  // was standing when they made the project — the office, the truck. That coordinate suggests the
+  // coordinate system, centres every map the crew opens, and groups the project cards.
+  assert(/id="sitePickerMap"/.test(html), 'there is no map picker for the site');
+  assert(/openSitePicker\('site'\)/.test(html), 'nothing opens it for placing the site');
+  const b = fs.readFileSync(path.join(ROOT, 'js/05a-plotbounds.js'), 'utf8');
+  assert(/function sitePickerStartView/.test(b), 'the picker has no sensible opening view');
+  // Opening on a world view when a position is already known would make the accurate option the
+  // slower one, and nobody would use it.
+  assert(/plotfixState\.lat/.test(b), 'the picker ignores the live GPS fix when choosing where to open');
+});
+
+check('a project can carry a working area, and it warns rather than blocks', () => {
+  const b = fs.readFileSync(path.join(ROOT, 'js/05a-plotbounds.js'), 'utf8');
+  assert(/function outsideProjectBounds/.test(b), 'no outlier check exists');
+  assert(/showConfirm\(/.test(b), 'the outlier check does not ask — it either blocks or ignores');
+  // Blocking would get switched off within a week: a survey legitimately reaches outside its own
+  // boundary for a control point on a hilltop or a benchmark at the district office.
+  assert(!/return false;\s*\/\/ block/.test(b), 'the boundary hard-blocks capture');
+  const gps = fs.readFileSync(path.join(ROOT, 'js/08-gps.js'), 'utf8');
+  assert(/confirmIfOutlier/.test(gps), 'the check never runs at capture time');
+  // Guarded at the single funnel both capture modes and both coordinate sources pass through,
+  // rather than at four call sites of which one would eventually be forgotten.
+  assert(/function commitVertex[\s\S]{0,900}confirmIfOutlier/.test(gps),
+    'the outlier check is not inside commitVertex — some capture paths would skip it');
+});
+
+check('the area can be derived from what has already been captured', () => {
+  // The obvious thing to want once a survey is underway and nobody set an area at the start, and
+  // more accurate than framing it by eye.
+  const b = fs.readFileSync(path.join(ROOT, 'js/05a-plotbounds.js'), 'utf8');
+  assert(/function boundsFromFeatures/.test(b), 'no way to derive the area from captured data');
+  assert(/0\.2/.test(b), 'the derived area is not padded — a crew would immediately trip over its own edges');
+  assert(/boundsFromFeatures\(\)/.test(html), 'nothing in the UI calls it');
+});
+
+check('the outlier message says how far outside, not just that it is', () => {
+  // "Outside the project area" is a fact the crew may already know and accept. "31 km outside" is
+  // almost always a mistake, and the number is what tells them which of the two this is.
+  const b = fs.readFileSync(path.join(ROOT, 'js/05a-plotbounds.js'), 'utf8');
+  assert(/km|Math\.round\(d\)/.test(b), 'the distance outside is never computed for the message');
+  assert(/outside the project area/i.test(b), 'no message is shown');
 });
 
 check('nothing threw while any of that ran', () => {
