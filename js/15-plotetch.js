@@ -1130,7 +1130,8 @@ function renderPeMap(){
     const verts = f.vertices||[];
     if (!verts.length) return;
     const geo = f.geometryType||'point';
-    if (geo==='point') verts.forEach(v=>L.circleMarker([v.lat,v.lon],{radius:4,color:'#94A3B8',weight:1,fillColor:'#94A3B8',fillOpacity:0.5,interactive:false}).addTo(peLayerGroup));
+    const ftKey = f.featureTypeId || f.layer;
+    if (geo==='point') verts.forEach(v=>featurePointLayer([v.lat,v.lon],{shape:featureTypeShape(ftKey),radius:4,color:'#94A3B8',weight:1,fillColor:'#94A3B8',fillOpacity:0.5,interactive:false}).addTo(peLayerGroup));
     else if (geo==='polygon') L.polygon(verts.map(v=>[v.lat,v.lon]),{color:'#94A3B8',weight:1,fillOpacity:0.06,dashArray:'4 3',interactive:false}).addTo(peLayerGroup);
     else L.polyline(verts.map(v=>[v.lat,v.lon]),{color:'#94A3B8',weight:1.5,dashArray:'4 3',interactive:false}).addTo(peLayerGroup);
   });

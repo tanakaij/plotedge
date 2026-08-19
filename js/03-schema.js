@@ -16,6 +16,12 @@ let ftFieldIdSeq = 0;
 
 let editingFtColor = null; // explicit hex color chosen in the swatch picker, or null = auto (hash-based)
 
+let editingFtShape = 'circle';     // point symbol — only meaningful while Point is a permitted geometry
+
+let editingFtLineStyle = 'solid';  // shared by line strokes and polygon borders — see renderFtStyleControls()
+
+let editingFtFill = true;          // polygon fill — only meaningful while Polygon is a permitted geometry
+
 
 function showFeatureTypes() {
   activateView('view-featuretypes');
@@ -168,11 +174,15 @@ function newFeatureType() {
   editingFt = null;
   editingFtFields = [];
   editingFtColor = null;
+  editingFtShape = 'circle';
+  editingFtLineStyle = 'solid';
+  editingFtFill = true;
   document.getElementById('ftEditorTitle').textContent = 'New feature type';
   document.getElementById('ftName').value = '';
   setFtGeo('point');
   renderFtFieldsList();
   renderFtColorPicker();
+  renderFtStyleControls();
   activateView('view-featuretype-edit');
   focusWhenSettled('ftName');
   pushNavState('featuretype-edit');
@@ -184,11 +194,15 @@ function editFeatureType(id) {
   editingFt = t;
   editingFtFields = t.fields.map(f=>({...f, options:[...(f.options||[])], condition: f.condition ? {...f.condition} : null, subfields:(f.subfields||[]).map(s=>({...s, options:[...(s.options||[])]}))}));
   editingFtColor = t.color || null;
+  editingFtShape = POINT_SHAPES.includes(t.shape) ? t.shape : 'circle';
+  editingFtLineStyle = LINE_STYLES.includes(t.lineStyle) ? t.lineStyle : 'solid';
+  editingFtFill = t.fill !== false;
   document.getElementById('ftEditorTitle').textContent = 'Edit feature type';
   document.getElementById('ftName').value = t.name;
   setFtGeo(ftGeometries(t), true); // reflect stored geometry only — see writeFtGeoSelection's `silent` note
   renderFtFieldsList();
   renderFtColorPicker();
+  renderFtStyleControls();
   activateView('view-featuretype-edit');
   pushNavState('featuretype-edit', { editId: id });
 }
@@ -207,6 +221,7 @@ function duplicateFeatureType(id) {
   const t = featureTypes.find(x=>x.id===id);
   if (!t) return;
   const copy = { id:'ft_'+Date.now(), name:t.name+' (copy)', geometryType:ftDefaultGeometry(t), geometryTypes:ftGeometries(t),
+    color:t.color||null, shape:t.shape||'circle', lineStyle:t.lineStyle||'solid', fill:t.fill!==false,
     fields:t.fields.map(f=>({...f, id:'f_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), options:[...(f.options||[])]})) };
   featureTypes.push(copy);
   persist();
@@ -285,6 +300,66 @@ function writeFtGeoSelection(list, silent){
   }
   if (typeof renderFtFieldsList === 'function' && document.getElementById('ftFieldsList')) renderFtFieldsList();
   if (ftFieldDraft) syncFtFieldSheet();
+  if (typeof renderFtStyleControls === 'function' && document.getElementById('ftStyleCard')) renderFtStyleControls();
+}
+
+
+// ══ FEATURE TYPE SYMBOLOGY (shape / line style / fill) ══
+// One shared row for line style rather than a separate "line" and "polygon border" picker — a
+// dashed boundary is the same concept whether it's a fence line or a parcel edge, so a type that
+// permits both geometries only ever sees the choice once. Each row only appears for a geometry
+// the type actually permits, so a point-only type never sees line/polygon controls and vice
+// versa — the whole card hides itself when nothing in it would apply.
+function setFtShape(shape){ editingFtShape = shape; renderFtStyleControls(); }
+function setFtLineStyle(style){ editingFtLineStyle = style; renderFtStyleControls(); }
+function setFtFill(fill){ editingFtFill = fill; renderFtStyleControls(); }
+
+function renderFtStyleControls(){
+  const card = document.getElementById('ftStyleCard');
+  if (!card) return;
+  const geos = currentFtGeoList();
+  const hasPoint = geos.includes('point');
+  const hasLine = geos.includes('line');
+  const hasPolygon = geos.includes('polygon');
+  if (!hasPoint && !hasLine && !hasPolygon){ card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const shapeLabels = { circle:'Circle', square:'Square', triangle:'Triangle' };
+  const shapeGlyph = { circle:'●', square:'■', triangle:'▲' };
+  let html = '';
+
+  if (hasPoint){
+    html += `<div class="field" style="margin-bottom:${hasLine||hasPolygon?'14px':'0'};">
+      <label>Point shape</label>
+      <div class="geo-toggle">${POINT_SHAPES.map(s=>
+        `<div class="geo-opt ${editingFtShape===s?'sel':''}" onclick="setFtShape('${s}')">${shapeGlyph[s]} ${shapeLabels[s]}</div>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  if (hasLine || hasPolygon){
+    const lineLabel = hasLine && hasPolygon ? 'Line / border style' : hasPolygon ? 'Border style' : 'Line style';
+    html += `<div class="field" style="margin-bottom:${hasPolygon?'14px':'0'};">
+      <label>${lineLabel}</label>
+      <div class="geo-toggle">
+        <div class="geo-opt ${editingFtLineStyle==='solid'?'sel':''}" onclick="setFtLineStyle('solid')">— Solid</div>
+        <div class="geo-opt ${editingFtLineStyle==='dashed'?'sel':''}" onclick="setFtLineStyle('dashed')">╌ Dashed</div>
+        <div class="geo-opt ${editingFtLineStyle==='dotted'?'sel':''}" onclick="setFtLineStyle('dotted')">⋯ Dotted</div>
+      </div>
+    </div>`;
+  }
+
+  if (hasPolygon){
+    html += `<div class="field" style="margin-bottom:0;">
+      <label>Polygon fill</label>
+      <div class="geo-toggle">
+        <div class="geo-opt ${editingFtFill?'sel':''}" onclick="setFtFill(true)">▰ Filled</div>
+        <div class="geo-opt ${!editingFtFill?'sel':''}" onclick="setFtFill(false)">▱ Outline only</div>
+      </div>
+    </div>`;
+  }
+
+  card.innerHTML = html;
 }
 
 
@@ -778,8 +853,12 @@ function saveFeatureType() {
     editingFt.geometryTypes = geos;
     editingFt.fields = fields;
     editingFt.color = editingFtColor || null;
+    editingFt.shape = editingFtShape;
+    editingFt.lineStyle = editingFtLineStyle;
+    editingFt.fill = editingFtFill;
   } else {
-    featureTypes.push({ id:'ft_'+Date.now(), name, geometryType:geo, geometryTypes:geos, fields, color: editingFtColor || null });
+    featureTypes.push({ id:'ft_'+Date.now(), name, geometryType:geo, geometryTypes:geos, fields, color: editingFtColor || null,
+      shape: editingFtShape, lineStyle: editingFtLineStyle, fill: editingFtFill });
   }
   persist();
   populateFeatureTypeSelect();

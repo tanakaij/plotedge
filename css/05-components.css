@@ -605,7 +605,8 @@
   .review-map-conn.offline { color:var(--warn); }
   .map-legend { display:flex; flex-wrap:wrap; gap:6px 10px; padding:10px 12px; border-top:1px solid var(--card-border); }
   .map-legend-chip { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); font-weight:500; letter-spacing:0.5px; }
-  .map-legend-swatch { width:10px; height:10px; border-radius:8px; flex-shrink:0; }
+  .map-legend-swatch { width:16px; height:16px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; }
+  .map-legend-swatch svg { display:block; }
   .map-basemap-toggle { position:absolute; top:10px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }
   .map-basemap-toggle:active { filter:brightness(0.92); }
   .map-raster-toggle { position:absolute; top:54px; right:10px; z-index:2; display:flex; align-items:center; gap:6px; background:var(--nav-bg); backdrop-filter:var(--glass-12); -webkit-backdrop-filter:var(--glass-12); border:1px solid var(--card-border); border-radius:999px; padding:8px 13px 8px 11px; font-size:12px; font-weight:700; color:var(--text-primary); cursor:pointer; box-shadow:var(--elev-2); }

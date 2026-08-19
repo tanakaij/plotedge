@@ -184,16 +184,19 @@ function renderDashMapPreview(){
     const label = `${name}, ${type.label || 'Feature'}`;
     const gAttrs = `class="dash-map-feat" data-idx="${idx}" tabindex="0" role="button" aria-label="${escapeHtml(label)}"`;
     if (vs.length === 1){
+      const shape = featureTypeShape(type.key);
       out += `<g ${gAttrs}>`
-        + `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="7" fill="transparent" class="dash-map-feat-hit"/>`
-        + `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3" fill="${color}" class="dash-map-feat-shape"/>`
+        + shapeMarkup(shape, pathPts[0][0], pathPts[0][1], 7, `fill="transparent" class="dash-map-feat-hit"`)
+        + shapeMarkup(shape, pathPts[0][0], pathPts[0][1], 3, `fill="${color}" class="dash-map-feat-shape"`)
         + '</g>';
     } else {
       const d = pathPts.map((p,i)=>`${i?'L':'M'}${p[0]} ${p[1]}`).join(' ');
       const closed = (f.geometryType || '') === 'polygon';
+      const filled = closed ? featureTypeFilled(type.key) : true;
+      const dash = leafletDashArray(featureTypeLineStyle(type.key), 2.2);
       out += `<g ${gAttrs}>`
         + `<path d="${d}${closed?' Z':''}" fill="${closed?'#000':'none'}" fill-opacity="${closed?0.01:0}" stroke="transparent" stroke-width="9" class="dash-map-feat-hit"/>`
-        + `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" class="dash-map-feat-shape"/>`
+        + `<path d="${d}${closed?' Z':''}" fill="${closed&&filled?color:'none'}" fill-opacity="${closed&&filled?0.28:0}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" ${dash?`stroke-dasharray="${dash}"`:''} class="dash-map-feat-shape"/>`
         + '</g>';
     }
   });

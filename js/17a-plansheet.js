@@ -522,22 +522,38 @@ async function exportMapLayout(){
     savedFeatures.forEach(f=>{
       const verts=f.vertices||[];
       if(!verts.length) return;
-      const color=featureTypeColor(f.featureTypeId);
+      const ftKey = f.featureTypeId;
+      const color=featureTypeColor(ftKey);
       const rgb=[parseInt(color.slice(1,3),16),parseInt(color.slice(3,5),16),parseInt(color.slice(5,7),16)];
       const pts=verts.map(v=>mapLayoutProjectPoint(v.lat,v.lon,proj));
+      const lineStyle=featureTypeLineStyle(ftKey);
+      const dash=pdfDashPattern(lineStyle,1.2);
       if(f.geometryType==='polygon' && pts.length>=3){
-        doc.setFillColor(...rgb); doc.setDrawColor(...rgb);
-        doc.setGState && doc.setGState(new doc.GState({opacity:0.18}));
-        doc.lines(pts.slice(1).map((p,i)=>[p.x-pts[i].x,p.y-pts[i].y]),pts[0].x,pts[0].y,[1,1],'F',true);
-        doc.setGState && doc.setGState(new doc.GState({opacity:1}));
+        const filled=featureTypeFilled(ftKey);
+        if(filled){
+          doc.setFillColor(...rgb); doc.setDrawColor(...rgb);
+          doc.setGState && doc.setGState(new doc.GState({opacity:0.18}));
+          doc.lines(pts.slice(1).map((p,i)=>[p.x-pts[i].x,p.y-pts[i].y]),pts[0].x,pts[0].y,[1,1],'F',true);
+          doc.setGState && doc.setGState(new doc.GState({opacity:1}));
+        }
+        doc.setDrawColor(...rgb);
         doc.setLineWidth(1.2);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern(dash,0);
         doc.lines(pts.slice(1).map((p,i)=>[p.x-pts[i].x,p.y-pts[i].y]),pts[0].x,pts[0].y,[1,1],'S',true);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern([],0);
       } else if(f.geometryType==='line' && pts.length>=2){
         doc.setDrawColor(...rgb); doc.setLineWidth(1.5);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern(dash,0);
         for(let i=1;i<pts.length;i++) doc.line(pts[i-1].x,pts[i-1].y,pts[i].x,pts[i].y);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern([],0);
       } else {
-        doc.setFillColor(...rgb);
-        pts.forEach(p=>doc.circle(p.x,p.y,2.6,'F'));
+        const shape=featureTypeShape(ftKey);
+        doc.setFillColor(...rgb); doc.setDrawColor(...rgb);
+        pts.forEach(p=>{
+          if(shape==='square'){ doc.rect(p.x-2.3,p.y-2.3,4.6,4.6,'F'); }
+          else if(shape==='triangle'){ doc.triangle(p.x,p.y-2.9,p.x-2.7,p.y+2,p.x+2.7,p.y+2,'F'); }
+          else doc.circle(p.x,p.y,2.6,'F');
+        });
       }
     });
 
@@ -653,12 +669,30 @@ async function exportMapLayout(){
       const color=featureTypeColor(ftId);
       const rgb=[parseInt(color.slice(1,3),16),parseInt(color.slice(3,5),16),parseInt(color.slice(5,7),16)];
       const geo=(ft&&ft.geometryType)||'point';
+      const shape=featureTypeShape(ftId);
+      const lineStyle=featureTypeLineStyle(ftId);
+      const filled=featureTypeFilled(ftId);
+      const dash=pdfDashPattern(lineStyle,1);
       doc.setFillColor(...rgb); doc.setDrawColor(...rgb);
       // The swatch shows the symbology actually used on the sheet, so a legend
       // entry cannot describe a line and sit next to a dot.
-      if(geo==='polygon'){ doc.setLineWidth(0.8); doc.rect(titleX+7,ly-5.5,9,6,'FD'); }
-      else if(geo==='line'){ doc.setLineWidth(1.6); doc.line(titleX+7,ly-2.5,titleX+16,ly-2.5); }
-      else { doc.circle(titleX+11.5,ly-2.5,2.6,'F'); }
+      if(geo==='polygon'){
+        doc.setLineWidth(0.8);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern(dash,0);
+        doc.rect(titleX+7,ly-5.5,9,6, filled ? 'FD' : 'D');
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern([],0);
+      } else if(geo==='line'){
+        doc.setLineWidth(1.6);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern(dash,0);
+        doc.line(titleX+7,ly-2.5,titleX+16,ly-2.5);
+        if(dash && doc.setLineDashPattern) doc.setLineDashPattern([],0);
+      } else if(shape==='square'){
+        doc.rect(titleX+9.2,ly-4.8,4.6,4.6,'F');
+      } else if(shape==='triangle'){
+        doc.triangle(titleX+11.5,ly-5.4,titleX+8.8,ly-0.5,titleX+14.2,ly-0.5,'F');
+      } else {
+        doc.circle(titleX+11.5,ly-2.5,2.6,'F');
+      }
       doc.setFontSize(6.8); doc.setTextColor(40);
       doc.text(((ft&&ft.name)||'Unclassified')+'  ('+typeCounts[ftId]+')',titleX+21,ly);
       ly+=11;

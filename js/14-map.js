@@ -274,28 +274,33 @@ function renderReviewMap(){
     // that isn't on the map or zooming to features nobody can see.
     if (hiddenLayerKeys.has(info.key)) return;
     const color = featureTypeColor(info.key);
-    legendSeen.set(info.key, {label:info.label, color});
-    const verts = f.vertices || [];
     const geo = f.geometryType || 'point';
+    legendSeen.set(info.key, {label:info.label, color, geo,
+      shape:featureTypeShape(info.key), lineStyle:featureTypeLineStyle(info.key), filled:featureTypeFilled(info.key)});
+    const verts = f.vertices || [];
     const popupHtml = featurePopupHtml(f, info, color);
 
     if (geo === 'point'){
+      const shape = featureTypeShape(info.key);
       verts.forEach(v=>{
         const latlng=[v.lat,v.lon];
         bounds.push(latlng);
         const halo=accuracyHaloStyle(v.acc);
         if (halo) L.circle(latlng,{radius:Math.max(v.acc,3),...halo,interactive:false}).addTo(reviewMapLayerGroup);
-        L.circleMarker(latlng,{radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:0.95})
+        featurePointLayer(latlng,{shape,radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:0.95})
           .bindPopup(popupHtml).addTo(reviewMapLayerGroup);
       });
     } else {
       const latlngs = verts.map(v=>[v.lat,v.lon]);
       latlngs.forEach(ll=>bounds.push(ll));
       if (latlngs.length){
+        const lineStyle = featureTypeLineStyle(info.key);
+        const dashArray = leafletDashArray(lineStyle, geo==='polygon'?2:3);
         if (geo === 'polygon'){
-          L.polygon(latlngs,{color,weight:2,fillColor:color,fillOpacity:0.25}).bindPopup(popupHtml).addTo(reviewMapLayerGroup);
+          const filled = featureTypeFilled(info.key);
+          L.polygon(latlngs,{color,weight:2,fillColor:color,fillOpacity:filled?0.25:0,fill:filled,dashArray}).bindPopup(popupHtml).addTo(reviewMapLayerGroup);
         } else {
-          L.polyline(latlngs,{color,weight:3}).bindPopup(popupHtml).addTo(reviewMapLayerGroup);
+          L.polyline(latlngs,{color,weight:3,dashArray}).bindPopup(popupHtml).addTo(reviewMapLayerGroup);
         }
         // Vertex handles. Previously the only per-vertex mark was a non-interactive accuracy halo,
         // so every tap anywhere on a line or polygon opened the same whole-feature popup and the
@@ -350,7 +355,7 @@ function renderMapLegend(legendMap){
   const el = document.getElementById('reviewMapLegend');
   if (!el) return;
   el.innerHTML = Array.from(legendMap.values()).map(item=>
-    `<span class="map-legend-chip"><span class="map-legend-swatch" style="background:${item.color}"></span>${escapeHtml(item.label)}</span>`
+    `<span class="map-legend-chip"><span class="map-legend-swatch">${legendGlyphSvg(item.geo,item.color,item.shape,item.lineStyle,item.filled)}</span>${escapeHtml(item.label)}</span>`
   ).join('');
 }
 

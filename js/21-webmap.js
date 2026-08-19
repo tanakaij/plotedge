@@ -212,8 +212,11 @@ async function buildWebmapFeatureData(onProgress){
   for (const f of savedFeatures){
     const info = resolveFeatureType(f);
     const color = featureTypeColor(info.key);
-    legendMap.set(info.key, {label:info.label, color});
     const geo = f.geometryType || 'point';
+    const shape = featureTypeShape(info.key);
+    const lineStyle = featureTypeLineStyle(info.key);
+    const filled = featureTypeFilled(info.key);
+    legendMap.set(info.key, {label:info.label, color, geo, shape, lineStyle, filled});
     const verts = f.vertices || [];
     const baseAttrs = flattenAttrs(f.attrs);
     if (f.ref) baseAttrs['Reference'] = f.ref;
@@ -227,7 +230,7 @@ async function buildWebmapFeatureData(onProgress){
           const small = await resizePhotoForWeb(p.dataUrl);
           if (small) photos.push(small);
         }
-        features.push({ name:f.name, type:info.label, color, geo:'point', coords:[v.lat,v.lon], attrs:{...baseAttrs, ...flattenAttrs(v.attrs)}, photos });
+        features.push({ name:f.name, type:info.label, color, geo:'point', shape, coords:[v.lat,v.lon], attrs:{...baseAttrs, ...flattenAttrs(v.attrs)}, photos });
       }
     } else {
       const photos=[];
@@ -238,7 +241,7 @@ async function buildWebmapFeatureData(onProgress){
           if (small) photos.push(small);
         }
       }
-      features.push({ name:f.name, type:info.label, color, geo, coords:verts.map(v=>[v.lat,v.lon]), attrs:baseAttrs, photos });
+      features.push({ name:f.name, type:info.label, color, geo, lineStyle, filled, coords:verts.map(v=>[v.lat,v.lon]), attrs:baseAttrs, photos });
     }
   }
   return { features, legend:Array.from(legendMap.values()), meta:{ name: project?project.name:'Project', generatedAt:new Date().toISOString() } };
@@ -270,7 +273,8 @@ function buildWebmapHTML(project, data){
     + '.pe-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}\n'
     + '.pe-legend{position:absolute;bottom:16px;left:12px;z-index:1000;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;max-width:60vw;max-height:38vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,0.14);font-size:12px;}\n'
     + '.pe-legend-item{display:flex;align-items:center;gap:7px;margin-bottom:5px;}\n.pe-legend-item:last-child{margin-bottom:0;}\n'
-    + '.pe-legend-swatch{width:10px;height:10px;border-radius:50%;flex-shrink:0;}\n'
+    + '.pe-legend-swatch{width:16px;height:16px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;}\n'
+    + '.pe-legend-swatch svg{display:block;}\n'
     + '.pe-popup{min-width:200px;max-width:260px;}\n.pe-popup-type{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;}\n'
     + '.pe-popup-name{font-size:14px;font-weight:800;margin-bottom:6px;}\n.pe-popup-attrs{font-size:12px;line-height:1.6;margin-bottom:6px;}\n.pe-popup-attrs b{color:var(--muted);font-weight:600;}\n'
     + '.pe-popup-photos{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}\n.pe-popup-photos img{width:50px;height:50px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border);}\n'
@@ -299,6 +303,28 @@ function buildWebmapHTML(project, data){
     + '  else { if(map.hasLayer(satLayer)) map.removeLayer(satLayer); streetLayer.addTo(map); }\n'
     + '}\n'
     + 'function peOpenLightbox(src){ document.getElementById("peLightboxImg").src=src; document.getElementById("peLightbox").classList.add("show"); }\n'
+    + 'function peDash(style,w){ w=w||2; if(style==="dashed") return (w*3).toFixed(1)+" "+(w*2).toFixed(1); if(style==="dotted") return (w*0.9).toFixed(1)+" "+(w*1.8).toFixed(1); return null; }\n'
+    + 'function peShapeMarkup(shape,cx,cy,r,attrs){\n'
+    + '  attrs=attrs||"";\n'
+    + '  if(shape==="square"){ const s=r*1.7,x=cx-s/2,y=cy-s/2; return "<rect x=\\""+x+"\\" y=\\""+y+"\\" width=\\""+s+"\\" height=\\""+s+"\\" "+attrs+"/>"; }\n'
+    + '  if(shape==="triangle"){ const R=r*1.3, p1=cx+","+(cy-R).toFixed(2), p2=(cx-R*0.87).toFixed(2)+","+(cy+R*0.6).toFixed(2), p3=(cx+R*0.87).toFixed(2)+","+(cy+R*0.6).toFixed(2); return "<polygon points=\\""+p1+" "+p2+" "+p3+"\\" "+attrs+"/>"; }\n'
+    + '  return "<circle cx=\\""+cx+"\\" cy=\\""+cy+"\\" r=\\""+r+"\\" "+attrs+"/>";\n'
+    + '}\n'
+    + 'function peShapeIcon(shape,r,color,weight,fillOpacity,stroke){\n'
+    + '  const size=r*2+weight*2, c=size/2;\n'
+    + '  const svg="<svg width=\\""+size+"\\" height=\\""+size+"\\" viewBox=\\"0 0 "+size+" "+size+"\\">"+peShapeMarkup(shape,c,c,r,"fill=\\""+color+"\\" fill-opacity=\\""+fillOpacity+"\\" stroke=\\""+stroke+"\\" stroke-width=\\""+weight+"\\"")+"</svg>";\n'
+    + '  return L.divIcon({className:"pe-shape-marker",html:svg,iconSize:[size,size],iconAnchor:[size/2,size/2]});\n'
+    + '}\n'
+    + 'function pePointLayer(ll,shape,color,radius,weight,fillOpacity){\n'
+    + '  if(shape==="circle") return L.circleMarker(ll,{radius:radius,color:"#fff",weight:weight,fillColor:color,fillOpacity:fillOpacity});\n'
+    + '  return L.marker(ll,{icon:peShapeIcon(shape,radius,color,weight,fillOpacity,"#fff")});\n'
+    + '}\n'
+    + 'function peLegendGlyph(geo,color,shape,lineStyle,filled){\n'
+    + '  const S=16;\n'
+    + '  if(geo==="polygon"){ const dash=peDash(lineStyle,1.6); return "<svg width=\\""+S+"\\" height=\\""+S+"\\" viewBox=\\"0 0 "+S+" "+S+"\\"><rect x=\\"2\\" y=\\"2\\" width=\\"12\\" height=\\"12\\" rx=\\"1.5\\" fill=\\""+(filled?color:"none")+"\\" fill-opacity=\\""+(filled?0.35:0)+"\\" stroke=\\""+color+"\\" stroke-width=\\"1.6\\""+(dash?" stroke-dasharray=\\""+dash+"\\"":"")+"/></svg>"; }\n'
+    + '  if(geo==="line"){ const dash=peDash(lineStyle,2); return "<svg width=\\""+S+"\\" height=\\""+S+"\\" viewBox=\\"0 0 "+S+" "+S+"\\"><line x1=\\"1.5\\" y1=\\"8\\" x2=\\"14.5\\" y2=\\"8\\" stroke=\\""+color+"\\" stroke-width=\\"2.4\\" stroke-linecap=\\"round\\""+(dash?" stroke-dasharray=\\""+dash+"\\"":"")+"/></svg>"; }\n'
+    + '  return "<svg width=\\""+S+"\\" height=\\""+S+"\\" viewBox=\\"0 0 "+S+" "+S+"\\">"+peShapeMarkup(shape,8,8,5.5,"fill=\\""+color+"\\" stroke=\\"transparent\\"")+"</svg>";\n'
+    + '}\n'
     + 'function popupHtml(f){\n'
     + '  const rows = Object.entries(f.attrs||{}).filter(([k,v])=>v!=="" && v!=null).map(([k,v])=>"<div><b>"+esc(k)+":</b> "+esc(v)+"</div>").join("");\n'
     + '  const photos = (f.photos||[]).map(src=>\'<img src="\'+src+\'" onclick="event.stopPropagation();peOpenLightbox(this.src)">\').join("");\n'
@@ -310,18 +336,18 @@ function buildWebmapHTML(project, data){
     + 'DATA.features.forEach(f=>{\n'
     + '  if (f.geo==="point"){\n'
     + '    const ll=[f.coords[0],f.coords[1]]; bounds.push(ll);\n'
-    + '    L.circleMarker(ll,{radius:7,color:"#fff",weight:2,fillColor:f.color,fillOpacity:0.95}).bindPopup(popupHtml(f)).addTo(map);\n'
+    + '    pePointLayer(ll,f.shape||"circle",f.color,7,2,0.95).bindPopup(popupHtml(f)).addTo(map);\n'
     + '  } else {\n'
     + '    const lls=f.coords.map(c=>[c[0],c[1]]); lls.forEach(ll=>bounds.push(ll));\n'
     + '    if (lls.length){\n'
-    + '      if (f.geo==="polygon") L.polygon(lls,{color:f.color,weight:2,fillColor:f.color,fillOpacity:0.25}).bindPopup(popupHtml(f)).addTo(map);\n'
-    + '      else L.polyline(lls,{color:f.color,weight:3}).bindPopup(popupHtml(f)).addTo(map);\n'
+    + '      if (f.geo==="polygon"){ const filled=f.filled!==false; L.polygon(lls,{color:f.color,weight:2,fillColor:f.color,fillOpacity:filled?0.25:0,fill:filled,dashArray:peDash(f.lineStyle,2)}).bindPopup(popupHtml(f)).addTo(map); }\n'
+    + '      else L.polyline(lls,{color:f.color,weight:3,dashArray:peDash(f.lineStyle,3)}).bindPopup(popupHtml(f)).addTo(map);\n'
     + '    }\n'
     + '  }\n'
     + '});\n'
     + 'if (bounds.length===1) map.setView(bounds[0],17); else if (bounds.length>1) map.fitBounds(bounds,{padding:[30,30]});\n'
     + 'document.getElementById("peCount").textContent = DATA.features.length+" feature"+(DATA.features.length===1?"":"s");\n'
-    + 'document.getElementById("peLegend").innerHTML = DATA.legend.map(l=>\'<div class="pe-legend-item"><span class="pe-legend-swatch" style="background:\'+l.color+\'"></span>\'+esc(l.label)+"</div>").join("") || \'<span style="color:var(--text-secondary);">No features</span>\';\n'
+    + 'document.getElementById("peLegend").innerHTML = DATA.legend.map(l=>\'<div class="pe-legend-item"><span class="pe-legend-swatch">\'+peLegendGlyph(l.geo,l.color,l.shape,l.lineStyle,l.filled)+\'</span>\'+esc(l.label)+"</div>").join("") || \'<span style="color:var(--text-secondary);">No features</span>\';\n'
     + '<\/script>\n</body>\n</html>';
 }
 

@@ -381,6 +381,141 @@ function featureTypeColor(key){
   return FEATURE_COLOR_PALETTE[hash % FEATURE_COLOR_PALETTE.length];
 }
 
+
+// ══ PER-FEATURE-TYPE SYMBOLOGY (shape / line style / fill) ══
+// A second, colorblind-safe channel alongside featureTypeColor() above — same "shared by every
+// renderer" role, just for shape instead of hue. Every reader goes through these three accessors
+// rather than reading t.shape/t.lineStyle/t.fill directly, so a feature type saved before this
+// existed (or a legacy/unclassified layer with no matching type at all) silently gets the sane
+// default instead of every call site needing its own fallback.
+const POINT_SHAPES = ['circle','square','triangle'];
+const LINE_STYLES  = ['solid','dashed','dotted'];
+
+function featureTypeShape(key){
+  const ft = featureTypes.find(t=>t.id===key);
+  const s = ft && ft.shape;
+  return POINT_SHAPES.includes(s) ? s : 'circle';
+}
+
+function featureTypeLineStyle(key){
+  const ft = featureTypes.find(t=>t.id===key);
+  const s = ft && ft.lineStyle;
+  return LINE_STYLES.includes(s) ? s : 'solid';
+}
+
+// Polygon fill. Stored inverted (fill:false means "outline only") so that every feature type
+// saved before this existed — where the field is simply absent — keeps rendering exactly as it
+// always has: filled.
+function featureTypeFilled(key){
+  const ft = featureTypes.find(t=>t.id===key);
+  return !(ft && ft.fill === false);
+}
+
+// Leaflet's dashArray option, scaled to the stroke weight so a thick review-map polygon border
+// and a thin PlotAtlas measurement line both read as "dashed" rather than one looking solid.
+// Returns null for solid, which is what Leaflet/most callers treat as "no dash option at all".
+function leafletDashArray(style, weight){
+  const w = weight || 2;
+  if (style === 'dashed') return (w*3).toFixed(1) + ' ' + (w*2).toFixed(1);
+  if (style === 'dotted') return (w*0.9).toFixed(1) + ' ' + (w*1.8).toFixed(1);
+  return null;
+}
+
+// Same idea for jsPDF, which takes the pattern in page units (mm on the plan sheet) via
+// doc.setLineDashPattern([on,off], phase) rather than a CSS-style string.
+function pdfDashPattern(style, weight){
+  const w = weight || 1;
+  if (style === 'dashed') return [w*2.2, w*1.6];
+  if (style === 'dotted') return [w*0.6, w*1.2];
+  return null;
+}
+
+// Renders a shape as a small standalone SVG string — used both for the Leaflet divIcon markers
+// (square/triangle points, which circleMarker can't draw) and for every non-Leaflet map surface
+// (dashboard preview, plan sheet legend swatches, exported web map) so all four places draw the
+// exact same glyph. `r` is the visual radius/half-size in px/mm; circle is included for callers
+// that want one code path even though Leaflet callers use circleMarker directly for that case.
+function shapeGlyphSvg(shape, r, color, weight, fillOpacity, strokeColor){
+  const w = weight != null ? weight : 2;
+  const stroke = strokeColor || '#fff';
+  const fo = fillOpacity != null ? fillOpacity : 1;
+  const size = (r*2 + w*2);
+  const c = size/2;
+  if (shape === 'square'){
+    const s = r*1.6, x = c - s/2, y = c - s/2;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><rect x="${x}" y="${y}" width="${s}" height="${s}" fill="${color}" fill-opacity="${fo}" stroke="${stroke}" stroke-width="${w}"/></svg>`;
+  }
+  if (shape === 'triangle'){
+    const R = r*1.25;
+    const p1 = `${c},${(c-R).toFixed(1)}`, p2 = `${(c-R*0.87).toFixed(1)},${(c+R*0.6).toFixed(1)}`, p3 = `${(c+R*0.87).toFixed(1)},${(c+R*0.6).toFixed(1)}`;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><polygon points="${p1} ${p2} ${p3}" fill="${color}" fill-opacity="${fo}" stroke="${stroke}" stroke-width="${w}" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${c}" cy="${c}" r="${r}" fill="${color}" fill-opacity="${fo}" stroke="${stroke}" stroke-width="${w}"/></svg>`;
+}
+
+// Same three glyphs as shapeGlyphSvg() above, but as a bare SVG element (no wrapping <svg>/
+// viewBox) positioned at an arbitrary cx/cy — for embedding directly inside a canvas that's
+// already an <svg>, like the dashboard's hand-rolled preview map. attrs is an extra string of
+// SVG attributes (class, fill-opacity, stroke, etc.) appended as-is.
+function shapeMarkup(shape, cx, cy, r, attrs){
+  attrs = attrs || '';
+  if (shape === 'square'){
+    const s = r*1.7, x = cx - s/2, y = cy - s/2;
+    return `<rect x="${x}" y="${y}" width="${s}" height="${s}" ${attrs}/>`;
+  }
+  if (shape === 'triangle'){
+    const R = r*1.3;
+    const p1 = `${cx},${(cy-R).toFixed(2)}`, p2 = `${(cx-R*0.87).toFixed(2)},${(cy+R*0.6).toFixed(2)}`, p3 = `${(cx+R*0.87).toFixed(2)},${(cy+R*0.6).toFixed(2)}`;
+    return `<polygon points="${p1} ${p2} ${p3}" ${attrs}/>`;
+  }
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" ${attrs}/>`;
+}
+
+// L.circleMarker exactly as before (cheapest, and canvas-rendered rather than one DOM node per
+// point), square/triangle fall back to a divIcon built from shapeGlyphSvg() since circleMarker
+// can only ever draw a circle. Kept as one function so every render site asks for a shape without
+// caring which Leaflet primitive that turns into.
+function featurePointLayer(latlng, opts){
+  opts = opts || {};
+  const shape = opts.shape || 'circle';
+  const radius = opts.radius != null ? opts.radius : 7;
+  const weight = opts.weight != null ? opts.weight : 2;
+  const fillOpacity = opts.fillOpacity != null ? opts.fillOpacity : 1;
+  const color = opts.fillColor || opts.color || '#0EA5E9';
+  if (shape === 'circle') {
+    return L.circleMarker(latlng, opts);
+  }
+  const size = radius*2 + weight*2;
+  const icon = L.divIcon({
+    className: 'pe-shape-marker',
+    html: shapeGlyphSvg(shape, radius, color, weight, fillOpacity, opts.color === opts.fillColor ? color : '#fff'),
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2]
+  });
+  const markerOpts = { icon, interactive: opts.interactive !== false };
+  if (opts.draggable) markerOpts.draggable = true;
+  if (opts.zIndexOffset != null) markerOpts.zIndexOffset = opts.zIndexOffset;
+  return L.marker(latlng, markerOpts);
+}
+
+// Small inline-SVG legend swatch shared by every legend (map legend strip, PlotAtlas legend, the
+// exported web map's legend, the dashboard preview popup). Draws the type's actual symbol —
+// shape for points, a short dashed/solid stroke for lines, a filled/outline square for polygons —
+// rather than a plain color dot, so the legend actually explains what's on the map instead of
+// just repeating the color key.
+function legendGlyphSvg(geometryType, color, shape, lineStyle, filled){
+  const S = 16;
+  if (geometryType === 'polygon'){
+    const dash = leafletDashArray(lineStyle, 1.6);
+    return `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="${filled ? color : 'none'}" fill-opacity="${filled?0.35:0}" stroke="${color}" stroke-width="1.6" ${dash?`stroke-dasharray="${dash}"`:''}/></svg>`;
+  }
+  if (geometryType === 'line'){
+    const dash = leafletDashArray(lineStyle, 2);
+    return `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><line x1="1.5" y1="8" x2="14.5" y2="8" stroke="${color}" stroke-width="2.4" stroke-linecap="round" ${dash?`stroke-dasharray="${dash}"`:''}/></svg>`;
+  }
+  return shapeGlyphSvg(shape, 5.5, color, 1.6, 1, 'transparent');
+}
+
 // Picks readable dark/light text for an arbitrary hex background (YIQ perceived-brightness split).
 function contrastText(hex){
   const c=hex.replace('#','');

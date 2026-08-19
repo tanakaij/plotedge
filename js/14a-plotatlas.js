@@ -339,20 +339,24 @@ function renderPlotAtlas(){
     if (typeof hiddenLayerKeys !== 'undefined' && hiddenLayerKeys.has(info.key)) return;
     if (!matches(f)) return;
     const color = featureTypeColor(info.key);
-    legendSeen.set(info.key, { label:info.label, color });
+    const geo = f.geometryType || 'point';
+    legendSeen.set(info.key, { label:info.label, color, geo,
+      shape:featureTypeShape(info.key), lineStyle:featureTypeLineStyle(info.key), filled:featureTypeFilled(info.key) });
     const verts = (f.vertices||[]).filter(v=>v.lat!=null && v.lon!=null);
     if (!verts.length) return;
-    const geo = f.geometryType || 'point';
     drawn++;
 
     if (geo === 'point'){
-      verts.forEach(v => points.push({ f, v, color, info }));
+      const pointShape = featureTypeShape(info.key);
+      verts.forEach(v => points.push({ f, v, color, info, shape:pointShape }));
       return;
     }
     const latlngs = verts.map(v=>[v.lat, v.lon]);
+    const lineStyle = featureTypeLineStyle(info.key);
+    const filled = featureTypeFilled(info.key);
     const shape = geo === 'polygon'
-      ? L.polygon(latlngs, { color, weight:2.5, fillColor:color, fillOpacity:0.22 })
-      : L.polyline(latlngs, { color, weight:4 });
+      ? L.polygon(latlngs, { color, weight:2.5, fillColor:color, fillOpacity:filled?0.22:0, fill:filled, dashArray:leafletDashArray(lineStyle,2.5) })
+      : L.polyline(latlngs, { color, weight:4, dashArray:leafletDashArray(lineStyle,4) });
     // NOTE: Leaflet's vector layers (polyline/polygon/circleMarker) default
     // `bubblingMouseEvents: true`, so a click on a feature is also re-fired on
     // the map itself, via Leaflet's own internal propagation bookkeeping — not
@@ -413,10 +417,10 @@ function atlasRenderPoints(points){
   if (!points.length) return;
   const zoom = atlasMap.getZoom();
   if (!atlasClusterOn || zoom >= ATLAS_CLUSTER_MAX_ZOOM || points.length < 12){
-    points.forEach(({f, v, color}) => {
+    points.forEach(({f, v, color, shape}) => {
       const halo = (typeof accuracyHaloStyle === 'function') ? accuracyHaloStyle(v.acc) : null;
       if (halo) L.circle([v.lat, v.lon], { radius: Math.max(v.acc, 3), ...halo, interactive:false }).addTo(atlasFeatureLayer);
-      L.circleMarker([v.lat, v.lon], { radius:7, color:'#fff', weight:2.5, fillColor:color, fillOpacity:0.95 })
+      featurePointLayer([v.lat, v.lon], { shape, radius:7, color:'#fff', weight:2.5, fillColor:color, fillOpacity:0.95 })
         .on('click', ev => { L.DomEvent.stopPropagation(ev); atlasOpenSheet(f.id); })
         .addTo(atlasFeatureLayer);
       if (atlasLabelsOn) atlasAddLabel([v.lat, v.lon], f.name || '(unnamed)', color);
@@ -435,8 +439,8 @@ function atlasRenderPoints(points){
     const n = c.items.length;
     const centre = [c.sumLat / n, c.sumLon / n];
     if (n === 1){
-      const { f, v, color } = c.items[0];
-      L.circleMarker([v.lat, v.lon], { radius:7, color:'#fff', weight:2.5, fillColor:color, fillOpacity:0.95 })
+      const { f, v, color, shape } = c.items[0];
+      featurePointLayer([v.lat, v.lon], { shape, radius:7, color:'#fff', weight:2.5, fillColor:color, fillOpacity:0.95 })
         .on('click', ev => { L.DomEvent.stopPropagation(ev); atlasOpenSheet(f.id); })
         .addTo(atlasFeatureLayer);
       if (atlasLabelsOn) atlasAddLabel([v.lat, v.lon], f.name || '(unnamed)', color);
@@ -531,7 +535,7 @@ function renderAtlasLegend(legendMap){
   if (!el) return;
   const items = Array.from(legendMap.values());
   el.innerHTML = items.length
-    ? items.map(i=>`<span class="map-legend-chip"><span class="map-legend-swatch" style="background:${i.color}"></span>${escapeHtml(i.label)}</span>`).join('')
+    ? items.map(i=>`<span class="map-legend-chip"><span class="map-legend-swatch">${legendGlyphSvg(i.geo,i.color,i.shape,i.lineStyle,i.filled)}</span>${escapeHtml(i.label)}</span>`).join('')
     : '<span class="atlas-legend-empty">Nothing on the map yet</span>';
 }
 

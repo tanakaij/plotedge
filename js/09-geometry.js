@@ -706,9 +706,11 @@ function renderVertexMap(){
   }
   const geo = getCurrentGeometryType();
   const latlngs = currentVertices.map(v => [v.lat, v.lon]);
+  const captureFtSel = document.getElementById('featureTypeSelect');
+  const captureLineStyle = featureTypeLineStyle(captureFtSel ? captureFtSel.value : null);
   if (n >= 2 && (geo==='line' || geo==='polygon')) {
-    vertexMapLine = (geo==='polygon' ? L.polygon(latlngs, { color: cssVar('--orange'), weight:2, fillOpacity:0.14 })
-                                      : L.polyline(latlngs, { color: cssVar('--orange'), weight:2 })).addTo(vertexMap);
+    vertexMapLine = (geo==='polygon' ? L.polygon(latlngs, { color: cssVar('--orange'), weight:2, fillOpacity:0.14, dashArray:leafletDashArray(captureLineStyle,2) })
+                                      : L.polyline(latlngs, { color: cssVar('--orange'), weight:2, dashArray:leafletDashArray(captureLineStyle,2) })).addTo(vertexMap);
   }
   // Faint ghosts of nearby saved vertices — without them, snapping is invisible until it fires
   // and the operator has no idea a shared corner is even available to snap to. Capped and
