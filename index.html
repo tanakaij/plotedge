@@ -2292,8 +2292,24 @@ try {
 <div class="modal-overlay" id="dashMapPreviewModal">
   <div class="modal-box">
     <div class="modal-msg">Project map</div>
-    <div class="dash-map-preview-frame" id="dashMapPreviewFrame" aria-hidden="true"></div>
+    <div class="dash-map-preview-frame" id="dashMapPreviewFrame"></div>
     <div class="dash-map-preview-sub" id="dashMapPreviewSub"></div>
+    <!-- Feature tap popup: name + type, positioned relative to .modal-box (not the frame, which
+         clips) so it can be dragged anywhere in the sheet without getting cut off. Hidden until
+         a shape in the frame above is tapped; see handleDashMapFrameClick() in js/13-dashboard.js. -->
+    <div class="dash-map-popup" id="dashMapPopup" role="dialog" aria-label="Feature details" hidden>
+      <div class="dash-map-popup-head" id="dashMapPopupHead">
+        <svg class="dash-map-popup-grip" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+        <button type="button" class="dash-map-popup-close" onclick="closeDashMapPopup()" aria-label="Close feature details">&times;</button>
+      </div>
+      <div class="dash-map-popup-body">
+        <span class="dash-map-popup-swatch" id="dashMapPopupSwatch" aria-hidden="true"></span>
+        <span class="dash-map-popup-text">
+          <span class="dash-map-popup-name" id="dashMapPopupName"></span>
+          <span class="dash-map-popup-type" id="dashMapPopupType"></span>
+        </span>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeDashMapPreview()">Close</button>
       <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="openDashMapPreviewReview()">Open Review</button>

@@ -75,6 +75,30 @@ function renderDashThumb(){
 // where it's actually legible, and reached by tapping the map tile rather than replacing it.
 // No tiles, no Leaflet, no network here either — same reasoning as the old thumbnail: it works in
 // a dead spot, and costs one pass over vertices already in memory rather than a tile fetch.
+// ── Scale bar denominations, reused at glance-view size the same way js/17a-plansheet.js picks a
+// drafting scale for the printed plan sheet — a short list of round ground distances, and the
+// first one whose bar length lands in a sane on-screen range wins.
+const DASH_MAP_SCALE_CANDIDATES = [0.5,1,2,5,10,20,25,50,100,200,250,500,1000,2000,2500,5000,10000,20000,25000,50000,100000];
+const DASH_MAP_METERS_PER_DEGREE = 111320; // WGS84 equatorial approximation — the same order of accuracy this projection already works at
+
+function dashMapPickScaleMeters(metersPerSvgUnit, minLen, maxLen){
+  let best = null;
+  for (const m of DASH_MAP_SCALE_CANDIDATES){
+    if (m / metersPerSvgUnit >= minLen && m / metersPerSvgUnit <= maxLen){ best = m; break; }
+  }
+  if (best == null){
+    // Nothing landed in range (a vast survey or a tiny one) — fall back to whichever candidate's
+    // bar length is closest to the middle of the range, rather than drawing nothing.
+    const mid = (minLen + maxLen) / 2;
+    let bestDiff = Infinity;
+    DASH_MAP_SCALE_CANDIDATES.forEach(m => {
+      const diff = Math.abs((m / metersPerSvgUnit) - mid);
+      if (diff < bestDiff){ bestDiff = diff; best = m; }
+    });
+  }
+  return best;
+}
+
 function renderDashMapPreview(){
   const frame = document.getElementById('dashMapPreviewFrame');
   const sub = document.getElementById('dashMapPreviewSub');
@@ -89,7 +113,7 @@ function renderDashMapPreview(){
   if (!pts.length){
     // Same empty-state mark as the tile used to fall back to, just bigger — an empty frame reads
     // as something failed to load rather than as "nothing here yet".
-    frame.innerHTML = `<svg class="dash-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
+    frame.innerHTML = `<svg class="dash-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
     return;
   }
 
@@ -111,30 +135,167 @@ function renderDashMapPreview(){
     (S - ((lat - minLat) * scale + offY)).toFixed(1)
   ];
 
+  // ══ SCALE/ORIENTATION CONTEXT ══
+  // All four candidates from the design pass (faint grid, corner tick frame, north arrow, scale
+  // bar) rather than picking just one — kept from clattering into each other or into the survey
+  // shapes by splitting the frame into two zones: the PAD-wide margin the projection above always
+  // leaves empty around the drawing (offX/offY are never less than PAD) holds the arrow and the
+  // scale bar, one per corner, while the grid and the corner ticks are ambient enough — near-
+  // invisible opacity, hairline strokes — to sit under the shapes without competing with them.
+  let chrome = '<defs><pattern id="dashMapGridPattern" width="10" height="10" patternUnits="userSpaceOnUse">'
+    + '<path d="M10 0H0V10" fill="none" stroke="var(--text-tertiary)" stroke-width="0.25" stroke-opacity="0.16"/>'
+    + '</pattern></defs>';
+  chrome += `<rect x="0" y="0" width="${S}" height="${S}" fill="url(#dashMapGridPattern)" aria-hidden="true"/>`;
+  // Corner brackets, surveyor's-plan style — a short L at each corner rather than a full frame.
+  const tickLen = 7, tickInset = 3;
+  [[tickInset,tickInset,1,1],[S-tickInset,tickInset,-1,1],[S-tickInset,S-tickInset,-1,-1],[tickInset,S-tickInset,1,-1]]
+    .forEach(([x,y,dx,dy]) => {
+      chrome += `<path d="M${x} ${y+dy*tickLen}L${x} ${y}L${x+dx*tickLen} ${y}" fill="none" stroke="var(--text-secondary)" stroke-width="1" stroke-opacity="0.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"/>`;
+    });
+  // North arrow, top-right margin.
+  chrome += `<g transform="translate(${S-16},16)" opacity="0.55" aria-hidden="true">`
+    + '<path d="M0,-9 L3.5,4 L0,1.2 L-3.5,4 Z" fill="var(--text-secondary)"/>'
+    + '<text x="0" y="14" font-size="6.2" text-anchor="middle" font-weight="700" fill="var(--text-secondary)">N</text>'
+    + '</g>';
+  // Scale bar, bottom-left margin — sized to a round ground distance, not an arbitrary fraction.
+  const metersPerSvgUnit = DASH_MAP_METERS_PER_DEGREE / scale;
+  const niceMeters = dashMapPickScaleMeters(metersPerSvgUnit, 14, 46);
+  const barLen = (niceMeters / metersPerSvgUnit).toFixed(1);
+  const barX0 = 9, barY = 94, barX1 = (Number(barX0) + Number(barLen)).toFixed(1);
+  const scaleLabel = niceMeters >= 1000 ? `${niceMeters/1000} km` : `${niceMeters} m`;
+  chrome += `<g opacity="0.6" aria-hidden="true">`
+    + `<line x1="${barX0}" y1="${barY}" x2="${barX1}" y2="${barY}" stroke="var(--text-secondary)" stroke-width="1"/>`
+    + `<line x1="${barX0}" y1="${barY-2}" x2="${barX0}" y2="${barY+2}" stroke="var(--text-secondary)" stroke-width="1"/>`
+    + `<line x1="${barX1}" y1="${barY-2}" x2="${barX1}" y2="${barY+2}" stroke="var(--text-secondary)" stroke-width="1"/>`
+    + `<text x="${((Number(barX0)+Number(barX1))/2).toFixed(1)}" y="${barY-3}" font-size="5.4" text-anchor="middle" fill="var(--text-secondary)">${scaleLabel}</text>`
+    + '</g>';
+
+  // ══ FEATURES — each shape is its own tap target ══
+  // A wider, invisible "hit" duplicate sits behind the visible shape so thin lines and small
+  // points stay tappable at this size; the visible shape never grows just to be easier to hit.
   let out = '';
-  savedFeatures.forEach(f => {
+  savedFeatures.forEach((f, idx) => {
     const vs = (f.vertices || []).filter(v => v && v.lat != null && v.lon != null);
     if (!vs.length) return;
-    const color = featureTypeColor(resolveFeatureType(f).key);
+    const type = resolveFeatureType(f);
+    const color = featureTypeColor(type.key);
     const pathPts = vs.map(v => px(v.lat, v.lon));
+    const name = (f.name || '').trim() || '(unnamed)';
+    const label = `${name}, ${type.label || 'Feature'}`;
+    const gAttrs = `class="dash-map-feat" data-idx="${idx}" tabindex="0" role="button" aria-label="${escapeHtml(label)}"`;
     if (vs.length === 1){
-      out += `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3" fill="${color}"/>`;
+      out += `<g ${gAttrs}>`
+        + `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="7" fill="transparent" class="dash-map-feat-hit"/>`
+        + `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3" fill="${color}" class="dash-map-feat-shape"/>`
+        + '</g>';
     } else {
       const d = pathPts.map((p,i)=>`${i?'L':'M'}${p[0]} ${p[1]}`).join(' ');
       const closed = (f.geometryType || '') === 'polygon';
-      out += `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      out += `<g ${gAttrs}>`
+        + `<path d="${d}${closed?' Z':''}" fill="${closed?'#000':'none'}" fill-opacity="${closed?0.01:0}" stroke="transparent" stroke-width="9" class="dash-map-feat-hit"/>`
+        + `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" class="dash-map-feat-shape"/>`
+        + '</g>';
     }
   });
-  frame.innerHTML = `<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">${out}</svg>`;
+  frame.innerHTML = `<svg viewBox="0 0 ${S} ${S}">${chrome}${out}</svg>`;
 }
+
+let _dashMapPreviewWired = false;
 
 function openDashMapPreview(){
   renderDashMapPreview();
+  closeDashMapPopup();
+  // Wired once, not on every render — renderDashMapPreview() replaces the frame's innerHTML each
+  // time (feature colours/positions can change between opens), but the frame element itself and
+  // the popup's drag handle persist for the life of the page, so a delegated listener attached
+  // once keeps working across every re-render without piling up duplicate handlers.
+  if (!_dashMapPreviewWired){
+    const frame = document.getElementById('dashMapPreviewFrame');
+    const head = document.getElementById('dashMapPopupHead');
+    if (frame) frame.addEventListener('click', handleDashMapFrameClick);
+    if (head) head.addEventListener('pointerdown', dashMapPopupDragStart);
+    _dashMapPreviewWired = true;
+  }
   document.getElementById('dashMapPreviewModal').classList.add('show');
 }
 
 function closeDashMapPreview(){
   document.getElementById('dashMapPreviewModal').classList.remove('show');
+  closeDashMapPopup();
+}
+
+// ══ FEATURE POPUP — name + type, draggable ══
+// Positioned relative to the modal box (not the 240px frame, which clips) so dragging it never
+// gets clipped by the small preview square, and clamped to the box's own bounds so it can't be
+// dragged out from under the sheet and lost.
+function handleDashMapFrameClick(e){
+  const hit = e.target.closest('.dash-map-feat');
+  if (!hit){ closeDashMapPopup(); return; }
+  const idx = Number(hit.dataset.idx);
+  const f = savedFeatures[idx];
+  if (!f) return;
+  showDashMapPopup(f, e.clientX, e.clientY);
+}
+
+function showDashMapPopup(feature, clientX, clientY){
+  const popup = document.getElementById('dashMapPopup');
+  const box = popup && popup.closest('.modal-box');
+  if (!popup || !box) return;
+  const type = resolveFeatureType(feature);
+  const name = (feature.name || '').trim() || '(unnamed)';
+  const nameEl = document.getElementById('dashMapPopupName');
+  const typeEl = document.getElementById('dashMapPopupType');
+  const swatchEl = document.getElementById('dashMapPopupSwatch');
+  if (nameEl) nameEl.textContent = name;
+  if (typeEl) typeEl.textContent = type.label || 'Feature';
+  if (swatchEl) swatchEl.style.background = featureTypeColor(type.key);
+  popup.hidden = false;
+
+  const boxRect = box.getBoundingClientRect();
+  const pw = popup.offsetWidth || 168, ph = popup.offsetHeight || 78;
+  let left = clientX - boxRect.left - pw / 2;
+  let top = clientY - boxRect.top - ph - 14;
+  left = Math.max(8, Math.min(left, boxRect.width - pw - 8));
+  top = Math.max(8, Math.min(top, boxRect.height - ph - 8));
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+}
+
+function closeDashMapPopup(){
+  const popup = document.getElementById('dashMapPopup');
+  if (popup) popup.hidden = true;
+}
+
+let _dashMapPopupDrag = null;
+
+function dashMapPopupDragStart(e){
+  const popup = document.getElementById('dashMapPopup');
+  const box = popup && popup.closest('.modal-box');
+  if (!popup || !box || popup.hidden) return;
+  e.preventDefault();
+  const boxRect = box.getBoundingClientRect();
+  const popRect = popup.getBoundingClientRect();
+  _dashMapPopupDrag = { offX: e.clientX - popRect.left, offY: e.clientY - popRect.top, boxRect };
+  document.addEventListener('pointermove', dashMapPopupDragMove);
+  document.addEventListener('pointerup', dashMapPopupDragEnd, { once:true });
+}
+
+function dashMapPopupDragMove(e){
+  const d = _dashMapPopupDrag;
+  const popup = document.getElementById('dashMapPopup');
+  if (!d || !popup) return;
+  const pw = popup.offsetWidth, ph = popup.offsetHeight;
+  let left = e.clientX - d.boxRect.left - d.offX;
+  let top = e.clientY - d.boxRect.top - d.offY;
+  left = Math.max(4, Math.min(left, d.boxRect.width - pw - 4));
+  top = Math.max(4, Math.min(top, d.boxRect.height - ph - 4));
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+}
+
+function dashMapPopupDragEnd(){
+  document.removeEventListener('pointermove', dashMapPopupDragMove);
+  _dashMapPopupDrag = null;
 }
 
 // The one path out of the preview that actually leaves the Dashboard tab — closes the popup first

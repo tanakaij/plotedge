@@ -294,6 +294,15 @@ async function mapLayoutBuildBasemapImage(bbox,targetW,targetH,mode){
       break;
     }
   }
+  // The for-loop's own increment leaves z one past MAX_Z whenever it runs to completion without
+  // ever breaking — which is the common case for a small, tightly-captured survey: at MAX_Z the
+  // tile resolution still doesn't cover targetW/targetH, but the tile budget was never exceeded
+  // either, so nothing ever triggers a break. tx0..ty1 above were computed during the last
+  // iteration that actually ran (z === MAX_Z), so z has to be clamped back down to match them —
+  // otherwise every tile fetch below requests a zoom level no server serves, at tile coordinates
+  // that belong to a different zoom entirely, every fetch fails, and the printed sheet's basemap
+  // is silently blank.
+  if (z > MAX_Z) z = MAX_Z;
   const cols=tx1-tx0+1, rows=ty1-ty0+1;
   const stitch=document.createElement('canvas');
   stitch.width=cols*256; stitch.height=rows*256;
