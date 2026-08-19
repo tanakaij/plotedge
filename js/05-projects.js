@@ -887,11 +887,18 @@ function closeRenameModal(save){
       p.name = name;
       p.updatedAt = new Date().toISOString();
       persistStore();
-      // If it happens to be the project that's currently open, the in-app header is showing the
-      // old name — update it in place rather than waiting for the next openProject().
+      // If it happens to be the project that's currently open, the dashboard's project strip
+      // (the only place the project's name shows now — see the header-title comment in
+      // index.html) is showing the old name — update it in place rather than waiting for the
+      // next openProject().
       if (activeProjectId === p.id){
-        const h = document.getElementById('activeProjName');
-        if (h) h.textContent = p.name;
+        const strip = document.getElementById('dashProjectStrip');
+        if (strip){
+          const metaBits = [p.client, p.manager, p.site].filter(Boolean).join(' · ');
+          strip.innerHTML = metaBits
+            ? `<strong>${escapeHtml(p.name)}</strong> · ${escapeHtml(metaBits)}`
+            : `<strong>${escapeHtml(p.name)}</strong>`;
+        }
       }
       showToast('Project renamed');
     }
@@ -1092,9 +1099,10 @@ function saveProjectForm() {
     p.updatedAt = new Date().toISOString();
     persistStore();
     if (activeProjectId === p.id) {
-      document.getElementById('activeProjName').textContent = p.name;
+      // The header no longer shows the project's name (see the header-title comment in
+      // index.html) — dashProjectStrip is the only place it still lives, so that's all this
+      // updates now.
       const metaBits = [p.client, p.manager, p.site].filter(Boolean).join(' · ');
-      document.getElementById('activeProjMeta').textContent = metaBits;
       document.getElementById('dashProjectStrip').innerHTML = metaBits
         ? `<strong>${escapeHtml(p.name)}</strong> · ${escapeHtml(metaBits)}`
         : `<strong>${escapeHtml(p.name)}</strong>`;
@@ -1174,9 +1182,10 @@ function openProject(id, opts) {
   document.getElementById('editModeBanner').style.display = 'none';
   document.getElementById('cancelEditBtn').style.display = 'none';
 
-  document.getElementById('activeProjName').textContent = p.name;
+  // The header itself no longer shows the project's name — switchTab('dashboard') below sets it
+  // to the fixed per-tab label instead (see HEADER_TITLES in js/07-navigation.js). This strip is
+  // the project's actual name and identity now.
   const metaBits = [p.client, p.manager, p.site].filter(Boolean).join(' · ');
-  document.getElementById('activeProjMeta').textContent = metaBits;
   document.getElementById('dashProjectStrip').innerHTML = metaBits
     ? `<strong>${escapeHtml(p.name)}</strong> · ${escapeHtml(metaBits)}`
     : `<strong>${escapeHtml(p.name)}</strong>`;

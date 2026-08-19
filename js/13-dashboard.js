@@ -53,28 +53,46 @@ function renderAccuracyDetail(accVals){
 
 // ══ PROJECT THUMBNAIL ══
 // The dashboard's old full-width Leaflet preview is gone (see the note where dockReviewMap() used
-// to live in js/06-collect.js). This draws the same information — the shape of what has been
-// collected — as a 46px inline SVG built from vertex coordinates already in memory.
-// It is not a map and does not pretend to be one: no tiles, no basemap, no scale. That is the
-// point. A field app on a dead data plan renders this identically to one on wifi, and it costs a
-// single pass over the vertices rather than a tile fetch and a Leaflet reflow.
-// Coordinates are projected with a plain equirectangular fit — longitude scaled by cos(latitude)
-// so a survey does not come out stretched sideways — then normalised into the box. At thumbnail
-// size any projection more honest than that would be indistinguishable.
+// to live in js/06-collect.js). This 46px tile used to draw the shape of the survey itself — a
+// live inline SVG plot built from vertex coordinates already in memory — as an identity mark for
+// the project. At that size the shape was largely illegible, so the tile itself is now a plain
+// folded-map glyph — a tap target that reads unambiguously as "there's a map here" — and the
+// actual shape moved to renderDashMapPreview() below, drawn big enough in a popup to be worth
+// looking at. Feature count still reaches screen readers via aria-label on the tile.
 function renderDashThumb(){
   const el = document.getElementById('dashProjectThumb');
   if (!el) return;
+  el.innerHTML = `<svg class="dash-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
+  const n = savedFeatures.length;
+  el.setAttribute('aria-label', n
+    ? `${n} feature${n===1?'':'s'} captured — open the Review map`
+    : 'No features captured yet — open the Review map');
+}
+
+// ══ MAP PREVIEW MODAL ══
+// The same equirectangular-fit projection the old inline thumbnail used (longitude scaled by
+// cos(latitude) so a survey doesn't come out stretched sideways), just drawn into a bigger frame
+// where it's actually legible, and reached by tapping the map tile rather than replacing it.
+// No tiles, no Leaflet, no network here either — same reasoning as the old thumbnail: it works in
+// a dead spot, and costs one pass over vertices already in memory rather than a tile fetch.
+function renderDashMapPreview(){
+  const frame = document.getElementById('dashMapPreviewFrame');
+  const sub = document.getElementById('dashMapPreviewSub');
+  if (!frame) return;
+  const n = savedFeatures.length;
+  if (sub) sub.textContent = n ? `${n} feature${n===1?'':'s'} captured` : 'Nothing captured yet';
+
   const pts = [];
   savedFeatures.forEach(f => (f.vertices || []).forEach(v => {
     if (v && v.lat != null && v.lon != null) pts.push([v.lat, v.lon]);
   }));
   if (!pts.length){
-    // An empty project gets a mark, not an empty box: a blank tile beside the project name looks
-    // like something failed to load rather than like there is nothing to draw yet.
-    el.innerHTML = `<svg class="dash-thumb-empty" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
-    el.setAttribute('aria-label', 'No features captured yet — open the Review map');
+    // Same empty-state mark as the tile used to fall back to, just bigger — an empty frame reads
+    // as something failed to load rather than as "nothing here yet".
+    frame.innerHTML = `<svg class="dash-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
     return;
   }
+
   const lats = pts.map(p=>p[0]), lons = pts.map(p=>p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
@@ -84,7 +102,7 @@ function renderDashThumb(){
   const spanY = Math.max(maxLat - minLat, 1e-9);
   // One scale for both axes, so the drawing keeps the survey's real proportions instead of
   // stretching a road centreline into a square.
-  const S = 100, PAD = 12;
+  const S = 100, PAD = 10;
   const scale = (S - PAD * 2) / Math.max(spanX, spanY);
   const offX = (S - spanX * scale) / 2, offY = (S - spanY * scale) / 2;
   const px = (lat, lon) => [
@@ -100,15 +118,30 @@ function renderDashThumb(){
     const color = featureTypeColor(resolveFeatureType(f).key);
     const pathPts = vs.map(v => px(v.lat, v.lon));
     if (vs.length === 1){
-      out += `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3.4" fill="${color}"/>`;
+      out += `<circle cx="${pathPts[0][0]}" cy="${pathPts[0][1]}" r="3" fill="${color}"/>`;
     } else {
       const d = pathPts.map((p,i)=>`${i?'L':'M'}${p[0]} ${p[1]}`).join(' ');
       const closed = (f.geometryType || '') === 'polygon';
-      out += `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+      out += `<path d="${d}${closed?' Z':''}" fill="${closed?color:'none'}" fill-opacity="${closed?0.28:0}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
   });
-  el.innerHTML = `<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">${out}</svg>`;
-  el.setAttribute('aria-label', `${savedFeatures.length} feature${savedFeatures.length===1?'':'s'} captured — open the Review map`);
+  frame.innerHTML = `<svg viewBox="0 0 ${S} ${S}" aria-hidden="true">${out}</svg>`;
+}
+
+function openDashMapPreview(){
+  renderDashMapPreview();
+  document.getElementById('dashMapPreviewModal').classList.add('show');
+}
+
+function closeDashMapPreview(){
+  document.getElementById('dashMapPreviewModal').classList.remove('show');
+}
+
+// The one path out of the preview that actually leaves the Dashboard tab — closes the popup first
+// so it isn't left open (and re-shown) the next time someone taps back into the Dashboard tab.
+function openDashMapPreviewReview(){
+  closeDashMapPreview();
+  switchTabNav('review');
 }
 
 
@@ -413,7 +446,9 @@ function updateStats(){
       : newest ? `Last capture ${timeAgo(newest)}` : `${nPh} attached`;
   }
 
-  document.getElementById('sessionBadge').textContent=nF===1?'1 feature':`${nF} features`;
+  // The header used to carry a "N features" badge alongside the project name — both were removed
+  // together (see the header-title comment in index.html). The count is not missing, it's just
+  // not duplicated up there any more: the Total Features KPI card below is the one place it lives.
   const sub=document.getElementById('ftDashSub');
   if(sub) sub.textContent = featureTypes.length ? `${featureTypes.length} type${featureTypes.length===1?'':'s'} defined` : 'Define what you capture in this project';
   // In-progress capture banner — surfaces an unfinished line/polygon (or a point mid multi-angle

@@ -1195,7 +1195,11 @@ function ensureJsPdf(){
 }
 
 function activeProjectDisplayName(){
-  return (document.getElementById('activeProjName') && document.getElementById('activeProjName').textContent) || 'Project';
+  // Used to read the header's #activeProjName text — that element now shows a fixed per-tab
+  // label ("PlotEdge"/"Capture"/"Review"/...), not the project's name, so this reads the project
+  // record itself instead. See the header-title comment in index.html.
+  const p = projects.find(x => x.id === activeProjectId);
+  return (p && p.name) || 'Project';
 }
 
 // ══ PLOTEDGE BACKUP (round-trip import/export) ══

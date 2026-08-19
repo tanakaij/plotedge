@@ -408,6 +408,14 @@ try {
 <div class="view" id="view-datahub">
   <header class="pm-header">
     <div class="pm-header-top">
+      <!-- Data sits at the same level as Dashboard/Capture/Review in the bottom nav, and those
+           three share a header that always carries a back arrow (see view-app's header above).
+           This one didn't, which made Data read as a dead end rather than a peer screen. Uses the
+           same headerBackTap() as the in-project header, so it means the same thing everywhere:
+           one step up, toward the projects list. -->
+      <button class="icon-back" onclick="headerBackTap()" aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
       <h1 class="pm-title">Data</h1>
       <div class="control-pill">
         <!-- Home. The landing screen used to be unreachable once a project existed, so the app
@@ -818,11 +826,15 @@ try {
       <button class="icon-back" onclick="headerBackTap()" aria-label="Back">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
       </button>
+      <!-- This used to show the open project's name (and a feature count badge further along the
+           bar). Both read as project identity, and the project already has a home for that one
+           level in — the strip under the map thumbnail on the Dashboard (#dashProjectStrip). Up
+           here, a fixed per-tab label answers a plainer question — "which screen am I on" — and
+           does it identically no matter which project is open. Swapped by switchTab() via the
+           HEADER_TITLES map in js/07-navigation.js; see the comment there. -->
       <div class="header-title">
-        <h1 id="activeProjName">Project</h1>
-        <p id="activeProjMeta"></p>
+        <h1 id="activeProjName">PlotEdge</h1>
       </div>
-      <div class="session-badge" id="sessionBadge">0 features</div>
       <!-- Units, Theme and Density live in the Settings modal now — only Contrast stays out here,
            see the matching comment on the Welcome screen's control pill above. -->
       <div class="control-pill">
@@ -853,13 +865,15 @@ try {
          invalidateSize() dance, a re-render, and a fresh tile fetch on a screen nobody navigates
          to in order to look at a map. A dashboard should say what state the work is in, and hand
          you to the map when you want the map.
-         What is left is a thumbnail: an inline SVG plot of this project's own vertices, drawn by
-         renderDashThumb() from coordinates already in memory. No tiles, no Leaflet, no network —
-         it works in a dead spot, which the hero map never did. It reads as an identity mark for
-         the project rather than a map you are meant to use, and tapping it goes to the real map. -->
+         What is left is a small map-glyph tap target (renderDashThumb()) that opens a glance-sized
+         preview rather than jumping straight to Review — the tile itself is too small at 46px to
+         read a real shape in, so the preview modal is where that shape (the same inline SVG plot
+         the tile used to draw at that size) actually becomes legible, with an "Open Review" button
+         for anyone who wants the real interactive map from there. See renderDashMapPreview() /
+         openDashMapPreview() in js/13-dashboard.js. -->
     <div class="dash-project-head">
-      <button type="button" class="dash-thumb" id="dashProjectThumb" onclick="switchTabNav('review')"
-              aria-label="Open this project on the Review map"></button>
+      <button type="button" class="dash-thumb" id="dashProjectThumb" onclick="openDashMapPreview()"
+              aria-label="Preview this project's captured shape"></button>
       <button type="button" class="dash-project-strip" id="dashProjectStrip"
               onclick="editProject(activeProjectId)" aria-label="Edit project details"></button>
     </div>
@@ -877,7 +891,13 @@ try {
            aria-expanded="false" aria-controls="dashShadeBody" onclick="toggleDashShade()"
            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleDashShade();}">
         <span class="dash-shade-dots" id="dashShadeDots"></span>
-        <span class="dash-shade-line" id="dashShadeLine">Checking status…</span>
+        <!-- Same two-line pattern as Session Insights below (title + live summary), so the two
+             collapsible headers on this screen read as one family rather than two different
+             conventions for the same idea. -->
+        <span class="dash-shade-headline">
+          <span class="dash-shade-title">Project &amp; Operational Status</span>
+          <span class="dash-shade-line" id="dashShadeLine">Checking status…</span>
+        </span>
         <svg class="dash-shade-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="dash-shade-body" id="dashShadeBody">
@@ -2259,6 +2279,24 @@ try {
     <div class="quick-notes-saved" id="quickNotesSavedLabel"></div>
     <div class="modal-actions" style="margin-top:14px;">
       <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="closeQuickNotesModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DASHBOARD MAP PREVIEW ══
+     Opened by tapping the small map-glyph tile at the top of the Dashboard (#dashProjectThumb).
+     The tile itself is 46px — too small to read a real shape in — so this is where the project's
+     actual captured shape (the inline SVG plot renderDashThumb() used to draw at tile size) is
+     legible at a glance, with a way straight through to the real interactive map for anyone who
+     wants it. See renderDashMapPreview() / openDashMapPreview() in js/13-dashboard.js. -->
+<div class="modal-overlay" id="dashMapPreviewModal">
+  <div class="modal-box">
+    <div class="modal-msg">Project map</div>
+    <div class="dash-map-preview-frame" id="dashMapPreviewFrame" aria-hidden="true"></div>
+    <div class="dash-map-preview-sub" id="dashMapPreviewSub"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1;margin:0;" onclick="closeDashMapPreview()">Close</button>
+      <button class="btn" style="flex:1;margin:0;background:var(--accent-primary);color:var(--on-accent);" onclick="openDashMapPreviewReview()">Open Review</button>
     </div>
   </div>
 </div>

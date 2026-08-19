@@ -7,6 +7,14 @@
 // them will break the app; `npm test` checks this.
 
 
+// ── HEADER TITLE ──
+// The in-project header used to show the open project's name (plus a feature-count badge). Both
+// were project identity, which already has a home one level in — the strip under the map
+// thumbnail on the Dashboard. Up here the header now just says which of the five panels sharing
+// it (Dashboard/Collect/Review/Import/Export) is on screen, the same for every project. Applied
+// by switchTab() in js/06-collect.js on every tab change.
+const HEADER_TITLES = { dashboard:'PlotEdge', collect:'Capture', review:'Review', import:'Import', export:'Export' };
+
 // Bottom-nav / dashboard shortcuts call this instead of switchTab() directly, so a *user tap*
 // on a tab always leaves a back-button stop behind it. Programmatic switchTab() calls elsewhere
 // (e.g. openProject() landing on 'dashboard', or Save routing back to 'review') don't — those
@@ -521,6 +529,12 @@ function closeTopOverlay(){
   if (isReallyOpen(customizeModal)) { closeCustomizeQa(); return true; }
   const renameModal = document.getElementById('renameModal');
   if (isReallyOpen(renameModal)) { closeRenameModal(false); return true; }
+  // Opened from the Dashboard's map tile (openDashMapPreview() in js/13-dashboard.js). Nothing
+  // opens from inside it, and nothing typed lives in it, so there's no draft to preserve on
+  // close — just listed here so its own close function runs instead of falling through to the
+  // stray catch-all below.
+  const dashMapPreviewModal = document.getElementById('dashMapPreviewModal');
+  if (isReallyOpen(dashMapPreviewModal)) { closeDashMapPreview(); return true; }
   // Catch-all. Every sheet above gets its own named close so its cleanup runs, but Back must never
   // navigate the screen out from under an open sheet just because someone added a modal and forgot
   // to list it here — that failure is invisible until a user is stuck behind it.

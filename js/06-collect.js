@@ -1114,6 +1114,10 @@ function switchTab(name) {
   if (name !== 'collect') exitCollectDataEntry();
   const tabs = ['dashboard','collect','review','import','export'];
   setActiveNavTab(name);
+  // See the HEADER_TITLES comment in js/07-navigation.js — the header no longer shows the
+  // project's name, so this is the only thing setting what it says.
+  const titleEl = document.getElementById('activeProjName');
+  if (titleEl && HEADER_TITLES[name]) titleEl.textContent = HEADER_TITLES[name];
   // Per-project controls, refreshed on entry. At boot would be wrong: opening a second project
   // would leave the first one's coordinate system and accuracy standard on screen.
   if (name === 'export' && typeof syncCrsUI === 'function') syncCrsUI();

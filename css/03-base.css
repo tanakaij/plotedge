@@ -547,6 +547,23 @@
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     .pm-header { backdrop-filter:var(--glass-16); -webkit-backdrop-filter:var(--glass-16); }
   }
+  /* Same watermark as the in-project header (see the compass-rose comment above it), so Projects
+     and Data read as the same family of top bar rather than a different chrome. .pm-header is
+     already position:sticky, which is enough of a containing block for the absolute mask below —
+     no separate position:relative needed. */
+  .pm-header { position:sticky; }
+  .pm-header::before {
+    content:'';
+    position:absolute; top:0; right:0; bottom:0; width:110px;
+    background-color:currentColor;
+    -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Ccircle cx='50' cy='50' r='38'/%3E%3Ccircle cx='50' cy='50' r='2.4' fill='black' stroke='none'/%3E%3Cpath d='M50 4v14M50 82v14M4 50h14M82 50h14' stroke-width='1.4'/%3E%3Cpath d='M50 12 44 40 50 50 56 40Z' fill='black' stroke='none'/%3E%3Cpath d='M50 88 44 60 50 50 56 60Z'/%3E%3Cpath d='M12 50 40 44 50 50 40 56Z'/%3E%3Cpath d='M88 50 60 44 50 50 60 56Z'/%3E%3C/g%3E%3C/svg%3E");
+    mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Ccircle cx='50' cy='50' r='38'/%3E%3Ccircle cx='50' cy='50' r='2.4' fill='black' stroke='none'/%3E%3Cpath d='M50 4v14M50 82v14M4 50h14M82 50h14' stroke-width='1.4'/%3E%3Cpath d='M50 12 44 40 50 50 56 40Z' fill='black' stroke='none'/%3E%3Cpath d='M50 88 44 60 50 50 56 60Z'/%3E%3Cpath d='M12 50 40 44 50 50 40 56Z'/%3E%3Cpath d='M88 50 60 44 50 50 60 56Z'/%3E%3C/g%3E%3C/svg%3E");
+    -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+    -webkit-mask-position:right -4px center; mask-position:right -4px center;
+    -webkit-mask-size:82px 82px; mask-size:82px 82px;
+    opacity:0.07; pointer-events:none; z-index:0;
+  }
+  .pm-header-top, .pm-search-row { position:relative; z-index:1; }
   .pm-header-top { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
   .pm-title { flex:1; min-width:0; font-family:var(--font-display); font-size:24px; font-weight:700; letter-spacing:-0.015em; color:var(--white); margin:0; }
   .pm-count { font-size:12px; font-weight:700; color:var(--text-tertiary); }
@@ -779,6 +796,27 @@
      will-change:transform went too: this element is sticky and never transforms, so it was
      pinning a compositor layer for no reason. */
   header { background:var(--grad-1); color:var(--white); padding:0 16px; padding-top:var(--sat); position:sticky; top:0; z-index:20; border-bottom:1px solid var(--card-border); }
+  /* ══ HEADER TEXTURE — compass rose ══
+     A faint watermark rather than a pattern that tiles edge to edge: one mark, parked off to the
+     right behind the control pill, so it reads as a deliberate touch rather than as noise behind
+     the title text on the left. Painted as a CSS mask filled with currentColor (the header's own
+     color:var(--white)) rather than a hardcoded white PNG/SVG fill, so it automatically tracks
+     whatever that token resolves to per theme — including high-contrast mode — instead of needing
+     its own light/dark variant. pointer-events:none and z-index:0 keep it out of the tap path for
+     the buttons sitting above it. */
+  header { position:relative; }
+  header::before {
+    content:'';
+    position:absolute; top:0; right:0; bottom:0; width:132px;
+    background-color:currentColor;
+    -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Ccircle cx='50' cy='50' r='38'/%3E%3Ccircle cx='50' cy='50' r='2.4' fill='black' stroke='none'/%3E%3Cpath d='M50 4v14M50 82v14M4 50h14M82 50h14' stroke-width='1.4'/%3E%3Cpath d='M50 12 44 40 50 50 56 40Z' fill='black' stroke='none'/%3E%3Cpath d='M50 88 44 60 50 50 56 60Z'/%3E%3Cpath d='M12 50 40 44 50 50 40 56Z'/%3E%3Cpath d='M88 50 60 44 50 50 60 56Z'/%3E%3C/g%3E%3C/svg%3E");
+    mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Ccircle cx='50' cy='50' r='38'/%3E%3Ccircle cx='50' cy='50' r='2.4' fill='black' stroke='none'/%3E%3Cpath d='M50 4v14M50 82v14M4 50h14M82 50h14' stroke-width='1.4'/%3E%3Cpath d='M50 12 44 40 50 50 56 40Z' fill='black' stroke='none'/%3E%3Cpath d='M50 88 44 60 50 50 56 60Z'/%3E%3Cpath d='M12 50 40 44 50 50 40 56Z'/%3E%3Cpath d='M88 50 60 44 50 50 60 56Z'/%3E%3C/g%3E%3C/svg%3E");
+    -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+    -webkit-mask-position:right -6px top 50%; mask-position:right -6px top 50%;
+    -webkit-mask-size:100px 100px; mask-size:100px 100px;
+    opacity:0.1; pointer-events:none; z-index:0;
+  }
+  header .header-top, header .capture-strip { position:relative; z-index:1; }
   .header-top { display:flex; align-items:center; gap:10px; padding:14px 0; }
   /* ══ PREMIUM CONTROL PILL ══ — units/density/outdoor/theme toggles grouped into one frosted,
      segmented capsule instead of four loose circles floating in the header. Reads as a single
@@ -862,7 +900,20 @@
   }
   .dash-thumb:active { transform:scale(0.94); border-color:var(--accent-primary); }
   .dash-thumb svg { display:block; width:100%; height:100%; }
-  .dash-thumb-empty { color:var(--text-tertiary); opacity:0.7; }
+  .dash-thumb-icon { color:var(--text-tertiary); opacity:0.7; }
+  /* ── DASHBOARD MAP PREVIEW MODAL ──
+     The glance-sized version of the shape #dashProjectThumb used to draw at 46px. Square, capped
+     at 240px so it never dominates the modal box, and given its own sunken panel so an empty
+     project (no vertices, no colour) still reads as a frame rather than a blank gap. */
+  .dash-map-preview-frame {
+    width:100%; max-width:240px; aspect-ratio:1; margin:2px auto 12px;
+    border:1px solid var(--card-border); border-radius:var(--radius-md);
+    background:var(--surface-sunken); overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .dash-map-preview-frame svg { display:block; width:100%; height:100%; }
+  .dash-map-preview-frame .dash-thumb-icon { width:34px; height:34px; }
+  .dash-map-preview-sub { text-align:center; font-size:12.5px; color:var(--text-secondary); margin:-4px 0 18px; }
   .dash-project-strip {
     flex:1; min-width:0; margin:0; padding:0; text-align:left; cursor:pointer;
     background:none; border:none; font-family:var(--font);
@@ -890,7 +941,9 @@
        page scrolling. Scoped to this strip and the handle only — the rows inside stay scrollable. */
     touch-action:none;
   }
-  .dash-shade-line { flex:1; min-width:0; font-size:12px; font-weight:700; color:var(--text-primary); letter-spacing:-0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dash-shade-headline { flex:1; min-width:0; }
+  .dash-shade-title { display:block; font-size:13.5px; font-weight:800; color:var(--white); }
+  .dash-shade-line { display:block; margin-top:2px; font-size:11.5px; font-weight:700; color:var(--text-secondary); letter-spacing:-0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .dash-shade-dots { display:flex; align-items:center; gap:4px; flex-shrink:0; }
   .dash-shade-dot { width:7px; height:7px; border-radius:50%; background:var(--text-tertiary); }
   .dash-shade-dot.ok   { background:var(--success); }

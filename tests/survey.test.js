@@ -1565,32 +1565,91 @@ check('the shade commits a drag once, not twice', () => {
     'the flag was not consumed, so the next real tap did nothing');
 });
 
-check('the project thumbnail survives a degenerate extent', () => {
-  // One vertex means a zero-width and zero-height bounding box. Dividing by that span is how a
-  // thumbnail full of NaN gets rendered — and an SVG with NaN coordinates draws nothing at all,
-  // so it fails silently as an empty box rather than as an error.
+check('the project thumbnail is a constant map glyph, captured or not', () => {
+  // The thumbnail used to plot the survey's own vertices, which meant a degenerate one-point or
+  // zero-span extent could render NaN coordinates. It is now a fixed folded-map icon regardless
+  // of what has been captured, so there is no geometry math left to break — this just pins that
+  // the icon renders identically whether the project is empty or has real vertices, and that the
+  // aria-label is still the thing that carries the feature count.
   w.eval(`
     savedFeatures = [{ id:1, name:'Sign', featureTypeId:'ft', geometryType:'point',
       savedAt:new Date().toISOString(), vertices:[{lat:-25.75, lon:28.23, photos:[]}] }];
     renderDashThumb();
   `);
-  const one = w.document.getElementById('dashProjectThumb').innerHTML;
+  const withFeature = w.document.getElementById('dashProjectThumb').innerHTML;
+  assert(/<svg/.test(withFeature), 'the thumbnail did not render an icon');
+  assert(!/NaN|Infinity/.test(withFeature), `rendering produced ${withFeature.slice(0, 120)}`);
+  assert(/1 feature captured/.test(w.document.getElementById('dashProjectThumb').getAttribute('aria-label')),
+    'the feature count did not reach the aria-label');
+
+  w.eval('savedFeatures = []; renderDashThumb();');
+  const empty = w.document.getElementById('dashProjectThumb').innerHTML;
+  assert(/<svg/.test(empty), 'an empty project lost its icon');
+  assert(empty === withFeature, 'the icon changed shape based on captured features');
+  assert(/No features captured yet/.test(w.document.getElementById('dashProjectThumb').getAttribute('aria-label')),
+    'the empty state lost its aria-label');
+});
+
+check('the map tile opens a legible preview instead of jumping straight to Review', () => {
+  // The 46px tile was too small to read a shape in, so tapping it now opens
+  // #dashMapPreviewModal — a bigger version of the same drawing — with an explicit "Open Review"
+  // handoff for whoever wants the real map from there.
+  w.eval(`
+    savedFeatures = [{ id:3, name:'Boundary', featureTypeId:'ft', geometryType:'polygon',
+      savedAt:new Date().toISOString(),
+      vertices:[{lat:-25.750, lon:28.230, photos:[]}, {lat:-25.751, lon:28.235, photos:[]},
+                {lat:-25.753, lon:28.232, photos:[]}] }];
+    document.getElementById('dashMapPreviewModal').classList.remove('show');
+    openDashMapPreview();
+  `);
+  assert(w.document.getElementById('dashMapPreviewModal').classList.contains('show'),
+    'openDashMapPreview() did not open the modal');
+  const preview = w.document.getElementById('dashMapPreviewFrame').innerHTML;
+  assert(/<path[^>]*d="M/.test(preview), 'the preview did not draw the captured shape');
+  assert(!/NaN|Infinity/.test(preview), `the preview projection produced ${preview.slice(0, 120)}`);
+  assert(/1 feature captured/.test(w.document.getElementById('dashMapPreviewSub').textContent),
+    'the preview subtitle did not report the feature count');
+
+  // The tile itself must still be the constant map glyph from the check above — the preview is
+  // additive, not a reversion of that change.
+  assert(/dash-thumb-icon/.test(w.document.getElementById('dashProjectThumb').innerHTML),
+    'the map tile stopped being the constant glyph once a preview modal existed');
+
+  w.eval('closeDashMapPreview();');
+  assert(!w.document.getElementById('dashMapPreviewModal').classList.contains('show'),
+    'closeDashMapPreview() did not close the modal');
+
+  // openDashMapPreviewReview() is the one path out that actually leaves the tab; it must close
+  // the popup on the way, or reopening Dashboard later would show it again unprompted.
+  w.eval(`
+    window.__reviewCalls = 0;
+    window.__realSwitchTabNav = switchTabNav;
+    switchTabNav = function(name){ window.__reviewCalls++; };
+    openDashMapPreview();
+    openDashMapPreviewReview();
+  `);
+  assert(Number(w.eval('window.__reviewCalls')) === 1, 'Open Review did not hand off to switchTabNav');
+  assert(!w.document.getElementById('dashMapPreviewModal').classList.contains('show'),
+    'Open Review left the preview modal open behind Review');
+  w.eval('switchTabNav = window.__realSwitchTabNav;');
+});
+
+check('the project thumbnail survives a degenerate extent in the preview', () => {
+  // The projection math moved from the tile to the preview modal, not away — a one-point or
+  // zero-span extent can still produce NaN if the projection is wrong, so this is the same
+  // degenerate-extent check the old thumbnail test ran, aimed at the new home for that code.
+  w.eval(`
+    savedFeatures = [{ id:1, name:'Sign', featureTypeId:'ft', geometryType:'point',
+      savedAt:new Date().toISOString(), vertices:[{lat:-25.75, lon:28.23, photos:[]}] }];
+    renderDashMapPreview();
+  `);
+  const one = w.document.getElementById('dashMapPreviewFrame').innerHTML;
   assert(!/NaN|Infinity/.test(one), `a single vertex produced ${one.slice(0, 120)}`);
   assert(/<circle/.test(one), 'a lone point is not drawn');
 
-  w.eval(`
-    savedFeatures = [{ id:2, name:'Main St', featureTypeId:'ft', geometryType:'line',
-      savedAt:new Date().toISOString(),
-      vertices:[{lat:-25.750, lon:28.230, photos:[]}, {lat:-25.751, lon:28.235, photos:[]}] }];
-    renderDashThumb();
-  `);
-  const line = w.document.getElementById('dashProjectThumb').innerHTML;
-  assert(/<path[^>]*d="M/.test(line), 'a line feature is not drawn');
-  assert(!/NaN|Infinity/.test(line), 'the projection produced non-numbers');
-
-  w.eval('savedFeatures = []; renderDashThumb();');
-  assert(/svg/.test(w.document.getElementById('dashProjectThumb').innerHTML),
-    'an empty project shows an empty box rather than a placeholder mark');
+  w.eval('savedFeatures = []; renderDashMapPreview();');
+  assert(/svg/.test(w.document.getElementById('dashMapPreviewFrame').innerHTML),
+    'an empty project lost its placeholder mark in the preview');
 });
 
 check('the dashboard no longer stands up a third map', () => {
