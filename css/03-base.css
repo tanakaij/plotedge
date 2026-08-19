@@ -803,8 +803,13 @@
      color:var(--white)) rather than a hardcoded white PNG/SVG fill, so it automatically tracks
      whatever that token resolves to per theme — including high-contrast mode — instead of needing
      its own light/dark variant. pointer-events:none and z-index:0 keep it out of the tap path for
-     the buttons sitting above it. */
-  header { position:relative; }
+     the buttons sitting above it.
+     NOTE: this used to carry its own `header { position:relative; }` rule to give the ::before
+     below a positioning context. Don't re-add that — position:sticky (set above) is ALREADY a
+     positioned element per spec, so it anchors ::before just fine on its own. A second `header`
+     rule at the same specificity lands after the sticky one in the cascade and silently overrides
+     it to `relative`, which un-pins the header: it then scrolls away with the page instead of
+     staying below the status bar, uncovering the safe area on every scrollable screen. */
   header::before {
     content:'';
     position:absolute; top:0; right:0; bottom:0; width:132px;
