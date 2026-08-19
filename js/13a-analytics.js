@@ -38,7 +38,7 @@ function analyticsFeatures(){
 
 function openAnalytics(){
   if (!activeProjectId){ showToast('Open a project first'); return; }
-  if (!savedFeatures.length){ showToast('Capture something first — there is nothing to chart yet'); return; }
+  if (!savedFeatures.length){ showToast('Capture something first. There is nothing to chart yet'); return; }
   renderAnalytics();
   document.getElementById('analyticsModal').classList.add('show');
 }
@@ -244,7 +244,7 @@ function analyticsAccuracyChart(feats){
   return `<div class="an-card">
     <div class="an-title">GPS accuracy spread</div>
     ${rows}
-    <div class="an-note">${n} fix${n===1?'':'es'} recorded${poor?` · <button class="an-inline-btn" onclick="analyticsJumpToIssue('lowacc')">${poor} above 5m — review</button>`:' · all inside 5m'}</div>
+    <div class="an-note">${n} fix${n===1?'':'es'} recorded${poor?` · <button class="an-inline-btn" onclick="analyticsJumpToIssue('lowacc')">${poor} above 5m, review</button>`:' · all inside 5m'}</div>
   </div>`;
 }
 
@@ -303,7 +303,7 @@ function analyticsHourHeatmap(feats){
     for (let h=lo; h<=hi; h++){
       const n = row[h];
       const t = max ? n/max : 0;
-      cells.push(`<span class="an-heat-cell${n?'':' empty'}" style="--t:${t.toFixed(3)}" title="${DAY_LABELS[di]} ${String(h).padStart(2,'0')}:00 — ${n} feature${n===1?'':'s'}"></span>`);
+      cells.push(`<span class="an-heat-cell${n?'':' empty'}" style="--t:${t.toFixed(3)}" title="${DAY_LABELS[di]} ${String(h).padStart(2,'0')}:00, ${n} feature${n===1?'':'s'}"></span>`);
     }
     return `<div class="an-heat-row"><span class="an-heat-day">${DAY_LABELS[di]}</span>${cells.join('')}</div>`;
   }).join('');

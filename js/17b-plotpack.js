@@ -75,7 +75,7 @@ let pendingPlotpackImport = null;
 async function exportPlotpack(){
   if (!activeProjectId){ showToast('Open a project first'); return; }
   if (typeof JSZip === 'undefined'){
-    showToast('Bundle library not loaded — reconnect once and try again');
+    showToast('Bundle library not loaded, reconnect once and try again');
     return;
   }
   const project = projects.find(p => p.id === activeProjectId);
@@ -189,7 +189,7 @@ async function exportPlotpack(){
     const res = await saveExportFile(blob, name, PLOTPACK_MIME);
     noteExportSaved(res, name);
     if (status) status.textContent = res.ok
-      ? `✓ ${name} — ${features.length} features, ${photoCount} photos`
+      ? `✓ ${name}, ${features.length} features, ${photoCount} photos`
       : 'Bundle could not be written';
   } catch (e){
     console.warn('PlotEdge: .plotpack export failed', e);
@@ -225,13 +225,13 @@ function plotpackReadme(project, nFeatures, nPhotos){
     `Contents: ${nFeatures} features, ${nPhotos} photos`,
     '',
     'This file is a ZIP archive. Rename it to .zip and unzip it to read',
-    'everything inside with ordinary tools — nothing here is encrypted or',
+    'everything inside with ordinary tools. Nothing here is encrypted or',
     'obfuscated.',
     '',
     '  manifest.json      what this bundle is, and a sha-256 of each text part',
     '  schema.json        the feature type definitions (fields, options, rules)',
     '  features.json      the survey at full fidelity, including per-vertex data',
-    '  features.geojson   plain GeoJSON — open this one in QGIS or geojson.io',
+    '  features.geojson   plain GeoJSON. Open this one in QGIS or geojson.io',
     '  notes.md           project notes',
     '  sketches.json      PlotEtch sketches',
     '  tombstones.json    records of deleted features, so a merge cannot resurrect them',
@@ -303,7 +303,7 @@ function deviceSettingsSnapshot(){
 
 async function exportDeviceSettings(){
   if (typeof JSZip === 'undefined'){
-    showToast('Bundle library not loaded — reconnect once and try again');
+    showToast('Bundle library not loaded, reconnect once and try again');
     return;
   }
   const status = document.getElementById('exportStatus');
@@ -325,7 +325,7 @@ async function exportDeviceSettings(){
       'PlotEdge device settings pack',
       '=============================',
       '',
-      'Preferences only — theme, units, basemap, quick actions and similar.',
+      'Preferences only: theme, units, basemap, quick actions and similar.',
       'It contains no survey data, no photos and no passwords or access tokens.',
       '',
       'Open PlotEdge and use Import to apply it to this or another device.'
@@ -336,7 +336,7 @@ async function exportDeviceSettings(){
     const res = await saveExportFile(blob, name, PLOTPACK_MIME);
     noteExportSaved(res, name);
     if (status) status.textContent = res.ok
-      ? `✓ ${name} — ${Object.keys(settings).length} settings`
+      ? `✓ ${name}, ${Object.keys(settings).length} settings`
       : 'Settings pack could not be written';
   } catch(e){
     console.warn('PlotEdge: settings export failed', e);
@@ -347,7 +347,7 @@ async function exportDeviceSettings(){
 
 
 function renderSettingsImportWizard(){
-  const host = document.getElementById('importWizard');
+  const host = plotpackWizardHost();
   if (!host || !pendingPlotpackImport) return;
   const n = Object.keys(pendingPlotpackImport.settings || {}).length;
   host.style.display = '';
@@ -356,7 +356,7 @@ function renderSettingsImportWizard(){
       <div class="import-summary-title">Device settings pack</div>
       <div class="import-summary-meta">${n} setting${n === 1 ? '' : 's'} · exported ${escapeHtml((pendingPlotpackImport.manifest.exportedAt || '').slice(0, 10))}</div>
     </div>
-    <p class="import-note">This replaces this device's preferences — theme, units, basemap,
+    <p class="import-note">This replaces this device's preferences: theme, units, basemap,
     quick actions and similar. <strong>No projects or photos are touched.</strong>
     Publishing access tokens are never included in a pack, so if you publish web maps
     you will need to re-enter yours.</p>
@@ -394,16 +394,48 @@ function isPlotpackFile(file){
 }
 
 
-async function preparePlotpackImport(file){
+// ══ TWO WAYS IN, ONE WIZARD ══
+// A .plotpack can arrive through the Import panel's own PlotPack card (the obvious route, and
+// the only one that names the format) or through the general "import data from other software"
+// picker, which still accepts the extension so a file chosen there is not simply refused. Both
+// end in the same wizard, so the wizard has to render into whichever card the user actually
+// used — dropping the summary into a collapsed card three rows further down would look like
+// nothing had happened.
+//
+// Recorded on the pending import rather than read from the DOM at render time, because by then
+// there is nothing left to say which picker produced the file.
+const PLOTPACK_DEFAULT_HOST = 'plotpackImportWizard';
+
+function plotpackWizardHost(){
+  const id = (pendingPlotpackImport && pendingPlotpackImport.hostId) || PLOTPACK_DEFAULT_HOST;
+  return document.getElementById(id) || document.getElementById('importWizard');
+}
+
+// The Import panel's dedicated PlotPack card. Kept separate from handleImportFileChosen() rather
+// than routed through it: this input only ever accepts one format, so it can say something useful
+// when the wrong file is picked instead of listing three extensions.
+function handlePlotpackFileChosen(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  if (!isPlotpackFile(file)){
+    showToast('That is not a .plotpack file. Use the cards below for .json, .csv or .gpkg');
+    return;
+  }
+  preparePlotpackImport(file, PLOTPACK_DEFAULT_HOST);
+}
+
+
+async function preparePlotpackImport(file, hostId){
   if (typeof JSZip === 'undefined'){
-    showToast('Bundle library not loaded — reconnect once and try again');
+    showToast('Bundle library not loaded, reconnect once and try again');
     return;
   }
   try {
     const zip = await JSZip.loadAsync(file);
     const manifestFile = zip.file('manifest.json');
     if (!manifestFile){
-      showToast('Not a PlotEdge bundle — no manifest inside');
+      showToast('Not a PlotEdge bundle, no manifest inside');
       return;
     }
     const manifest = JSON.parse(await manifestFile.async('string'));
@@ -428,10 +460,10 @@ async function preparePlotpackImport(file){
       if (raw == null){ showToast('Settings pack is empty'); return; }
       const want = (manifest.checksums || {})['settings.json'];
       if (want && await plotpackSha256(raw) !== want){
-        showToast('Settings pack is damaged — ask for it to be sent again');
+        showToast('Settings pack is damaged, ask for it to be sent again');
         return;
       }
-      pendingPlotpackImport = { zip, manifest, settings: JSON.parse(raw), fileName: file.name };
+      pendingPlotpackImport = { zip, manifest, settings: JSON.parse(raw), fileName: file.name, hostId };
       renderSettingsImportWizard();
       return;
     }
@@ -450,7 +482,7 @@ async function preparePlotpackImport(file){
       'tombstones.json': await readPart('tombstones.json')
     };
     if (parts['features.json'] == null || parts['schema.json'] == null){
-      showToast('Bundle is incomplete — features or schema missing');
+      showToast('Bundle is incomplete. Features or schema missing');
       return;
     }
 
@@ -464,7 +496,7 @@ async function preparePlotpackImport(file){
       if (got !== manifest.checksums[name]) bad.push(name);
     }
     if (bad.length){
-      showToast(`Bundle is damaged (${bad.join(', ')}) — ask for it to be sent again`);
+      showToast(`Bundle is damaged (${bad.join(', ')}), ask for it to be sent again`);
       return;
     }
 
@@ -476,18 +508,19 @@ async function preparePlotpackImport(file){
       notes: parts['notes.md'] || '',
       sketches: parts['sketches.json'] ? JSON.parse(parts['sketches.json']) : [],
       tombstones: parts['tombstones.json'] ? JSON.parse(parts['tombstones.json']) : [],
-      fileName: file.name
+      fileName: file.name,
+      hostId
     };
     renderPlotpackImportWizard();
   } catch (e){
     console.warn('PlotEdge: .plotpack import failed', e);
-    showToast('Could not read that bundle — it may be damaged');
+    showToast('Could not read that bundle. It may be damaged');
   }
 }
 
 
 function renderPlotpackImportWizard(){
-  const host = document.getElementById('importWizard');
+  const host = plotpackWizardHost();
   if (!host || !pendingPlotpackImport) return;
   const m = pendingPlotpackImport.manifest;
   const c = m.counts || {};
@@ -505,17 +538,21 @@ function renderPlotpackImportWizard(){
          what to do about colliding feature ids and same-id-different-fields
          schemas, and getting that wrong silently corrupts a live survey. A
          duplicate project is a nuisance; a corrupted one is lost work. -->
-    <p class="import-note">This restores everything — schema, photos, per-vertex data and notes —
-    into a <strong>new project</strong>. Nothing already on this device is touched.</p>
+    <p class="import-note">This restores everything (schema, photos, per-vertex data and notes) into a <strong>new project</strong>. Nothing already on this device is touched.</p>
     <button class="btn btn-primary" onclick="importPlotpackBundle()">Restore as a new project</button>
     <button class="btn btn-outline" onclick="cancelPlotpackImport()">Cancel</button>`;
 }
 
 
 function cancelPlotpackImport(){
+  // Cleared BEFORE the hosts are read, so both are wiped by id rather than through
+  // plotpackWizardHost() — which would resolve against a pending import that no longer exists and
+  // leave the summary sitting in whichever card it was not looking at.
   pendingPlotpackImport = null;
-  const host = document.getElementById('importWizard');
-  if (host){ host.style.display = 'none'; host.innerHTML = ''; }
+  ['plotpackImportWizard', 'importWizard'].forEach(id => {
+    const host = document.getElementById(id);
+    if (host){ host.style.display = 'none'; host.innerHTML = ''; }
+  });
 }
 
 
@@ -581,11 +618,11 @@ async function importPlotpackBundle(){
         + (missing ? ` · ${missing} photo${missing === 1 ? '' : 's'} were not in the bundle` : '');
     }
     renderProjectsList();
-    showToast(`"${name}" restored — open it from Projects`);
+    showToast(`"${name}" restored. Open it from Projects`);
   } catch (e){
     console.warn('PlotEdge: .plotpack restore failed', e);
     if (status) status.textContent = '';
-    showToast('Restore failed — nothing was changed');
+    showToast('Restore failed, nothing was changed');
   }
 }
 

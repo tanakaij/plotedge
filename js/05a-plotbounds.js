@@ -208,7 +208,7 @@ function syncProjectBoundsUI(){
   const label = document.getElementById('projBoundsLabel');
   if (!label) return;
   const b = pendingProjectBounds();
-  if (!b){ label.textContent = 'Not set — captures are never queried'; return; }
+  if (!b){ label.textContent = 'Not set. Captures are never queried'; return; }
   const w = haversineM({lat:b.north, lon:b.west}, {lat:b.north, lon:b.east}) / 1000;
   const h = haversineM({lat:b.north, lon:b.west}, {lat:b.south, lon:b.west}) / 1000;
   label.textContent = `${w.toFixed(1)} × ${h.toFixed(1)} km`;

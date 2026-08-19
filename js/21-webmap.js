@@ -49,12 +49,12 @@ async function connectGithub(){
   try{
     localStorage.setItem(GH_TOKEN_KEY, tokenInput);
     const userRes = await ghRequest('/user');
-    if (!userRes.ok) throw new Error("Could not verify that token — check it was copied correctly and hasn't expired.");
+    if (!userRes.ok) throw new Error("Could not verify that token, check it was copied correctly and hasn't expired.");
     const user = await userRes.json();
     const owner = user.login;
     const repoRes = await ghRequest('/repos/'+owner+'/'+repoInput);
     if (repoRes.status===404) throw new Error('Repo "'+owner+'/'+repoInput+'" not found, or the token can\'t see it. Create the repo on GitHub first, then scope the token to it.');
-    if (!repoRes.ok) throw new Error('Could not access that repo — check the token has Contents and Pages permissions.');
+    if (!repoRes.ok) throw new Error('Could not access that repo, check the token has Contents and Pages permissions.');
     localStorage.setItem(GH_OWNER_KEY, owner);
     localStorage.setItem(GH_REPO_KEY, repoInput);
     document.getElementById('ghTokenInput').value='';
@@ -70,7 +70,7 @@ async function connectGithub(){
 }
 
 function disconnectGithub(){
-  showConfirm('Disconnect GitHub from this device? Anything already published stays live — this only removes the saved token here.', ()=>{
+  showConfirm('Disconnect GitHub from this device? Anything already published stays live. This only removes the saved token here.', ()=>{
     localStorage.removeItem(GH_TOKEN_KEY);
     localStorage.removeItem(GH_OWNER_KEY);
     localStorage.removeItem(GH_REPO_KEY);
@@ -258,7 +258,7 @@ function buildWebmapHTML(project, data){
   const title = escapeHtml(project ? project.name : 'PlotEdge Web Map');
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
     + '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">\n'
-    + '<title>'+title+' — Web Map</title>\n'
+    + '<title>'+title+', Web Map</title>\n'
     + '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />\n'
     + '<style>\n'
     + ':root{--accent:#047857;--ink:#0F172A;--muted:#64748B;--bg:#F1F5F9;--card:#ffffff;--border:#CBD5E1;}\n'
@@ -377,7 +377,7 @@ async function publishWebmap(){
     const prevRec = getWebmapRecord(project.id);
     saveWebmapRecord(project.id, { slug, url, publishedAt: (prevRec&&prevRec.publishedAt) || new Date().toISOString(), updatedAt: new Date().toISOString() });
     statusEl.textContent = '';
-    showToast(wasLive ? 'Web map updated' : 'Web map published — it can take a minute to go live the first time');
+    showToast(wasLive ? 'Web map updated' : 'Web map published. It can take a minute to go live the first time');
   }catch(err){
     console.error(err);
     statusEl.textContent = '';

@@ -251,7 +251,7 @@ function addVertexPhoto(src, filename, silent) {
     if (!vertex) return false;                       // vertex deleted while queued
     vertex.photos = vertex.photos || [];
     if (vertex.photos.length >= PHOTO_MAX_PER_VERTEX) {
-      showToast(`This vertex already has ${PHOTO_MAX_PER_VERTEX} photos — the cap for one point`);
+      showToast(`This vertex already has ${PHOTO_MAX_PER_VERTEX} photos. The cap for one point`);
       return false;
     }
     // Refuse before doing the work, not after: encoding a photo only to fail
@@ -263,12 +263,12 @@ function addVertexPhoto(src, filename, silent) {
     // measured against the origin quota the browser actually granted.
     const usage = getStorageUsageInfo();
     if (usage.percent >= 92) {
-      showToast('Storage almost full — export this project before adding more photos');
+      showToast('Storage almost full. Export this project before adding more photos');
       return false;
     }
     const media = (typeof getMediaUsageInfo === 'function') ? getMediaUsageInfo() : null;
     if (media && media.known && media.percent >= 92) {
-      showToast('Device storage almost full — export this project before adding more photos');
+      showToast('Device storage almost full. Export this project before adding more photos');
       return false;
     }
     let canvas = null;

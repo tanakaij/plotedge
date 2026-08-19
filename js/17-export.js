@@ -192,7 +192,7 @@ function updateShareLastExportBtn(){
 function shareLastExport(){
   if (!_lastExportUri){ showToast('Nothing exported yet in this session'); return; }
   offerShareFile(_lastExportUri, _lastExportName).then(ok=>{
-    if (!ok) showToast('Sharing is not available on this device — the file is already saved.');
+    if (!ok) showToast('Sharing is not available on this device. The file is already saved.');
   });
 }
 
@@ -431,7 +431,7 @@ async function exportCSV(){
   saveExportFile(csv,name,'text/csv').then(res=>{
     if(noteExportSaved(res,name)){
       const status=document.getElementById('exportStatus');
-      if(status) status.textContent += ` — ${savedFeatures.length} features, ${total} rows`;
+      if(status) status.textContent += `, ${savedFeatures.length} features, ${total} rows`;
       markProjectExported();
     }
   });
@@ -659,11 +659,11 @@ async function onRasterFileSelected(event){
     return;
   }
   if (file.size > RASTER_MAX_BYTES){
-    showToast(`That file is ${(file.size/1024/1024).toFixed(0)}MB — larger than this app can safely decode on a phone. Try a downsampled/clipped export instead.`);
+    showToast(`That file is ${(file.size/1024/1024).toFixed(0)}MB, larger than this app can safely decode on a phone. Try a downsampled/clipped export instead.`);
     return;
   }
   const map = ensureReviewMap();
-  if (!map){ showToast('Map isn\'t ready yet — try again in a moment.'); return; }
+  if (!map){ showToast('Map isn\'t ready yet, try again in a moment.'); return; }
   showToast('Loading raster…');
   try{
     await ensureGeoraster();
@@ -696,7 +696,7 @@ async function onRasterFileSelected(event){
       // Display still works (georaster-layer-for-leaflet reprojects for rendering on its own via
       // global proj4), but our own sampling math above can't index pixels correctly without
       // knowing the projection, so pixel-value sampling and zonal stats are disabled for this file.
-      showToast(`Raster loaded (displaying only — EPSG:${rasterCrs.epsg} isn't a projection this app can sample pixel values from).`);
+      showToast(`Raster loaded (displaying only, EPSG:${rasterCrs.epsg} isn't a projection this app can sample pixel values from).`);
     }
   }catch(err){
     console.error(err);
@@ -810,7 +810,7 @@ function computeZonalStats(vertices){
 // review list and every export format without any schema/UI changes elsewhere.
 function runZonalStatsForProject(){
   if (!rasterGeoraster){ showToast('Load a raster first.'); return; }
-  if (rasterCrs && !rasterCrs.ok){ showToast(`Can't run zonal stats — EPSG:${rasterCrs.epsg} isn't a projection this app can sample.`); return; }
+  if (rasterCrs && !rasterCrs.ok){ showToast(`Can't run zonal stats, EPSG:${rasterCrs.epsg} isn't a projection this app can sample.`); return; }
   const polys = savedFeatures.filter(f => f.geometryType==='polygon' && f.vertices && f.vertices.length>=3);
   if (!polys.length){ showToast('No polygon features in this project to analyze.'); return; }
   let updated=0, outOfBounds=0, tooLarge=0;
@@ -1164,7 +1164,7 @@ async function exportExcel(){
     // oversized cell for a short pointer instead of the raw data.
     const XLSX_CELL_LIMIT=32767;
     const rows=buildCSVString().split('\r\n').map(parseCsvLine).map(row=>row.map(cell=>
-      cell && cell.length>XLSX_CELL_LIMIT ? '[too large for Excel — use "Download Photos" or GeoJSON/GPKG/FlatGeobuf]' : cell
+      cell && cell.length>XLSX_CELL_LIMIT ? '[too large for Excel. Use "Download Photos" or GeoJSON/GPKG/FlatGeobuf]' : cell
     ));
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet(rows);
@@ -1427,7 +1427,7 @@ function handleBackupImportFile(event){
       refreshProjectsScreen();
     } catch(e){
       console.error(e);
-      showToast('Import failed — file may be corrupted');
+      showToast('Import failed, file may be corrupted');
     }
   };
   reader.onerror = () => showToast('Could not read that file');
@@ -1454,13 +1454,13 @@ const EXPORT_FORMATS = {
   // features.geojson inside so unzipping gives somebody without PlotEdge
   // something they can open. See js/17b-plotpack.js.
   plotpack: { label:'Download PlotPack', btnClass:'btn-geo', run:()=>exportPlotpack(),
-    desc:'A single <code>.plotpack</code> file holding the entire project — every feature, photo, per-vertex reading, feature type definition, note and sketch. This is the format to send to a colleague or move to a new phone: PlotEdge restores it exactly as it was.',
+    desc:'A single <code>.plotpack</code> file holding the entire project: every feature, photo, per-vertex reading, feature type definition, note and sketch. This is the format to send to a colleague or move to a new phone: PlotEdge restores it exactly as it was.',
     note:'A .plotpack is a ZIP: rename it to .zip and you can read the schema, the notes and a plain GeoJSON copy with ordinary tools, and the photos are in there as normal .jpg files. Tapping one on a phone with PlotEdge installed opens it here.',
-    group:'plotedge', short:'PlotPack (whole project)', selectLabel:'PlotPack (.plotpack — whole project, photos included)' },
+    group:'plotedge', short:'PlotPack (whole project)', selectLabel:'PlotPack (.plotpack, whole project, photos included)' },
   plotedge: { label:'Download Backup (legacy JSON)', btnClass:'btn-geo', run:exportProjectBackup,
     desc:'The older single-file <code>.plotedge.json</code> backup, kept so bundles exported by earlier versions still have a matching writer. Prefer the Project Bundle above for anything new. Use it for device-to-device transfers or as a true backup; everything else below is a one-way export for other software.',
     note:'Photos are embedded as base64, so this file can be noticeably larger than the GIS formats below. To back up every project at once, use "Backup all projects" on the Projects screen instead of repeating this per project.',
-    group:'plotedge', short:'Backup (.json — older format)', selectLabel:'Backup (.json — older format)' },
+    group:'plotedge', short:'Backup (.json, older format)', selectLabel:'Backup (.json, older format)' },
   geojson: { label:'Download GeoJSON', btnClass:'btn-geo', run:exportGeoJSON,
     desc:'Each layer as a separate <code>.geojson</code> file. All attributes included as properties. Load directly in QGIS or ArcGIS.', note:null,
     group:'vector', short:'GeoJSON', selectLabel:'GeoJSON (1 file per layer)' },
@@ -1480,8 +1480,8 @@ const EXPORT_FORMATS = {
     desc:'One row per point. All layer attributes included as columns. Sort by <code>reference_id</code> to compare with your other app.', note:null,
     group:'tables', short:'CSV', selectLabel:'CSV (flat table, all features)' },
   xlsx: { label:'Download Excel', btnClass:'btn-csv', run:exportExcel,
-    desc:'Same table as CSV, as a native <code>.xlsx</code> workbook — opens directly in Excel with no import step.',
-    note:'First tap loads a small spreadsheet engine from a CDN (needs network signal once). Embedded photos are included as base64 text in the photo_data_uris column, not as viewable images in the cell — free spreadsheet libraries can\'t render inline images, only paid ones can. Use "Download Photos" or GeoJSON/GPKG/FlatGeobuf if you need openable image files.',
+    desc:'Same table as CSV, as a native <code>.xlsx</code> workbook, opens directly in Excel with no import step.',
+    note:'First tap loads a small spreadsheet engine from a CDN (needs network signal once). Embedded photos are included as base64 text in the photo_data_uris column, not as viewable images in the cell, free spreadsheet libraries can\'t render inline images, only paid ones can. Use "Download Photos" or GeoJSON/GPKG/FlatGeobuf if you need openable image files.',
     group:'tables', short:'Excel (.xlsx)', selectLabel:'Excel workbook (.xlsx)' },
   // Wrapped in an arrow rather than referenced directly: these two live in
   // js/17a-plansheet.js, which loads AFTER this file, so a bare reference here
@@ -1489,19 +1489,19 @@ const EXPORT_FORMATS = {
   // temporal dead zone. The arrow defers the lookup to the moment it is tapped.
   pdf: { label:'Download Survey Register (PDF)', btnClass:'btn-csv', run:()=>exportPDF(),
     desc:'An issued document, not a data dump: a masthead carrying the project, client, site and coordinate system, the full feature schedule paginated with a running header and page numbers, and a closing basis-and-limitations statement. For review, sign-off and the project file.',
-    note:'First tap loads a small PDF engine from a CDN (needs network signal once). Photos aren\'t included in this table — use "Download Photos" for those, or "Download Map Layout" for a printable page with the actual plotted points, legend, and scale.',
+    note:'First tap loads a small PDF engine from a CDN (needs network signal once). Photos aren\'t included in this table: use "Download Photos" for those, or "Download Map Layout" for a printable page with the actual plotted points, legend, and scale.',
     group:'tables', short:'PDF report', selectLabel:'PDF report (.pdf)' },
   maplayout: { label:'Download Plan Sheet (PDF)', btnClass:'btn-gpkg', run:()=>exportMapLayout(),
-    desc:'A landscape A4 plan sheet laid out the way a survey drawing is: bordered frame, a coordinate graticule over the map, and a full title block down the right edge — project and client, coordinate reference, a true drafting scale (1:500, 1:1000 …) with a segmented scale bar, north arrow, legend, survey totals, issue date and limitations.',
+    desc:'A landscape A4 plan sheet laid out the way a survey drawing is: bordered frame, a coordinate graticule over the map, and a full title block down the right edge: project and client, coordinate reference, a true drafting scale (1:500, 1:1000 …) with a segmented scale bar, north arrow, legend, survey totals, issue date and limitations.',
     note:'First tap loads a small PDF engine from a CDN (needs network signal once). The plot is fitted, then rounded to a conventional drafting scale so the printed sheet really is at the ratio it states. A raster basemap is optional and drawn behind the vectors; without one the sheet is a clean schematic that needs no network at all.',
     group:'tables', short:'Map layout', selectLabel:'Map layout (.pdf, legend + scale)' },
   // Preferences, not data. Separate from the project bundle on purpose: importing
   // a colleague's survey must never silently repaint your app or change your
   // units. See the DEVICE SETTINGS PACK section of js/17b-plotpack.js.
   settings: { label:'Download Device Settings', btnClass:'btn-csv', run:()=>exportDeviceSettings(),
-    desc:'Your preferences only — theme, units, basemap, quick actions, export defaults and publishing targets — as a small <code>.plotpack</code> file. Restore it after a reinstall or on a new phone instead of setting everything up again.',
+    desc:'Your preferences only (theme, units, basemap, quick actions, export defaults and publishing targets) as a small <code>.plotpack</code> file. Restore it after a reinstall or on a new phone instead of setting everything up again.',
     note:'No survey data and no photos. Access tokens are never included: if you publish web maps you will need to re-enter yours after restoring. Android\'s own backup does not cover a sideloaded APK, which is why this exists.',
-    group:'plotedge', short:'Device settings (preferences only)', selectLabel:'Device settings (.plotpack — preferences only)' },
+    group:'plotedge', short:'Device settings (preferences only)', selectLabel:'Device settings (.plotpack, preferences only)' },
   photos: { label:'Download Photos', btnClass:'btn-photos', run:exportPhotos,
     desc:'Saves each photo as <code>Layer_FeatureName_photo1.jpg</code> into your exports folder.', note:null,
     group:'tables', short:'Photos' },
@@ -1509,7 +1509,7 @@ const EXPORT_FORMATS = {
   // exportCAD lives in js/17c-plotcad.js, which loads after this file.
   cad: { label:'Download CAD Drawing (DXF)', btnClass:'btn-gpkg', run:()=>exportCAD(),
     desc:'A <code>.dxf</code> drawing in true metres, one layer per feature type and geometry, with feature names and reference IDs on parallel annotation layers. Opens directly in AutoCAD, Civil 3D, BricsCAD, ZWCAD, DraftSight and LibreCAD.',
-    note:'Coordinates are projected to WGS84 / UTM (zone detected from your survey) because CAD has no coordinate system of its own — the zone and its EPSG code are written into the drawing header. DXF carries no attribute table, so export CSV or GeoJSON alongside and join on reference_id. This is the one export that needs no network at all. A CAD office asking for DWG will open a DXF; if one insists, any of the packages above converts it in one step.',
+    note:'Coordinates are projected to WGS84 / UTM (zone detected from your survey) because CAD has no coordinate system of its own: the zone and its EPSG code are written into the drawing header. DXF carries no attribute table, so export CSV or GeoJSON alongside and join on reference_id. This is the one export that needs no network at all. A CAD office asking for DWG will open a DXF; if one insists, any of the packages above converts it in one step.',
     group:'cad', short:'CAD drawing (DXF)' }
 };
 
@@ -1594,7 +1594,7 @@ function updateExportFormatUI(){
     const mode=maplayoutBasemapMode();
     setMaplayoutBasemapModeUIOnly(mode);
     noteText = mode==='none'
-      ? 'First tap loads a small PDF engine from a CDN (needs network signal once). This is a schematic plan (exact coordinates, plain background) — pick Street or Satellite above to draw a real basemap behind your features instead.'
+      ? 'First tap loads a small PDF engine from a CDN (needs network signal once). This is a schematic plan (exact coordinates, plain background). Pick Street or Satellite above to draw a real basemap behind your features instead.'
       : `First tap loads a small PDF engine plus ${mode} map tiles for the area covered by your features (needs a live connection at export time). If tiles can't be fetched the layout still exports, just without the basemap.`;
   } else {
     basemapField.style.display='none';

@@ -206,7 +206,7 @@ function plotfixGate(){
 }
 
 const PLOTFIX_PRESETS = {
-  off:       { label:'No limit — capture anything', on:false },
+  off:       { label:'No limit, capture anything', on:false },
   recon:     { label:'Reconnaissance (±10 m)',        on:true, minQuality:'gps',      maxHoriz:10 },
   asset:     { label:'Asset inventory (±5 m)',        on:true, minQuality:'gps',      maxHoriz:5 },
   mapping:   { label:'Detail mapping (DGNSS, ±1 m)',  on:true, minQuality:'dgps',     maxHoriz:1 },
@@ -268,7 +268,7 @@ function plotfixCheckGate(){
   }
   const acc = plotfixAccuracy();
   if (acc.m == null){
-    return { ok: false, reason: 'No accuracy figure available — cannot confirm this fix meets the ' + gate.maxHoriz + ' m limit.' };
+    return { ok: false, reason: 'No accuracy figure available, cannot confirm this fix meets the ' + gate.maxHoriz + ' m limit.' };
   }
   if (acc.m > gate.maxHoriz){
     return { ok: false, reason: 'Accuracy ' + acc.label + ' exceeds this project’s ' + gate.maxHoriz + ' m limit.' };
@@ -302,7 +302,7 @@ function plotfixAttachNative(){
       // quietly get worse mid-survey with the same UI. The state is reset so the gate refuses and
       // the crew is told.
       plotfixState = { ...plotfixState, source: 'none', quality: PLOTFIX_QUALITY[0] };
-      showToast('GNSS receiver disconnected — capture is gated until it returns');
+      showToast('GNSS receiver disconnected. Capture is gated until it returns');
     }
     if (typeof plotfixSyncUI === 'function') plotfixSyncUI();
   });

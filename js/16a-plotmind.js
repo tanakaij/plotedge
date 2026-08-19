@@ -270,7 +270,7 @@ function pmCheckMissingAttributes(){
   if (gaps.length) out.push({
     id:'fillable', severity:'low',
     title:`${gaps.length} blank field${gaps.length===1?'':'s'} could be filled from nearby captures`,
-    detail:'PlotMind can suggest a value for each from the nearest features of the same type. Suggestions only — nothing is written until you accept it.',
+    detail:'PlotMind can suggest a value for each from the nearest features of the same type. Suggestions only. Nothing is written until you accept it.',
     action:{ label:'See suggestions', run:()=>pmScrollTo('pmSuggestions') }
   });
   return out;
@@ -286,7 +286,7 @@ function pmCheckDuplicateVertices(){
     if (dupes) out.push({
       id:'dupv-'+f.id, featureId:f.id, severity:'low',
       title:`"${f.name||'unnamed'}" has ${dupes} repeated vertex${dupes===1?'':'es'}`,
-      detail:'Consecutive vertices less than 15cm apart — usually a double tap on Capture. Harmless, but they inflate the file and some tools reject zero-length segments.',
+      detail:'Consecutive vertices less than 15cm apart, usually a double tap on Capture. Harmless, but they inflate the file and some tools reject zero-length segments.',
       action:{ label:'Open feature', run:()=>pmOpenFeature(f.id) }
     });
   });
@@ -423,19 +423,19 @@ function pmSuggestionsCard(){
   if (naming) namingHtml = `<div class="pmind-suggest">
       <div class="pmind-suggest-body">
         <div class="pmind-suggest-name">Next feature name</div>
-        <div class="pmind-suggest-meta">Your naming follows a pattern — the next one is probably <strong>${escapeHtml(naming)}</strong></div>
+        <div class="pmind-suggest-meta">Your naming follows a pattern. The next one is probably <strong>${escapeHtml(naming)}</strong></div>
       </div>
       <button class="pmind-act" onclick="pmUseName('${escapeHtml(naming)}')">Use it</button>
     </div>`;
   if (!pmGaps.length && !namingHtml){
     return `<div class="pmind-card" id="pmSuggestions"><div class="pmind-title">Suggestions</div>
-      <div class="pmind-empty">Nothing to suggest — no blank fields that nearby captures could speak for.</div></div>`;
+      <div class="pmind-empty">Nothing to suggest. No blank fields that nearby captures could speak for.</div></div>`;
   }
   const rows = pmGaps.slice(0, 12).map((g,i)=>`
     <div class="pmind-suggest">
       <div class="pmind-suggest-body">
         <div class="pmind-suggest-name">${escapeHtml(g.featureName||'unnamed')} · ${escapeHtml(g.fieldLabel)}</div>
-        <div class="pmind-suggest-meta">Suggest <strong>${escapeHtml(String(g.suggestion))}</strong> — from the ${g.from} nearest captures of this type · ${Math.round(g.confidence*100)}% agreement</div>
+        <div class="pmind-suggest-meta">Suggest <strong>${escapeHtml(String(g.suggestion))}</strong>, from the ${g.from} nearest captures of this type · ${Math.round(g.confidence*100)}% agreement</div>
       </div>
       <button class="pmind-act" onclick="pmApplySuggestion(${i})">Apply</button>
     </div>`).join('');

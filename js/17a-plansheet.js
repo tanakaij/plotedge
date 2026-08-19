@@ -190,7 +190,7 @@ async function exportPDF(){
     const pdfRes=await saveExportFile(doc.output('blob'), pdfName, 'application/pdf');
     if(noteExportSaved(pdfRes,pdfName)){
       const st=document.getElementById('exportStatus');
-      if(st) st.textContent += ` — ${savedFeatures.length} features`;
+      if(st) st.textContent += `, ${savedFeatures.length} features`;
       markProjectExported();
     }
   }catch(err){

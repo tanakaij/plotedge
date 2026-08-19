@@ -345,7 +345,7 @@ function renderCrsResults(){
   }
 
   if (!keys.length){
-    host.innerHTML = `<div class="hint" style="padding:14px 2px;">Nothing matches that. Try a country, a town, a belt number, or an EPSG code — or pick “Custom” to enter your authority’s own parameters.</div>`;
+    host.innerHTML = `<div class="hint" style="padding:14px 2px;">Nothing matches that. Try a country, a town, a belt number, or an EPSG code, or pick “Custom” to enter your authority’s own parameters.</div>`;
     return;
   }
   host.innerHTML = keys.map(k => {
@@ -394,7 +394,7 @@ function syncCrsUI(){
       // Stated in the UI, not only in the export header. Somebody about to issue coordinates on a
       // legacy datum needs to have read this before they export, not after.
       bits.push('⚠ Grid parameters are exact but the ' + c.datum.toUpperCase() +
-                ' datum shift is NOT applied — coordinates may be tens of metres out.');
+                ' datum shift is NOT applied, coordinates may be tens of metres out.');
     }
     note.innerHTML = escapeHtml(bits.join(' '));
     note.style.color = crsNeedsDatumShift(projectCrsKey()) ? 'var(--danger)' : '';
@@ -414,7 +414,7 @@ function setProjectCrs(key){
   if (crsNeedsDatumShift(key)){
     // Surfaced as a confirm-grade warning rather than a toast, because somebody about to issue
     // coordinates on a legacy datum needs to have actually read this.
-    showToast('⚠ ' + c.label + ' uses a legacy datum — coordinates will be ~metres to ~100 m off until a datum shift is applied');
+    showToast('⚠ ' + c.label + ' uses a legacy datum, coordinates will be ~metres to ~100 m off until a datum shift is applied');
   }
   if (typeof syncCrsUI === 'function') syncCrsUI();
   if (typeof renderFeatures === 'function') renderFeatures();
@@ -465,7 +465,7 @@ function crsProject(lat, lon, alt){
     // A custom CRS with no parameters entered yet. Falling back to lat/lon is the only safe
     // answer — inventing a central meridian would produce plausible-looking wrong numbers.
     return { ...base, x: lon, y: lat, xLabel: 'Longitude', yLabel: 'Latitude',
-      label: c.label + ' (not configured — showing lat/lon)', exact: false };
+      label: c.label + ' (not configured, showing lat/lon)', exact: false };
   }
   const g = gridProjectTM(lat, lon, params, c.datum === 'grs80' ? 'grs80' : 'wgs84');
   // South-oriented grids label their axes Y/X in that order by convention, and reversing them is
@@ -503,7 +503,7 @@ function crsStatement(){
   const bits = [c.label];
   if (c.epsg) bits.push('EPSG:' + c.epsg);
   if (!crsNeedsDatumShift(key)) bits.push('datum WGS 84');
-  else bits.push('DATUM NOT APPLIED — ' + c.datum + ' shift required');
+  else bits.push('DATUM NOT APPLIED, ' + c.datum + ' shift required');
   const geoid = projectGeoidOffset();
   bits.push(geoid ? `heights orthometric (local offset ${geoid} m)` : 'heights ellipsoidal');
   return bits.join(' · ');

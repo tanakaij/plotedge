@@ -483,6 +483,12 @@ function closeTopOverlay(){
   if (isReallyOpen(sitePicker)) { closeSitePicker(); return true; }
   const layerModal = document.getElementById('layerModal');
   if (isReallyOpen(layerModal)) { closeLayerModal(); return true; }
+  // PlotArchive is listed rather than left to the catch-all below for the same reason PlotVault
+  // is: the catch-all strips .show and stops Back escaping, but it does NOT run closePlotArchive(),
+  // which dismisses the keyboard the search field may have raised. Skipping that puts the
+  // close-while-the-keyboard-is-collapsing race back on the Back path only.
+  const plotarchiveModal = document.getElementById('plotarchiveModal');
+  if (isReallyOpen(plotarchiveModal)) { closePlotArchive(); return true; }
   // PlotVault is a plain top-level sheet — nothing opens from inside it, so it needs no ordering
   // relative to its neighbours. It is listed anyway: the catch-all at the bottom of this function
   // would strip .show and stop Back escaping, but it would NOT run closePlotVault(), which calls

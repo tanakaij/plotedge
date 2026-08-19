@@ -211,7 +211,7 @@ function renderValueSuggestions(){
       `<button type="button" class="suggest-chip" data-from="${s.from}"
         onclick="applySuggestion('${field.id}', ${JSON.stringify(s.value).replace(/"/g, '&quot;')})"
         ${s.from === 'learned' ? `oncontextmenu="event.preventDefault();offerForget('${ft.id}','${field.id}', ${JSON.stringify(s.value).replace(/"/g, '&quot;')})"` : ''}
-        title="${s.from === 'nearest' ? s.count + ' of the ' + s.of + ' nearest captures of this type' : s.from === 'learned' ? 'Used ' + s.count + ' time' + (s.count === 1 ? '' : 's') + ' — long-press to forget' : 'Common for this kind of feature'}"
+        title="${s.from === 'nearest' ? s.count + ' of the ' + s.of + ' nearest captures of this type' : s.from === 'learned' ? 'Used ' + s.count + ' time' + (s.count === 1 ? '' : 's') + ', long-press to forget' : 'Common for this kind of feature'}"
         >${escapeHtml(s.value)}</button>`).join('');
     const fieldEl = pane.querySelector('.field');
     if (fieldEl) fieldEl.appendChild(row);

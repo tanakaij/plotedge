@@ -1554,15 +1554,70 @@ check('every status shade row leads somewhere', () => {
 });
 
 check('the shade commits a drag once, not twice', () => {
-  // A drag ends in a pointerup, and a pointerup on a button is followed by a click — which would
-  // land in toggleDashShade() and undo whatever the drag just decided. The flag is what keeps one
-  // gesture to one state change.
-  w.eval("setDashShadeOpen(true); document.getElementById('dashShade').dataset.dragged='1'; toggleDashShade();");
-  assert(w.document.getElementById('dashShade').classList.contains('open'),
-    'the trailing click reversed the drag');
+  // A drag ends in a pointerup, and a pointerup on the peek bar is followed by a click — which
+  // would land in toggleDashShade() and undo whatever the drag just decided. Asserted through the
+  // observable behaviour (one gesture, one state change) rather than through the mechanism, so
+  // this keeps holding if the suppression is implemented some other way again.
+  const isOpen = () => w.document.getElementById('dashShade').classList.contains('open');
+  w.eval("setDashShadeOpen(true); _shadeDragEndedAt = Date.now(); toggleDashShade();");
+  assert(isOpen(), 'the trailing click reversed the drag');
+});
+
+check('a tap is never swallowed by a drag that has already finished', () => {
+  // ══ THE REGRESSION THIS EXISTS FOR ══
+  // The suppression above used to be a `dragged` flag set on the shade at the end of every drag
+  // and cleared by the click that followed. That worked for the peek bar, which is a button and
+  // does produce a click — and failed completely for the grab handle, which is not and does not.
+  // A drag started on the handle left the flag set with nothing coming to clear it, so the next
+  // genuine tap on the peek bar was discarded as the tail of a gesture that had ended minutes
+  // before. Pull the handle up to close the shade, then tap to reopen: nothing happens, and the
+  // drawer looks broken.
+  //
+  // The suppression is now a timestamp, which expires whether or not a click ever arrives. This
+  // simulates a handle drag (no trailing click) and then a real tap after the window has passed.
+  w.eval("setDashShadeOpen(true); _shadeDragEndedAt = Date.now() - 5000;");
+  const isOpen = () => w.document.getElementById('dashShade').classList.contains('open');
   w.eval('toggleDashShade()');
-  assert(!w.document.getElementById('dashShade').classList.contains('open'),
-    'the flag was not consumed, so the next real tap did nothing');
+  assert(!isOpen(), 'a tap after an unrelated drag was swallowed — the drawer is stuck');
+  w.eval('toggleDashShade()');
+  assert(isOpen(), 'the shade no longer reopens on tap');
+});
+
+check('the collapsed bar carries a verdict and per-row marks, on the right', () => {
+  // The bar spends almost all of its life shut, so what it shows while shut is most of what this
+  // surface is. Three anonymous dots on the left could not say which three things they stood for;
+  // the marks name their own subject and the verdict badge carries the overall state.
+  w.eval(`
+    projects.push({ id:'pShade2', name:'Verdict Test', crs:'wgs84', createdAt:new Date().toISOString() });
+    projectData['pShade2'] = { savedFeatures:[], currentVertices:[], featureTypes:[] };
+    activeProjectId = 'pShade2'; savedFeatures = []; currentVertices = []; featureTypes = [];
+    renderDashShade();
+  `);
+  const marks = w.document.getElementById('dashShadeMarks');
+  const verdict = w.document.getElementById('dashShadeVerdict');
+  assert(marks && verdict, 'the collapsed bar lost its marks or its verdict badge');
+  assert(marks.children.length >= 4, `only ${marks.children.length} subject marks rendered`);
+  // No feature types means capture is off, which is the worst state this screen can report.
+  assert(w.document.getElementById('dashShade').dataset.tone === 'bad',
+    'a project that cannot be collected into did not read as bad');
+  assert(verdict.textContent.trim() === '⛔', `verdict showed ${verdict.textContent} for a blocked project`);
+
+  // ...and the good case actually turns green with a tick, rather than merely not being red.
+  w.eval(`
+    featureTypes = [{ id:'ftv', name:'Marker', geometryType:'point', fields:[{id:'f1',label:'Condition',type:'text',options:[]}] }];
+    savedFeatures = [];
+    renderDashShade();
+  `);
+  assert(['ok','info'].includes(w.document.getElementById('dashShade').dataset.tone),
+    'a healthy project still reported a problem');
+  assert(w.document.getElementById('dashShadeVerdict').textContent.trim() === '✅',
+    'a healthy project did not show the tick');
+
+  // The verdict must come AFTER the headline in the DOM — it is the last thing read, not the first.
+  const peek = w.document.getElementById('dashShadePeek');
+  const kids = [...peek.children].map(el => el.className);
+  assert(kids.indexOf('dash-shade-headline') < kids.findIndex(c => /dash-shade-verdict/.test(c)),
+    'the status signal is back on the left of the title');
 });
 
 check('the project thumbnail is a constant map glyph, captured or not', () => {

@@ -44,7 +44,7 @@ function doCapture(coords, weak){
 function attemptCapture(){
   if(!currentPos){
     showToast(gpsActive || extGpsActive
-      ? 'Waiting for a GPS fix — nothing captured yet. Use "Enter coordinates" if you need to log this now.'
+      ? 'Waiting for a GPS fix. Nothing captured yet. Use "Enter coordinates" if you need to log this now.'
       : 'GPS is off. Start GPS above, or use "Enter coordinates".');
     return;
   }
@@ -52,7 +52,7 @@ function attemptCapture(){
   if (now - lastCaptureAt < CAPTURE_DEBOUNCE_MS){
     // Reported rather than swallowed: silence here reads as a lost capture, and the crew's next
     // move is to tap again, which the debounce eats too.
-    showToast(`Too fast — vertex ${currentVertices.length} is already in. Tap again in a moment for the next one.`);
+    showToast(`Too fast, vertex ${currentVertices.length} is already in. Tap again in a moment for the next one.`);
     return;
   }
   const acc = currentPos.coords.accuracy;
@@ -386,7 +386,7 @@ function planVertexPlacement(v){
       index: 0, ask: true,
       question: 'This point is near the START of the line. Add it to the start, or continue from the end?',
       okLabel: 'Add to start',
-      confirmToast: 'Added to the start — further points will go there too',
+      confirmToast: 'Added to the start. Further points will go there too',
       remember: 'start'
     };
   }
@@ -487,11 +487,33 @@ function updateShapePreview(){
   const cx = (v)=> W/2 + (v.lon-(minLon+maxLon)/2)*lonScale*scale;
   const cy = (v)=> H/2 - (v.lat-(minLat+maxLat)/2)*scale; // screen Y is inverted vs latitude
   const pts = currentVertices.map(v=>`${cx(v).toFixed(1)},${cy(v).toFixed(1)}`).join(' ');
-  const fillPoly = geo==='polygon' ? `<polygon class="sp-fill" points="${pts}"></polygon>` : '';
+  // ══ THE PREVIEW MUST LOOK LIKE THE THING IT IS PREVIEWING ══
+  // This drew every shape in the accent colour with a solid 2px stroke, whatever the feature type
+  // said. So a crew that had deliberately set "Easement" to a dashed amber outline saw a solid
+  // teal one here, then a dashed amber one on Review and PlotAtlas — three surfaces disagreeing
+  // about the same feature, with the disagreement showing up only after the thing was saved. The
+  // symbol is now resolved from the type being captured, exactly as every map surface does it,
+  // and written as presentation attributes so it overrides the class defaults in 05-components.css
+  // without those defaults having to know this exists.
+  const sym = featureTypeSymbol(currentCaptureFtKey());
+  const dash = leafletDashArray(sym.lineStyle, 2);
+  const strokeAttrs = `stroke="${sym.color}"${dash?` stroke-dasharray="${dash}"`:''}`;
+  // fill:false on a polygon means "outline only" everywhere else in the app, so it means that
+  // here too — otherwise the preview promises a filled parcel the exports will not draw.
+  const fillPoly = (geo==='polygon' && sym.filled)
+    ? `<polygon class="sp-fill" points="${pts}" fill="${hexToRgba(sym.color,0.16)}"></polygon>` : '';
   const line = geo==='polygon'
-    ? `<polygon class="sp-line" points="${pts}"></polygon>`
-    : `<polyline class="sp-line" points="${pts}"></polyline>`;
-  const dots = currentVertices.map((v,i)=>`<circle class="sp-vertex ${i===openVertexIndex?'sp-open':''}" cx="${cx(v).toFixed(1)}" cy="${cy(v).toFixed(1)}" r="${i===openVertexIndex?4.5:3}"></circle>`).join('');
+    ? `<polygon class="sp-line" points="${pts}" ${strokeAttrs}></polygon>`
+    : `<polyline class="sp-line" points="${pts}" ${strokeAttrs}></polyline>`;
+  // Vertex dots carry the type's point shape as well as its colour: a type captured as squares
+  // should preview as squares, and shape is the colourblind-safe half of the symbology.
+  const dots = currentVertices.map((v,i)=>{
+    const open = i===openVertexIndex;
+    const r = open ? 4.5 : 3;
+    const cls = `sp-vertex ${open?'sp-open':''}`;
+    return shapeMarkup(sym.shape, +cx(v).toFixed(1), +cy(v).toFixed(1), r,
+      `class="${cls}" fill="${open?sym.color:sym.color}"${open?` stroke="var(--bg-primary)" stroke-width="2"`:''}`);
+  }).join('');
   // ══ THE PREVIEW MUST SHOW ITS ORDER ══
   // The plot drew the ring in capture order but gave no way to READ that order, so a shape that
   // looked wrong was indistinguishable from a shape whose corners had been shot out of sequence —
@@ -511,7 +533,7 @@ function updateShapePreview(){
   // The first vertex gets a ring of its own: for a polygon it is the corner the ring closes back
   // onto, which is the single most useful thing to be able to find at a glance.
   const startMark = currentVertices.length
-    ? `<circle class="sp-start" cx="${cx(currentVertices[0]).toFixed(1)}" cy="${cy(currentVertices[0]).toFixed(1)}" r="6.5"></circle>`
+    ? `<circle class="sp-start" cx="${cx(currentVertices[0]).toFixed(1)}" cy="${cy(currentVertices[0]).toFixed(1)}" r="6.5" stroke="${sym.color}"></circle>`
     : '';
   svg.innerHTML = fillPoly + line + startMark + dots + labels;
   svg.classList.add('show');
@@ -706,11 +728,16 @@ function renderVertexMap(){
   }
   const geo = getCurrentGeometryType();
   const latlngs = currentVertices.map(v => [v.lat, v.lon]);
-  const captureFtSel = document.getElementById('featureTypeSelect');
-  const captureLineStyle = featureTypeLineStyle(captureFtSel ? captureFtSel.value : null);
+  // Same correction as updateShapePreview() above: the line style was already honoured here, but
+  // the COLOUR was hard-wired to --orange and the polygon was always filled. A crew correcting a
+  // boundary on satellite imagery was looking at an orange ring for a type they had set to blue,
+  // and at a filled one for a type set to outline-only.
+  const sym = featureTypeSymbol(currentCaptureFtKey());
+  const captureDash = leafletDashArray(sym.lineStyle, 2);
   if (n >= 2 && (geo==='line' || geo==='polygon')) {
-    vertexMapLine = (geo==='polygon' ? L.polygon(latlngs, { color: cssVar('--orange'), weight:2, fillOpacity:0.14, dashArray:leafletDashArray(captureLineStyle,2) })
-                                      : L.polyline(latlngs, { color: cssVar('--orange'), weight:2, dashArray:leafletDashArray(captureLineStyle,2) })).addTo(vertexMap);
+    vertexMapLine = (geo==='polygon'
+      ? L.polygon(latlngs, { color: sym.color, weight:2, fillColor: sym.color, fill: sym.filled, fillOpacity: sym.filled?0.16:0, dashArray: captureDash })
+      : L.polyline(latlngs, { color: sym.color, weight:2, dashArray: captureDash })).addTo(vertexMap);
   }
   // Faint ghosts of nearby saved vertices — without them, snapping is invisible until it fires
   // and the operator has no idea a shared corner is even available to snap to. Capped and
@@ -734,7 +761,10 @@ function renderVertexMap(){
     const isOpen = i === openVertexIndex;
     const icon = L.divIcon({
       className: '',
-      html: `<div class="vmap-pin${isOpen ? ' vmap-pin-open' : ''}"><span>${i+1}</span></div>`,
+      // Tinted with the type's own colour rather than the app accent, so the pins on this map,
+      // the dots in the preview above it and the markers on Review are all the same colour for
+      // the same type — which is what makes "is this the right layer?" answerable at a glance.
+      html: `<div class="vmap-pin${isOpen ? ' vmap-pin-open' : ''}" style="background:${isOpen ? sym.color : hexToRgba(sym.color,0.88)};"><span>${i+1}</span></div>`,
       iconSize: isOpen ? [30,30] : [26,26],
       iconAnchor: isOpen ? [15,29] : [13,25]
     });

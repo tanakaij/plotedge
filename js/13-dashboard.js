@@ -46,7 +46,7 @@ function renderAccuracyDetail(accVals){
   }
   let note = '';
   if (!(extGpsActive && lastExtFix)) {
-    note = `<div class="acc-detail-note">Satellite count and HDOP need an external NMEA GPS receiver — the phone's built-in GPS only reports an accuracy radius. Connect one from the Connect GPS quick action.</div>`;
+    note = `<div class="acc-detail-note">Satellite count and HDOP need an external NMEA GPS receiver. The phone's built-in GPS only reports an accuracy radius. Connect one from the Connect GPS quick action.</div>`;
   }
   el.innerHTML = rows.join('') + note;
 }
@@ -65,8 +65,8 @@ function renderDashThumb(){
   el.innerHTML = `<svg class="dash-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5z"/><path d="M9 4v13M15 6.5v13"/></svg>`;
   const n = savedFeatures.length;
   el.setAttribute('aria-label', n
-    ? `${n} feature${n===1?'':'s'} captured — open the Review map`
-    : 'No features captured yet — open the Review map');
+    ? `${n} feature${n===1?'':'s'} captured. Open the Review map`
+    : 'No features captured yet. Open the Review map');
 }
 
 // ══ MAP PREVIEW MODAL ══
@@ -330,36 +330,114 @@ function openDashMapPreviewReview(){
 //  · DATA QUALITY (low accuracy, missing fields, missing photos) — the readiness checklist and
 //    Today's Progress own that, and their rows jump to the offending features, which a status line
 //    cannot do.
-// What is left is the set of facts with no other home on the dashboard: which grid the project
-// works in, whether the work has left the device, how much room is left, and whether the network
-// half of the app is reachable.
+// What is left is the set of facts with no other home on the dashboard: whether the project can
+// be collected into at all, which grid it works in, whether the work has left the device, whether
+// the photos are on durable storage, how much room is left, and whether the network is reachable.
+
+// ══ ONE TONE VOCABULARY, FOUR STATES ══
+// Every row resolves to one of these, and the emoji is derived from the tone rather than picked
+// per row — so a row can never end up green with a warning face on it, which is exactly the sort
+// of drift that makes a status surface stop being trusted. `verdict` is what the collapsed bar
+// shows when this tone is the worst one present.
+//
+// WHY EMOJI AND NOT MORE SVG. The rest of this app draws its own icons, deliberately. This is the
+// one surface where the reader is scanning rather than reading: a coloured dot alone says
+// "something is off" without saying how badly, and at 7px it is invisible in bright sun through a
+// screen protector. An emoji carries the severity in its own shape, so the bar still parses when
+// the colour does not survive the daylight — and it is the same glyph set the crew already reads
+// on every other phone screen they use, which is worth more here than visual consistency with the
+// app's own icon language.
+const SHADE_TONES = {
+  ok:   { emoji:'✅', verdict:'All systems ready' },
+  info: { emoji:'ℹ️', verdict:'Nothing needs attention' },
+  warn: { emoji:'⚠️', verdict:'Needs a look' },
+  bad:  { emoji:'⛔', verdict:'Needs attention now' }
+};
+
+// '' is what the rows used to write for "neutral"; it is normalised to 'info' here so the tone is
+// always a real key and no call site has to remember the empty-string case.
+function shadeTone(t){ return SHADE_TONES[t] ? t : 'info'; }
+function shadeToneEmoji(t){ return SHADE_TONES[shadeTone(t)].emoji; }
+
+// ══ `info` IS NOT A DEGREE OF BAD ══
+// It ranks level with `ok`, not between `ok` and `warn`. That is the whole reason the overall
+// verdict can ever be green: "Working grid: WGS 84" is permanently informational, so ranking info
+// above ok would mean at least one info row is always present and the bar could never once show
+// the tick. Informational rows say what the setup IS; only warn and bad say something is wrong.
+// So the strict `>` below leaves the seed in place for both, and the overall verdict is only ever
+// ok, warn or bad.
+const SHADE_TONE_RANK = { bad:3, warn:2, ok:0, info:0 };
+
+function shadeWorstTone(rows){
+  return rows.reduce((worst, r) => {
+    const t = shadeTone(r.tone);
+    return SHADE_TONE_RANK[t] > SHADE_TONE_RANK[worst] ? t : worst;
+  }, 'ok');
+}
+
 function dashShadeRows(){
   const rows = [];
 
+  // ── Can this project be collected into at all ──
+  // First because it is the only row here that can make the app unusable rather than merely
+  // risky: Collect keeps Capture and Save disabled until a feature type exists, and a crew that
+  // walks out without noticing has made the trip for nothing. `icon` is the subject glyph (what
+  // the row is ABOUT); the tone emoji beside it is the verdict (how it is DOING). Keeping the two
+  // separate is what lets the same row read as ✓ or ⛔ without its identity changing.
+  if (!featureTypes.length){
+    rows.push({ key:'Feature types', icon:'🧩', val:'None defined · capture is off', tone:'bad', run:'showFeatureTypes()' });
+  } else {
+    const nFields = featureTypes.reduce((n,t)=>n+((t.fields||[]).length),0);
+    rows.push({
+      key:'Feature types', icon:'🧩',
+      val:`${featureTypes.length} type${featureTypes.length===1?'':'s'} · ${nFields} field${nFields===1?'':'s'}`,
+      // A type with no fields captures a name and a shape and nothing else. Legal, occasionally
+      // deliberate, usually somebody who did not finish — worth a nudge, not an alarm.
+      tone: featureTypes.some(t=>!(t.fields||[]).length) ? 'warn' : 'ok',
+      run:'showFeatureTypes()'
+    });
+  }
+
   // ── Which grid the numbers come out in ──
   const crs = (typeof projectCrs === 'function') ? projectCrs() : null;
-  rows.push({ key:'Working grid', val: crs ? crs.label : 'WGS 84 lat/lon (degrees)', tone:'', run:"openCrsPicker('active')" });
+  rows.push({ key:'Working grid', icon:'🧭', val: crs ? crs.label : 'WGS 84 lat/lon (degrees)', tone:'info', run:"openCrsPicker('active')" });
 
   // ── Has any of it left the device ──
   const p = projects.find(x=>x.id===activeProjectId);
   if (!savedFeatures.length){
-    rows.push({ key:'Export', val:'Nothing captured yet', tone:'', run:"switchTabNav('export')" });
+    rows.push({ key:'Export', icon:'📤', val:'Nothing captured yet', tone:'info', run:"switchTabNav('export')" });
   } else if (!p || !p.lastExportedAt){
-    rows.push({ key:'Export', val:`Never exported · ${savedFeatures.length} waiting`, tone:'bad', run:"switchTabNav('export')" });
+    rows.push({ key:'Export', icon:'📤', val:`Never exported · ${savedFeatures.length} waiting`, tone:'bad', run:"switchTabNav('export')" });
   } else {
     const since = savedFeatures.filter(f => new Date(f.editedAt||f.savedAt) > new Date(p.lastExportedAt)).length;
     rows.push({
-      key:'Export',
+      key:'Export', icon:'📤',
       val: since ? `${since} change${since===1?'':'s'} since ${timeAgo(p.lastExportedAt)}` : `Up to date · ${timeAgo(p.lastExportedAt)}`,
       tone: since ? 'warn' : 'ok',
       run:"switchTabNav('export')"
     });
   }
 
+  // ── Are the photos on durable storage ──
+  // Photos are the bulk of a survey by size and the part with no second copy anywhere. When
+  // IndexedDB is unavailable the app still works — it keeps the base64 copies in the project
+  // store instead (see photoStoreShed in js/04a-photostore.js) — but that is the configuration
+  // where a quota failure takes the pictures with it, and nothing else on this screen says so.
+  const nPhotos = savedFeatures.reduce((n,f)=>n+(f.vertices||[]).reduce((m,v)=>m+((v.photos||[]).length),0), 0);
+  if (nPhotos){
+    const durable = typeof photoStoreAvailable === 'function' ? photoStoreAvailable() : true;
+    rows.push({
+      key:'Photos', icon:'📷',
+      val: durable ? `${nPhotos} on device storage` : `${nPhotos} held in the project store`,
+      tone: durable ? 'ok' : 'warn',
+      run:'showMediaGallery()'
+    });
+  }
+
   // ── Room left on the device ──
   const info = getStorageUsageInfo();
   rows.push({
-    key:'Device storage',
+    key:'Device storage', icon:'💾',
     val:`${info.percent}% used`,
     tone: info.percent >= 90 ? 'bad' : info.percent >= 75 ? 'warn' : 'ok',
     run:'showStorage()'
@@ -368,11 +446,11 @@ function dashShadeRows(){
   // ── Whether the online half of the app is reachable at all ──
   const online = navigator.onLine !== false;
   rows.push({
-    key:'Connection',
+    key:'Connection', icon:'📶',
     // Offline is not a fault in this app — it is the design point — so it reads as neutral, not
     // as an error. It is here because it changes what PlotVault and the web map can do.
     val: online ? 'Online · cloud sync available' : 'Offline · captures stay on device',
-    tone: online ? 'ok' : '',
+    tone: online ? 'ok' : 'info',
     run:'openPlotVault()'
   });
 
@@ -386,32 +464,65 @@ function renderDashShade(){
   if (!shade || !rowsEl || !body) return;
 
   const rows = dashShadeRows();
-  rowsEl.innerHTML = rows.map(r =>
-    `<button type="button" class="dash-shade-row" onclick="${r.run}">
-       <span class="dash-shade-row-dot ${r.tone}"></span>
+  rowsEl.innerHTML = rows.map(r => {
+    const tone = shadeTone(r.tone);
+    return `<button type="button" class="dash-shade-row" data-tone="${tone}" onclick="${r.run}">
+       <span class="dash-shade-row-icon" aria-hidden="true">${r.icon || 'ℹ️'}</span>
        <span class="dash-shade-row-body">
          <span class="dash-shade-row-label">${escapeHtml(r.key)}</span>
          <span class="dash-shade-row-val">${escapeHtml(r.val)}</span>
        </span>
+       <span class="dash-shade-row-verdict" role="img" aria-label="${tone}">${shadeToneEmoji(tone)}</span>
        <svg class="dash-shade-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-     </button>`
-  ).join('');
+     </button>`;
+  }).join('');
 
-  // Three dots, not one per row: the peek bar is read at a glance. These are the three whose bad
-  // state actually costs you something — unexported work can be lost, a full device stops capture,
-  // and no connection changes what the cloud half of the app can do.
-  const byKey = k => rows.find(r => r.key === k) || { tone:'' };
-  const dots = ['Export','Device storage','Connection'].map(k =>
-    `<span class="dash-shade-dot ${byKey(k).tone}"></span>`).join('');
-  const dotsEl = document.getElementById('dashShadeDots');
-  if (dotsEl) dotsEl.innerHTML = dots;
+  // ══ THE COLLAPSED BAR IS THE WHOLE POINT ══
+  // Open, this drawer is six labelled rows and it explains itself. Shut — which is how it spends
+  // almost all of its life — it used to be three 7px grey-or-coloured dots and a sentence. Three
+  // dots cannot say WHICH three things they stand for, so the colour was the only signal and the
+  // reader had to already know the order to decode it.
+  //
+  // Now every row contributes its own subject glyph plus its verdict colour, on the right where
+  // the eye lands last and where the chevron already anchors the strip. Six small marks that each
+  // name their own subject beat three anonymous ones, and because they are the same glyphs used
+  // on the rows inside, opening the drawer confirms what the bar said rather than introducing a
+  // new vocabulary.
+  const worst = shadeWorstTone(rows);
+  const marks = rows.map(r => {
+    const tone = shadeTone(r.tone);
+    return `<span class="dash-shade-mark" data-tone="${tone}" title="${escapeHtml(r.key + ': ' + r.val)}">${r.icon || 'ℹ️'}</span>`;
+  }).join('');
+  const marksEl = document.getElementById('dashShadeMarks');
+  if (marksEl) marksEl.innerHTML = marks;
 
-  // Lead with the worst thing, so the collapsed bar is never merely decorative.
-  const worst = rows.find(r => r.tone === 'bad') || rows.find(r => r.tone === 'warn');
+  // The single verdict badge. This is the "green with a tick / red with a warning" the bar is
+  // read for: it sits at the far right of the collapsed strip, and it is the ONLY element here
+  // that survives at arm's length in the sun.
+  const verdictEl = document.getElementById('dashShadeVerdict');
+  if (verdictEl){
+    verdictEl.textContent = shadeToneEmoji(worst);
+    verdictEl.setAttribute('aria-label', SHADE_TONES[worst].verdict);
+  }
+
+  // Drives the tint on the peek bar (see .dash-shade[data-tone] in css/03-base.css). Written on
+  // the shade rather than on the peek so the open drawer's border picks it up too — a red border
+  // that turns grey the moment you open it to find out why would be a strange thing to do.
+  shade.dataset.tone = worst;
+
+  // Lead with the worst thing, so the collapsed bar is never merely decorative. shadeWorstTone()
+  // only ever returns ok/warn/bad (see the note on the rank table), so the else branch always has
+  // a matching row to name.
   const line = document.getElementById('dashShadeLine');
-  if (line) line.textContent = worst ? `${worst.key}: ${worst.val}` : 'All systems ready';
+  if (line){
+    if (worst === 'ok'){ line.textContent = SHADE_TONES.ok.verdict; }
+    else {
+      const first = rows.find(r => shadeTone(r.tone) === worst);
+      line.textContent = `${first.key}: ${first.val}`;
+    }
+  }
 
-  // Measured, not guessed. The open height has to be a real number for the transition to ease
+  // Measured, not guessed. The open height has to be a real number for the transition to travel
   // toward something; it is re-measured on every render because a row's text can wrap differently
   // as the status changes, which would otherwise leave the shade clipped or gapped.
   shade.style.setProperty('--shade-h', body.firstElementChild.scrollHeight + 'px');
@@ -423,13 +534,28 @@ function renderDashShade(){
 
 let _shadeRestored = false;
 
+// ══ WHY A TIMESTAMP AND NOT A FLAG ══
+// A drag ends in a pointerup, and a pointerup on the peek bar is followed by a click that would
+// land in toggleDashShade() and undo whatever the drag just committed. That was guarded with a
+// `dragged` flag set on the way out of the drag and consumed by the next click — which worked for
+// exactly one of the two drag surfaces.
+//
+// The grab handle is not a button and has no onclick, so a drag that STARTED there produced no
+// following click, nothing consumed the flag, and it sat on the element indefinitely. The next
+// genuine tap on the peek bar was then swallowed as if it were the tail of a gesture that had
+// finished minutes earlier. Pull the handle up to close the shade, then tap the bar to reopen it:
+// nothing happens. That is the "drag up isn't working" — the drag itself was fine, it was the tap
+// afterwards that had been eaten.
+//
+// A timestamp cannot get stuck, because it expires on its own whether or not a click ever arrives.
+// 350ms is comfortably longer than the pointerup→click gap on a slow WebView and far shorter than
+// any deliberate second tap.
+let _shadeDragEndedAt = 0;
+
 function toggleDashShade(){
   const shade = document.getElementById('dashShade');
   if (!shade) return;
-  // A drag ends in a pointerup, and a pointerup on a <button> is followed by a click — which would
-  // land here and undo whatever the drag just committed. The drag sets this flag on its way out;
-  // consuming it here is what keeps one gesture to one state change.
-  if (shade.dataset.dragged === '1'){ delete shade.dataset.dragged; return; }
+  if (Date.now() - _shadeDragEndedAt < 350) return;
   setDashShadeOpen(!shade.classList.contains('open'));
 }
 
@@ -483,9 +609,15 @@ function dashShadeRestore(){
     startY = lastY = e.clientY;
     lastT = performance.now();
     velocity = 0;
+    // Re-measured per gesture rather than read from --shade-h: a status row can rewrap between
+    // renders, and dragging against a stale maximum makes the shade stop short of its own bottom.
     maxH = body.firstElementChild ? body.firstElementChild.scrollHeight : 0;
     startH = shade.classList.contains('open') ? maxH : 0;
     shade.classList.add('dragging');
+    // Pointer capture, so a drag that starts on the 4px grab handle keeps receiving moves once
+    // the finger leaves it — which on a handle that small is immediately. Without this the
+    // upward close gesture died a few pixels in on any browser that retargets mid-gesture.
+    try { if (e.pointerId != null && shade.setPointerCapture) shade.setPointerCapture(e.pointerId); } catch(err) {}
   };
 
   const onMove = (e) => {
@@ -506,9 +638,11 @@ function dashShadeRestore(){
     const h = parseFloat(body.style.height) || 0;
     body.style.height = '';           // hand control back to the class-driven height
     if (!moved) return;               // a tap: the peek bar's own onclick handles it
-    // A deliberate flick wins over position; otherwise the halfway point decides.
+    // A deliberate flick wins over position; otherwise the halfway point decides. Both directions
+    // are covered by the same two rules: a downward flick or a past-halfway position opens, an
+    // upward flick or a short pull closes.
     const open = Math.abs(velocity) > 0.35 ? velocity > 0 : h > maxH / 2;
-    shade.dataset.dragged = '1';      // consumed by toggleDashShade() — see the note there
+    _shadeDragEndedAt = Date.now();   // see the note on toggleDashShade()
     setDashShadeOpen(open);
   };
 
@@ -521,8 +655,9 @@ function dashShadeRestore(){
 })();
 
 // A tap that followed a drag would toggle a second time on top of what the drag already decided.
-// The peek bar's onclick is the tap path; suppressing it after a real drag is handled by the
-// `moved` flag above returning early, leaving the click to run alone.
+// The peek bar's onclick is the tap path; a gesture that never moved returns early above and
+// leaves that click to run alone, and a gesture that DID move stamps _shadeDragEndedAt so the
+// click it produces is ignored. See the note on toggleDashShade() for why that is a timestamp.
 
 function updateStats(){
   renderReadinessChecklist();
@@ -725,11 +860,15 @@ function renderDashRecentActivity(){
   list.innerHTML = recent.map(f=>{
     const info = resolveFeatureType(f);
     const color = featureTypeColor(info.key);
+    const sym = featureTypeSymbol(info.key);
     const verts = f.vertices||[];
     const totalPhotos = verts.reduce((s,v)=>s+(v.photos||[]).length,0);
     const meta = `${info.label} · ${verts.length} vertex${verts.length===1?'':'es'}${totalPhotos?` · ${totalPhotos} photo${totalPhotos===1?'':'s'}`:''}`;
+    // A flat colour square said which type this was only to somebody who had memorised the
+    // palette. The real symbol says it AND says what the feature is shaped like, from the same
+    // legendGlyphSvg() the map legend uses — so the two can never disagree.
     return `<div class="dash-recent-row" onclick="scrollToFeatureCard(${f.id})">
-      <div class="dash-recent-chip" style="background:${color};"></div>
+      <div class="dash-recent-chip">${legendGlyphSvg(f.geometryType||'point', color, sym.shape, sym.lineStyle, sym.filled)}</div>
       <div class="dash-recent-body">
         <div class="dash-recent-name">${escapeHtml(f.name)}</div>
         <div class="dash-recent-meta">${escapeHtml(meta)}</div>

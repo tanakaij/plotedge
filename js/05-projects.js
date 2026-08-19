@@ -187,7 +187,7 @@ function renderBackupStatus(){
   const t = dataHubTotals();
   el.innerHTML = t.unsynced
     ? `<div class="hub-note hub-note-warn"><strong>${escapeHtml(plural(t.unsynced, 'project'))}</strong> ${t.unsynced === 1 ? 'has' : 'have'} captured data that hasn't been exported yet. Back up before wiping the app or handing the device on.</div>`
-    : `<div class="hub-note">Everything captured on this device has been exported${t.lastExport ? ' — most recently ' + escapeHtml(timeAgo(t.lastExport)) : ''}.</div>`;
+    : `<div class="hub-note">Everything captured on this device has been exported${t.lastExport ? ', most recently ' + escapeHtml(timeAgo(t.lastExport)) : ''}.</div>`;
 }
 
 
@@ -213,7 +213,7 @@ function renderStorage(){
   el.innerHTML =
     `<div class="hub-block">
        <div class="hub-block-title">${escapeHtml(formatBytes(total))} of project data</div>
-       <div class="hub-block-desc">Across ${escapeHtml(plural(t.count,'project'))} and ${escapeHtml(plural(t.features,'feature'))}. This counts the captured data PlotEdge stores on the device — photos are the bulk of it — and not the app itself or any cached map tiles.</div>
+       <div class="hub-block-desc">Across ${escapeHtml(plural(t.count,'project'))} and ${escapeHtml(plural(t.features,'feature'))}. This counts the captured data PlotEdge stores on the device (photos are the bulk of it) and not the app itself or any cached map tiles.</div>
        ${bar}
        ${rows.map(r =>
          `<div class="storage-row">
@@ -231,27 +231,131 @@ function renderStorage(){
 
 
 // ══ TEMPLATE PROJECT ══
-// Offered on the Welcome screen. A brand-new project is unusable until it has at least one
-// feature type (Collect keeps Capture/Save disabled without one), so this ships three — one of
-// each geometry — with a couple of representative fields apiece. Ids are generated per call so
-// two template projects never share field ids.
+// Offered on the Welcome screen, and it is the only thing most people will ever see the app do
+// before deciding what it is. That makes it a demonstration, not a stub.
+//
+// ── WHAT IT USED TO BE, AND WHY THAT WAS TOO LITTLE ──
+// Three feature types, two plain fields each, no styling, nothing required, no conditions, no
+// calculations, no repeating groups. It cleared the one bar it had to clear — Collect refuses to
+// arm Capture/Save until a feature type exists — and demonstrated none of the schema engine the
+// rest of the app is built around. Somebody evaluating PlotEdge from the template concluded it
+// captured a name, a shape and two free-text boxes.
+//
+// ── WHAT IT IS NOW ──
+// Five feature types covering every geometry (including a multi-geometry one), and between them
+// every field type the editor can produce and every schema behaviour worth knowing about:
+//   · required fields, so the crew meets validation on the first save rather than in the field
+//   · single/multi choice, date, number, barcode, yes-no
+//   · a CONDITION — "Damage description" appears only once condition is Damaged
+//   · a CALCULATED field — clearance derived from two measured numbers
+//   · a VERTEX-SCOPED field — per-standpoint readings on a line, not one answer for the whole run
+//   · a REPEATING GROUP — several defects on one structure, each with its own sub-fields
+//   · full symbology on every type: colour, point shape, line style and polygon fill
+// Each one is a thing somebody would otherwise have to be told exists.
+//
+// The types themselves are deliberately generic survey/asset work rather than a specific
+// industry: a boundary marker, a pole, an access road, a parcel, a building footprint. Anyone can
+// see what to rename them to.
 function createTemplateProject(){
   const uid = pre => pre + '_' + Math.random().toString(36).slice(2,9);
-  const field = (label, type, opts, placeholder) =>
-    ({ id: uid('f'), label, type, options: opts || [], required: false, placeholder: placeholder || '' });
+  // Every field goes through here so no call site can forget `scope` or `options` and produce a
+  // type that renders differently from one built in the editor. opts.* carries the interesting
+  // parts: required, scope, condition, expression, subfields.
+  const field = (label, type, options, opts) => Object.assign({
+    id: uid('f'), label, type, options: options || [], required: false,
+    placeholder: '', scope: 'feature', condition: null, expression: '', subfields: []
+  }, opts || {});
+  const sub = (label, type, options, opts) => Object.assign({
+    id: uid('s'), label, type, options: options || [], required: false, placeholder: ''
+  }, opts || {});
+
+  // Held in named consts because a condition and a calculated expression both have to REFER to
+  // another field by its generated id — which is the one thing about this schema that cannot be
+  // written inline.
+  const fCondition   = field('Marker condition', 'single_select', ['Good','Leaning','Damaged','Missing'], { required:true });
+  const fDamage      = field('Damage description', 'textarea', [], {
+    placeholder:'What is wrong with it?',
+    // Skip logic: hidden until the condition says there is damage to describe. collectAttrs()
+    // excludes hidden fields, so this cannot block a save on a question never asked.
+    condition:{ fieldId: fCondition.id, op:'eq', value:'Damaged' }
+  });
+
+  const fPoleHeight  = field('Pole height (m)', 'number', [], { required:true, placeholder:'e.g. 9.5' });
+  const fWireHeight  = field('Lowest wire (m)', 'number', [], { placeholder:'e.g. 6.2' });
+  // Calculated: recomputed from the two numbers above every time either changes, and written into
+  // the saved attrs so it flows out through every export like any other value.
+  const fClearance   = field('Ground clearance (m)', 'calculated', [], {
+    expression: `${fPoleHeight.id} - ${fWireHeight.id}`
+  });
 
   const tplTypes = [
-    { id: uid('ft'), name: 'Boundary Marker', geometryType: 'point', color: '#10B981', fields: [
-        field('Marker condition', 'single_select', ['Good','Damaged','Missing']),
-        field('Notes', 'textarea', [], 'Anything worth recording on site')
+    // ── POINT, with required + conditional fields and a barcode ──
+    { id: uid('ft'), name: 'Boundary Marker', geometryType: 'point', geometryTypes: ['point'],
+      color: '#10B981', shape: 'triangle', lineStyle: 'solid', fill: true, fields: [
+        field('Marker ID', 'barcode', [], { placeholder:'Scan or type the tag' }),
+        fCondition,
+        fDamage,
+        field('Last inspected', 'date'),
+        field('Photographed from', 'multi_select', ['North','South','East','West'])
     ]},
-    { id: uid('ft'), name: 'Access Road', geometryType: 'line', color: '#0EA5E9', fields: [
-        field('Surface', 'single_select', ['Paved','Gravel','Earth']),
-        field('Width (m)', 'number', [], 'e.g. 4.5')
+
+    // ── POINT, with a calculation and a repeating group ──
+    { id: uid('ft'), name: 'Utility Pole', geometryType: 'point', geometryTypes: ['point'],
+      color: '#8B5CF6', shape: 'circle', lineStyle: 'solid', fill: true, fields: [
+        field('Pole reference', 'text', [], { required:true, placeholder:'e.g. P-014' }),
+        field('Material', 'single_select', ['Wood','Concrete','Steel'], { required:true }),
+        fPoleHeight,
+        fWireHeight,
+        fClearance,
+        field('Transformer fitted', 'boolean'),
+        // A repeating group: one pole, any number of defects, each with its own sub-fields. The
+        // group's own `required` would only mean "at least one entry"; the sub-fields carry their
+        // own, which is checked per entry at save.
+        field('Defects', 'repeat_group', [], { subfields: [
+          sub('Defect type', 'single_select', ['Cracked','Rotten','Leaning','Corroded','Graffiti'], { required:true }),
+          sub('Severity', 'single_select', ['Low','Medium','High'], { required:true }),
+          sub('Noted on', 'date'),
+          sub('Comment', 'text', [], { placeholder:'Anything the photo will not show' })
+        ]})
     ]},
-    { id: uid('ft'), name: 'Plot Boundary', geometryType: 'polygon', color: '#F59E0B', fields: [
-        field('Plot reference', 'text', [], 'e.g. PLOT-01'),
-        field('Surveyed', 'boolean')
+
+    // ── LINE, dashed, with a VERTEX-scoped field ──
+    { id: uid('ft'), name: 'Access Road', geometryType: 'line', geometryTypes: ['line'],
+      color: '#0EA5E9', shape: 'circle', lineStyle: 'dashed', fill: true, fields: [
+        field('Road name', 'text', [], { placeholder:'e.g. Mill Lane' }),
+        field('Surface', 'single_select', ['Paved','Gravel','Earth','Unformed'], { required:true }),
+        field('Width (m)', 'number', [], { placeholder:'e.g. 4.5' }),
+        field('Passable by truck', 'boolean'),
+        // scope:'vertex' — asked once per captured point along the run rather than once for the
+        // whole road, so a surface that changes halfway is recorded where it changes.
+        field('Condition at this point', 'single_select', ['Good','Rutted','Washed out','Blocked'], { scope:'vertex' })
+    ]},
+
+    // ── POLYGON, outline-only, dotted ──
+    { id: uid('ft'), name: 'Plot Boundary', geometryType: 'polygon', geometryTypes: ['polygon'],
+      color: '#F59E0B', shape: 'circle', lineStyle: 'dotted',
+      // fill:false — an outline-only parcel, so the imagery underneath stays readable. Every map
+      // surface honours this; it is here so the template shows that it is a choice.
+      fill: false, fields: [
+        field('Plot reference', 'text', [], { required:true, placeholder:'e.g. PLOT-01' }),
+        field('Land use', 'single_select', ['Residential','Commercial','Agricultural','Vacant','Public'], { required:true }),
+        field('Tenure', 'single_select', ['Freehold','Leasehold','Customary','Unknown']),
+        field('Surveyed on', 'date'),
+        field('Corners verified', 'boolean'),
+        field('Notes', 'textarea', [], { placeholder:'Anything worth recording on site' })
+    ]},
+
+    // ── MULTI-GEOMETRY ──
+    // The same semantic class captured at whatever fidelity the site allows: a footprint polygon
+    // where the building is exposed, a single point where it is not. Nothing else in the template
+    // shows that a type can permit more than one geometry, and it is easy to miss in the editor.
+    { id: uid('ft'), name: 'Building', geometryType: 'polygon', geometryTypes: ['polygon','point'],
+      color: '#EF4444', shape: 'square', lineStyle: 'solid', fill: true, fields: [
+        field('Building name / number', 'text', [], { required:true }),
+        field('Structure type', 'single_select', ['House','Shed','Office','Workshop','Other']),
+        field('Storeys', 'number', [], { placeholder:'e.g. 2' }),
+        field('Roof material', 'single_select', ['Tile','Sheet metal','Thatch','Concrete','Other']),
+        field('Services connected', 'multi_select', ['Water','Electricity','Sewer','Data'])
     ]}
   ];
 
@@ -259,17 +363,48 @@ function createTemplateProject(){
   const now = new Date().toISOString();
   projects.push({
     id, name: 'Sample Survey',
-    description: 'Template project — rename it, edit the feature types, or delete it once you have your own.',
+    description: 'Template project: five worked feature types showing required fields, skip logic, calculations, per-vertex questions and repeating groups. Rename them, edit them, or delete the project once you have your own.',
     client: '', manager: '', site: '', siteLat: null, siteLon: null,
     createdAt: now, updatedAt: now, lastExportedAt: null
   });
-  projectData[id] = { savedFeatures: [], currentVertices: [], featureTypes: tplTypes, notes: '', notesUpdatedAt: null, sketches: [] };
+  projectData[id] = { savedFeatures: [], currentVertices: [], featureTypes: tplTypes, notes: TEMPLATE_PROJECT_NOTES, notesUpdatedAt: now, sketches: [] };
   persistStore();
   showToast('Template project created');
   // replaceNav mirrors saveProjectForm(): turn the Welcome stop into the project's dashboard stop
   // rather than stacking one on top of a screen the user can no longer return to meaningfully.
   openProject(id, { replaceNav: true });
 }
+
+// Shipped in the project's own notes rather than as a modal or a help page, because this is the
+// one piece of documentation that travels with the thing it documents — it is still there after
+// the welcome screen is gone, it survives a .plotpack handoff to a colleague, and deleting the
+// template deletes it too. Quick Notes is already on the dashboard, so it costs no new surface.
+const TEMPLATE_PROJECT_NOTES = [
+  'WHAT TO LOOK AT IN THIS TEMPLATE',
+  '',
+  'Five feature types, each demonstrating something the schema editor can do:',
+  '',
+  '• Boundary Marker (point): a required field, a barcode field, and skip logic:',
+  '  "Damage description" only appears once condition is set to Damaged.',
+  '',
+  '• Utility Pole (point): a calculated field (ground clearance works itself out',
+  '  from pole height minus lowest wire) and a repeating group, so one pole can',
+  '  carry any number of defects, each with its own severity and date.',
+  '',
+  '• Access Road (line, dashed): "Condition at this point" is asked once per',
+  '  captured vertex instead of once for the whole road, so a surface that changes',
+  '  halfway is recorded where it changes.',
+  '',
+  '• Plot Boundary (polygon, dotted outline only): no fill, so the imagery',
+  '  underneath stays readable.',
+  '',
+  '• Building: permits BOTH polygon and point. Capture a footprint where the',
+  '  building is exposed and a single point where it is not; the crew chooses per',
+  '  feature on the Capture tab.',
+  '',
+  'Open Feature Types from the dashboard to see how any of it is set up, and edit',
+  'anything freely. Nothing here is special, it is all ordinary project data.'
+].join('\n');
 
 // Cancel/X on the New Project or Edit Project form, and the "return to the list" step after a
 // successful save. Both always start from the projects list (that's the only place the form is
@@ -418,7 +553,7 @@ function useCurrentLocationForSite() {
           // and the name is offered in the hint rather than silently dropped, because it is
           // sometimes still the right answer and the crew can retype it.
           useRawCoords(lat, lon);
-          hint.textContent = `Located. Nearest named place (${place}) is far from here — used coordinates.`;
+          hint.textContent = `Located. Nearest named place (${place}) is far from here, used coordinates.`;
         } else {
           useRawCoords(lat, lon);
           hint.textContent = 'Located. No place name found nearby, used coordinates.';

@@ -326,7 +326,7 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
     // The form still holds everything the user typed; make sure a copy is on disk too, so even
     // killing the app now does not lose it.
     saveCollectDraft();
-    showToast('Could not save to this device — your capture is still here. Export a backup now.');
+    showToast('Could not save to this device. Your capture is still here. Export a backup now.');
     return;
   }
 
@@ -493,7 +493,7 @@ function editFeature(id){
     // to put it. See js/06a-capture-stack.js.
     if (suspendedCaptures.length < CAPTURE_STACK_MAX){
       showConfirm(
-        'You have an unsaved feature in progress. Pause it and edit this one instead? Nothing is lost — it will be waiting on the Capture tab.',
+        'You have an unsaved feature in progress. Pause it and edit this one instead? Nothing is lost. It will be waiting on the Capture tab.',
         () => { if (suspendCurrentCapture()) begin(); },
         'Pause & Edit'
       );

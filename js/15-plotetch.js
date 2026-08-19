@@ -197,7 +197,7 @@ function renderPlotLens(){
   body.innerHTML = trayHtml + `
     <div class="hub-block">
       <div class="hub-block-title">${escapeHtml(beats.length + (beats.length===1?' frame':' frames'))} · about ${escapeHtml(mins < 60 ? mins+'s' : Math.round(mins/60)+'m')}</div>
-      <div class="hub-block-desc">Your captured photos, in the order they were taken, played back with a slow pan over each. Add a line of narration to any frame — narration is the only thing saved, so a story costs almost nothing.</div>
+      <div class="hub-block-desc">Your captured photos, in the order they were taken, played back with a slow pan over each. Add a line of narration to any frame, narration is the only thing saved, so a story costs almost nothing.</div>
       <!-- ══ STORY MAP PREVIEW ══
            Shows the survey drawing itself: each frame's location drops in sequence with a trail
            connecting them, so you can see the shape of the story — the route walked, where the
@@ -593,7 +593,7 @@ function plJumpToFeature(){
 const PLOTLENS_EXPORT_SHELL = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>__TITLE__ — PlotLens</title>
+<title>__TITLE__ · PlotLens</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;height:100dvh}
@@ -1068,7 +1068,7 @@ function renderPeReadout(){
     const r = polygonAreaAndPerimeterM(v);
     t.innerHTML = `<strong>${v.length}</strong> vertices · <strong>${escapeHtml(formatArea(r.area!=null?r.area:r.areaSqm))}</strong>`;
   } else {
-    t.innerHTML = `<strong>${v.length}</strong> vertex — ${3-v.length} more to close a polygon`;
+    t.innerHTML = `<strong>${v.length}</strong> vertex, ${3-v.length} more to close a polygon`;
   }
 }
 
@@ -1326,7 +1326,7 @@ function plotEtchSendToCollect(){
   if (!featureTypes.length){ showToast('Add a feature type first'); return; }
   const matching = featureTypes.filter(ft=>ftAllowsGeometry(ft, s.type));
   if (!matching.length){
-    showToast(`No ${s.type} feature type exists yet — create one first`);
+    showToast(`No ${s.type} feature type exists yet, create one first`);
     return;
   }
   const proceed = () => {

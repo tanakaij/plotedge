@@ -177,7 +177,7 @@ function setCaptureGeometry(geo, silent){
     if (typeof applyAttrValues === 'function') applyAttrValues(ft, carried);
     refreshFieldConditionsAndCalcs();
     renderPoints();
-    if (!silent) showToast('Capturing as ' + geo + (currentVertices.length < minFor(geo) ? ` — needs ${minFor(geo)}+ vertices` : ''));
+    if (!silent) showToast('Capturing as ' + geo + (currentVertices.length < minFor(geo) ? `, needs ${minFor(geo)}+ vertices` : ''));
   };
   if (losing && !silent){
     // Nothing is actually deleted by the switch — the extra vertices stay in currentVertices and
@@ -928,7 +928,7 @@ let barcodeScanRAF = null;
 
 async function openBarcodeScanner(targetInputId) {
   if (!('BarcodeDetector' in window)) {
-    showToast('Barcode scanning isn\'t supported on this browser — you can still type the code in');
+    showToast('Barcode scanning isn\'t supported on this browser. You can still type the code in');
     return;
   }
   barcodeScanTargetId = targetInputId;
@@ -948,7 +948,7 @@ async function openBarcodeScanner(targetInputId) {
   try {
     detector = new BarcodeDetector();
   } catch (e) {
-    showToast('Barcode scanning isn\'t supported on this browser — you can still type the code in');
+    showToast('Barcode scanning isn\'t supported on this browser. You can still type the code in');
     closeBarcodeScanner();
     return;
   }

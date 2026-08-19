@@ -147,15 +147,24 @@ function renderFeatureTypesList() {
     el.innerHTML = '<div class="empty-projects"><strong>No feature types yet</strong>Add your first feature type to start collecting</div>';
     return;
   }
-  const geoGlyph = { point:'●', line:'—', polygon:'▱' };
   el.innerHTML = featureTypes.map(t => {
     const color = featureTypeColor(t.id);
+    // ══ THIS LIST IS WHERE SYMBOLOGY IS SET, SO IT SHOULD SHOW IT ══
+    // The meta line carried a ●/—/▱ character per permitted geometry: it said which geometries
+    // the type allows and nothing about what the type actually LOOKS like on a map. Since this
+    // screen is the only place a shape, dash or fill is ever chosen, seeing the result required
+    // opening the editor, saving, and going to look at the map. The same legendGlyphSvg() the
+    // map legends use draws the real symbol per permitted geometry, so a dashed outline-only
+    // polygon reads as one from the list.
+    const sym = featureTypeSymbol(t.id);
+    const glyphs = ftGeometries(t)
+      .map(g => `<span class="ft-row-glyph">${legendGlyphSvg(g, color, sym.shape, sym.lineStyle, sym.filled)}</span>`).join('');
     return `
     <div class="ft-row" onclick="editFeatureType('${t.id}')">
       <div class="ft-row-icon" style="background:${hexToRgba(color,0.14)};border-color:${hexToRgba(color,0.35)};color:${color};">${escapeHtml((t.name||'?').charAt(0))}</div>
       <div class="ft-row-body">
         <div class="ft-row-name">${escapeHtml(t.name)}</div>
-        <div class="ft-row-meta">${ftGeometries(t).map(g=>geoGlyph[g]||'').join(' ')} ${escapeHtml(ftGeometryLabel(t))} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
+        <div class="ft-row-meta">${glyphs} ${escapeHtml(ftGeometryLabel(t))} · ${t.fields.length} field${t.fields.length===1?'':'s'}</div>
       </div>
       <div class="ft-row-actions">
         <button class="ft-icon-btn" title="Duplicate" aria-label="Duplicate feature type" onclick="event.stopPropagation();duplicateFeatureType('${t.id}')">
@@ -179,6 +188,10 @@ function newFeatureType() {
   editingFtFill = true;
   document.getElementById('ftEditorTitle').textContent = 'New feature type';
   document.getElementById('ftName').value = '';
+  // "Start from PlotArchive" belongs to creating, not to editing: on an existing type the fields
+  // below are the user's own work, and a row inviting them to overwrite it wholesale is a trap
+  // sitting directly above it.
+  setFtArchiveRowVisible(true);
   setFtGeo('point');
   renderFtFieldsList();
   renderFtColorPicker();
@@ -186,6 +199,12 @@ function newFeatureType() {
   activateView('view-featuretype-edit');
   focusWhenSettled('ftName');
   pushNavState('featuretype-edit');
+}
+
+// One writer for the row's visibility, so the two entry points cannot disagree about it.
+function setFtArchiveRowVisible(show){
+  const row = document.getElementById('ftArchiveRow');
+  if (row) row.style.display = show ? '' : 'none';
 }
 
 function editFeatureType(id) {
@@ -199,6 +218,7 @@ function editFeatureType(id) {
   editingFtFill = t.fill !== false;
   document.getElementById('ftEditorTitle').textContent = 'Edit feature type';
   document.getElementById('ftName').value = t.name;
+  setFtArchiveRowVisible(false);
   setFtGeo(ftGeometries(t), true); // reflect stored geometry only — see writeFtGeoSelection's `silent` note
   renderFtFieldsList();
   renderFtColorPicker();
@@ -282,7 +302,7 @@ function writeFtGeoSelection(list, silent){
   const hint = document.getElementById('ftGeoHint');
   if (hint){
     hint.textContent = list.length > 1
-      ? 'Captured as ' + list.join(' or ') + ' — the crew picks per feature, attributes stay the same.'
+      ? 'Captured as ' + list.join(' or ') + '. The crew picks per feature, attributes stay the same.'
       : 'Every feature of this type is a ' + list[0] + '. Tap another to allow both.';
   }
   // Demotion only applies when point is the ONLY permitted geometry. Under multi-geometry a
@@ -469,7 +489,7 @@ function syncFtFieldSheet(){
     const deps = ftEligibleDependencies();
     document.getElementById('ftfExpressionTokens').innerHTML = deps.length
       ? deps.map(d=>`<span class="opt-tag" style="cursor:pointer;" onclick="insertFtExpressionToken('${d.id}')">${escapeHtml(d.label||d.id)}</span>`).join('')
-      : '<span class="hint">Add another field first — an expression needs something to reference.</span>';
+      : '<span class="hint">Add another field first. An expression needs something to reference.</span>';
   }
 
   // A repeating group has no single value of its own to type in or pick — what repeats is the set
@@ -534,7 +554,7 @@ function toggleFtDraftCondition(on){
   if (!ftFieldDraft) return;
   const deps = ftEligibleDependencies();
   if (on && !deps.length){
-    showToast('Add another field first — there\'s nothing earlier to condition on');
+    showToast('Add another field first, there\'s nothing earlier to condition on');
     document.getElementById('ftfConditionOn').checked = false;
     return;
   }
@@ -652,7 +672,7 @@ function renderFtSubfieldsList(){
   if (!el || !ftFieldDraft) return;
   const subs = ftFieldDraft.subfields || [];
   if (!subs.length){
-    el.innerHTML = '<div class="empty-box" style="padding:14px;"><strong>No fields yet</strong>Add at least one — this is what repeats per entry</div>';
+    el.innerHTML = '<div class="empty-box" style="padding:14px;"><strong>No fields yet</strong>Add at least one. This is what repeats per entry</div>';
     return;
   }
   const typeLabel = v => (REPEAT_SUBFIELD_TYPES.find(t=>t.value===v)||{}).label || v;

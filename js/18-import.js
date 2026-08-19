@@ -156,7 +156,7 @@ function prepareCSVImport(file){
     if(!wktCol && (!latCol || !lonCol)){ showToast('No latitude/longitude or WKT geometry column found in this CSV'); return; }
     if (delimiter !== ','){
       const label = delimiter==='\t' ? 'tab' : delimiter==='|' ? 'pipe' : 'semicolon';
-      showToast(`Detected ${label}-delimited CSV — imported accordingly.`);
+      showToast(`Detected ${label}-delimited CSV: imported accordingly.`);
     }
     pendingImport = { kind:'csv', fileName:file.name, headers, rows, latCol, lonCol, wktCol,
       target: activeProjectId ? 'current' : 'new', newProjectName: file.name.replace(/\.csv$/i,'') };
@@ -435,7 +435,9 @@ function handleImportFileChosen(event){
   // .plotpack first: it is the only one of the three that restores a whole project
   // rather than merging a layer into the open one, so it takes a different
   // wizard entirely. See js/17b-plotpack.js.
-  if(ext==='plotpack') preparePlotpackImport(file);
+  // 'importWizard' named explicitly: a .plotpack chosen through THIS picker must summarise
+  // itself in this card, not in the dedicated PlotPack card further up the panel.
+  if(ext==='plotpack') preparePlotpackImport(file, 'importWizard');
   else if(ext==='csv') prepareCSVImport(file);
   else if(ext==='gpkg') prepareGpkgImport(file);
   else showToast('Choose a .plotpack, .csv or .gpkg file');

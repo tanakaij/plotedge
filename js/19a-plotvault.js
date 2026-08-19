@@ -93,7 +93,7 @@ async function plotvaultProbeSource(url) {
     const res = await fetch(url, { headers: { Range: 'bytes=0-0' }, signal: ctrl.signal });
     clearTimeout(timer);
 
-    if (res.status === 404) return { ok: false, why: 'Nothing found at that URL — check the path and the file name.' };
+    if (res.status === 404) return { ok: false, why: 'Nothing found at that URL, check the path and the file name.' };
     if (res.status === 403) return { ok: false, why: 'Access denied. The object needs to be public, or the URL needs to be a presigned one that has not expired.' };
     if (!res.ok && res.status !== 206) return { ok: false, why: `The server answered ${res.status}.` };
 
@@ -106,7 +106,7 @@ async function plotvaultProbeSource(url) {
   } catch (e) {
     clearTimeout(timer);
     if (e && e.name === 'AbortError') return { ok: false, why: 'The server did not respond in time.' };
-    return { ok: false, why: 'Could not reach that URL. If the address is right, the bucket most likely needs a CORS policy allowing this origin — and it must expose the Content-Range header.' };
+    return { ok: false, why: 'Could not reach that URL. If the address is right, the bucket most likely needs a CORS policy allowing this origin, and it must expose the Content-Range header.' };
   }
 }
 
@@ -175,7 +175,7 @@ function plotvaultClearAll() {
 async function plotvaultLoadIntoMap(source) {
   const bbox = plotvaultViewBbox();
   if (!bbox) { showToast('Open the map first, then load reference data for the view you can see.'); return; }
-  if (!navigator.onLine) { showToast('PlotVault needs a connection — reference data is read live from the bucket.'); return; }
+  if (!navigator.onLine) { showToast('PlotVault needs a connection, reference data is read live from the bucket.'); return; }
 
   showToast('Reading ' + (source.name || 'reference data') + '…');
   try {
@@ -205,7 +205,7 @@ async function plotvaultLoadIntoMap(source) {
     plotvaultLayers[source.url] = layer;
 
     showToast(fc.truncated
-      ? `Showing the first ${PLOTVAULT_MAX_FEATURES} features — zoom in for the rest`
+      ? `Showing the first ${PLOTVAULT_MAX_FEATURES} features, zoom in for the rest`
       : `${fc.features.length} reference feature${fc.features.length === 1 ? '' : 's'} loaded`);
   } catch (e) {
     console.error('PlotVault read failed:', e);
@@ -235,7 +235,7 @@ function renderPlotVault() {
   if (!el) return;
   const sources = plotvaultSources();
   if (!sources.length) {
-    el.innerHTML = '<div class="pv-empty">No sources yet. Add the URL of a FlatGeobuf (.fgb) file on your bucket — PlotEdge reads only the part of it you are looking at.</div>';
+    el.innerHTML = '<div class="pv-empty">No sources yet. Add the URL of a FlatGeobuf (.fgb) file on your bucket. PlotEdge reads only the part of it you are looking at.</div>';
     return;
   }
   el.innerHTML = sources.map((s, i) => {
@@ -298,7 +298,7 @@ async function plotvaultAddSource() {
   nameEl.value = ''; urlEl.value = '';
   if (status) status.textContent = '';
   const size = probe.bytes ? ' (' + Math.round(probe.bytes / 1048576) + ' MB on the server)' : '';
-  showToast('Source added' + size + ' — it streams, nothing was downloaded');
+  showToast('Source added' + size + '. It streams, nothing was downloaded');
   renderPlotVault();
 }
 

@@ -186,7 +186,11 @@
   .dash-recent-row:last-child { border-bottom:none; padding-bottom:0; }
   .dash-recent-row:first-child { padding-top:0; }
   .dash-recent-row:active { opacity:0.6; }
-  .dash-recent-chip { width:8px; height:8px; border-radius:999px; flex-shrink:0; }
+  /* Was an 8px flat colour dot. It now holds the feature type's real symbol (legendGlyphSvg),
+     so it needs a real box — 16px matches the glyph's own viewBox and keeps the row height
+     unchanged, since the two text lines beside it were already taller than that. */
+  .dash-recent-chip { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .dash-recent-chip svg { display:block; }
   .dash-recent-body { flex:1; min-width:0; }
   .dash-recent-name { font-size:13px; font-weight:700; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .dash-recent-meta { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
@@ -578,7 +582,13 @@
   /* Quality score badge — same three checks as the review validation bar (accuracy/photos/required
      fields), shown as an at-a-glance % right on the card so it doesn't need a separate screen. */
   .feat-quality-badge { flex-shrink:0; font-size:10px; font-weight:800; letter-spacing:0.02em; padding:3px 7px; border-radius:999px; }
-  .layer-badge { font-size:10px; font-weight:800; letter-spacing:0.06em; padding:3px 9px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary); white-space:nowrap; flex-shrink:0; }
+  .layer-badge { display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:800; letter-spacing:0.06em; padding:3px 9px; border-radius:999px; background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary); white-space:nowrap; flex-shrink:0; }
+  /* The badge now carries the feature type's real symbol (legendGlyphSvg, js/02-state.js) rather
+     than a ●/—/▱ character. Sized down to 13px so a pill that was tuned around 10px text does not
+     grow a row taller, and given a flex line-box of its own so the glyph sits on the text's optical
+     centre instead of the baseline. */
+  .layer-badge-glyph { display:inline-flex; align-items:center; flex-shrink:0; }
+  .layer-badge-glyph svg { width:13px; height:13px; display:block; }
   .feat-name { flex:1; font-weight:700; font-size:14px; color:var(--white); }
   .feat-ref  { font-size:11px; color:var(--text-secondary); }
   .feat-del  { background:none; border:none; color:var(--text-tertiary); font-size:22px; cursor:pointer; padding:0 4px; line-height:1; transition:color 0.15s; }

@@ -300,7 +300,7 @@ async function exportCAD(){
   const res = await dl(dxf, `${label}_UTM${zone}${southern ? 'S' : 'N'}_${ts()}.dxf`, 'image/vnd.dxf');
   if (res && res.ok !== false){
     const where = (res && res.where) || 'your exports folder';
-    if (status) status.textContent = `✓ ${drawn} features drawn on ${layerNames.length} layers — UTM zone ${zone}${southern ? 'S' : 'N'}`;
+    if (status) status.textContent = `✓ ${drawn} features drawn on ${layerNames.length} layers, UTM zone ${zone}${southern ? 'S' : 'N'}`;
     showToast(`Drawing saved to ${where}`);
   }
   markProjectExported();

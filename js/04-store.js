@@ -135,7 +135,7 @@ function loadStore() {
     // 3. neither copy is readable — keep the bytes and refuse to write over them
     quarantineRaw(raw, 'primary and backup both unreadable');
     storeLoadFailed = true;
-    storeRecoveryNote = 'Saved data could not be read. It has been set aside untouched — export a backup before continuing.';
+    storeRecoveryNote = 'Saved data could not be read. It has been set aside untouched. Export a backup before continuing.';
     projects = [];
     return {};
   }
@@ -378,7 +378,7 @@ function persistStore(opts) {
     // Loud, because a silently skipped save is its own kind of data loss — the
     // crew needs to know the screen and the disk have diverged.
     console.error('PlotEdge: refused a save because ' + verdict.why);
-    showToast('Save blocked to protect your data — ' + verdict.why + '. Export a backup.');
+    showToast('Save blocked to protect your data, ' + verdict.why + '. Export a backup.');
     publishWidgetSummary();
     return false;
   }

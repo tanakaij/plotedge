@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v17';   // bumped: css/10-quick-actions.css added
+const SW_VERSION = 'v18';   // bumped: js/03b-plotarchive.js + css/11-plotarchive.css added
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -41,10 +41,12 @@ const APP_ASSETS = [
   'css/08-plotwords.css',
   'css/09-capture-form.css',
   'css/10-quick-actions.css',
+  'css/11-plotarchive.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
   'js/03a-plotmate.js',
+  'js/03b-plotarchive.js',
   'js/04-store.js',
   'js/04a-photostore.js',
   'js/05-projects.js',

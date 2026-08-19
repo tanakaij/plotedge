@@ -109,11 +109,11 @@ function hasCaptureInProgress(){
 function suspendCurrentCapture(){
   if (!featureTypes.length){ showToast('Add a feature type first'); return false; }
   if (!hasCaptureInProgress()){
-    showToast('Nothing in progress to pause — just pick the type you want');
+    showToast('Nothing in progress to pause. Just pick the type you want');
     return false;
   }
   if (suspendedCaptures.length >= CAPTURE_STACK_MAX){
-    showToast(`${CAPTURE_STACK_MAX} paused captures already — finish or discard one first`);
+    showToast(`${CAPTURE_STACK_MAX} paused captures already. Finish or discard one first`);
     return false;
   }
   const snap = captureSnapshot();
@@ -122,7 +122,7 @@ function suspendCurrentCapture(){
   blankCollectForm();
   persist();
   renderCaptureStack();
-  showToast(`"${snap.name || snap.ftName}" paused — collect the other feature, then tap Resume`);
+  showToast(`"${snap.name || snap.ftName}" paused, collect the other feature, then tap Resume`);
   // Attention goes back to the type picker, because the whole point of pausing
   // is that the next thing captured is a DIFFERENT type.
   if (typeof openCollectStep === 'function') openCollectStep('collectCardType', true);
@@ -146,7 +146,7 @@ function resumeCapture(id){
   let parkedLabel = null;
   if (hasCaptureInProgress()){
     if (suspendedCaptures.length >= CAPTURE_STACK_MAX){
-      showToast('Too many paused captures to swap — finish or discard one first');
+      showToast('Too many paused captures to swap. Finish or discard one first');
       return;
     }
     const live = captureSnapshot();
@@ -266,7 +266,7 @@ function restoreCaptureSnapshot(snap){
     // The feature type was deleted while this capture was parked. The vertices
     // and photos are still real, so they are kept and the crew is told to
     // re-point the capture at a type that still exists rather than losing it.
-    showToast(`"${snap.ftName}" no longer exists — choose a feature type to finish this capture`);
+    showToast(`"${snap.ftName}" no longer exists. Choose a feature type to finish this capture`);
   }
 
   const banner = document.getElementById('editModeBanner');
@@ -470,8 +470,8 @@ function renderCaptureStack(){
   const note = busy
     ? `<div class="cap-stack-note">You're on <strong>${escapeHtml(liveLabel)}</strong>. ${
         roomToSwap
-          ? 'Swapping parks it here too — nothing is lost.'
-          : 'The list is full, so it can\'t be parked — finish or discard one first.'
+          ? 'Swapping parks it here too, nothing is lost.'
+          : 'The list is full, so it can\'t be parked. Finish or discard one first.'
       }</div>`
     : '';
 

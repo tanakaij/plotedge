@@ -60,12 +60,12 @@ function peqTokenize(src) {
         if (src[j] === "'") break;
         s += src[j++];
       }
-      if (j >= src.length) throw new Error('unclosed quote — a text value needs a closing \'');
+      if (j >= src.length) throw new Error('unclosed quote. A text value needs a closing \'');
       out.push({ t: 'str', v: s }); i = j + 1; continue;
     }
     if (c === '"') {
       const j = src.indexOf('"', i + 1);
-      if (j === -1) throw new Error('unclosed " — a field name needs a closing "');
+      if (j === -1) throw new Error('unclosed ". A field name needs a closing "');
       out.push({ t: 'field', v: src.slice(i + 1, j) }); i = j + 1; continue;
     }
     if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(src[i + 1] || ''))) {
@@ -197,7 +197,7 @@ function peqParse(tokens) {
         }
         return { k: 'fn', name: t.v.toLowerCase(), args };
       }
-      if (PEQ_KEYWORDS.has(t.upper)) throw new Error(`"${t.v}" is a keyword — put a field name in "double quotes" and text in 'single quotes'`);
+      if (PEQ_KEYWORDS.has(t.upper)) throw new Error(`"${t.v}" is a keyword. Put a field name in "double quotes" and text in 'single quotes'`);
       return { k: 'ref', v: t.v };
     }
     throw new Error('unexpected token in expression');

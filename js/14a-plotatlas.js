@@ -306,7 +306,7 @@ function atlasToggleDensity(){
   atlasDensityOn = !atlasDensityOn;
   renderAtlasDensity();
   atlasSyncToolStates();
-  if (atlasDensityOn) showToast('Density grid on — brighter cells hold more captures');
+  if (atlasDensityOn) showToast('Density grid on. Brighter cells hold more captures');
 }
 
 function atlasToggleLegend(){
@@ -729,7 +729,7 @@ function atlasRedrawMeasure(){
   latlngs.forEach(ll => L.circleMarker(ll, { radius:5, color:'#fff', weight:2, fillColor:'#F59E0B', fillOpacity:1, interactive:false }).addTo(atlasMeasureLayer));
   const el = document.getElementById('atlasMeasureText');
   if (!el) return;
-  if (pts.length < 2){ el.textContent = pts.length ? '1 point — tap again for a distance' : 'Tap the map to start measuring'; return; }
+  if (pts.length < 2){ el.textContent = pts.length ? '1 point. Tap again for a distance' : 'Tap the map to start measuring'; return; }
   const bits = [formatLength(lineLengthM(pts))];
   if (pts.length >= 3) bits.push(formatArea(polygonAreaAndPerimeterM(pts).area));
   bits.push(`${pts.length} points`);

@@ -294,7 +294,6 @@ function renderFeatures(){
   }
   if (filterRow) filterRow.style.display='flex';
   populateReviewTypeFilter();
-  const geoGlyph={point:'●',line:'—',polygon:'▱'};
   const filtered = getFilteredFeatures();
   if (!filtered.length){
     el.innerHTML='<div class="empty-box"><strong>No matches</strong>Try a different search or feature type</div>';
@@ -325,7 +324,14 @@ function renderFeatures(){
     const editedHtml=f.editedAt?`<span class="feat-ref" title="Edited ${new Date(f.editedAt).toLocaleString()}">· edited</span>`:'';
     return `<div class="feature-card" id="feat-${f.id}">
       <div class="feature-card-header">
-        <div class="layer-badge" style="background:${typeColor};color:${contrastText(typeColor)};">${geoGlyph[geo]||''} ${escapeHtml(info.label)}</div>
+        <!-- ══ THE BADGE SHOWS THE SYMBOL, NOT A GEOMETRY LETTER ══
+             This carried a bare ●/—/▱ for the geometry, which told you the SHAPE OF THE
+             GEOMETRY (already obvious from the vertex count below) and nothing about the type's
+             actual symbology — so a dashed outline-only parcel and a solid filled one were
+             indistinguishable in the list even though the map drew them differently. The same
+             legendGlyphSvg() every map legend uses now renders the real symbol here, which also
+             means the list and the legend can never drift apart: they are one function. -->
+        <div class="layer-badge" style="background:${typeColor};color:${contrastText(typeColor)};"><span class="layer-badge-glyph">${legendGlyphSvg(geo, contrastText(typeColor), featureTypeShape(info.key), featureTypeLineStyle(info.key), featureTypeFilled(info.key))}</span>${escapeHtml(info.label)}</div>
         ${qualityBadgeHtml(f)}
         <div class="feat-name">${escapeHtml(f.name)} ${refHtml}${assignedHtml}${editedHtml}</div>
         <button class="feat-edit" title="Full details" aria-label="Full details" onclick="openInspect(${JSON.stringify(f.id)})">

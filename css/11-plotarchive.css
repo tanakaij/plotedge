@@ -1,0 +1,152 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — PlotArchive: the preset feature type library
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Order matters — later files rely on the cascade from earlier ones, and the
+   design tokens in 01-tokens.css must load first.
+
+   Its own file rather than more of 05-components.css, which is already close to
+   the size the suite considers undebuggable — and this is one self-contained
+   feature with a single surface, which is exactly the seam 10-quick-actions.css
+   was split on. Loaded after 05-components.css so the .modal-box, .btn and
+   .empty-box rules it sits on top of are already in the cascade. */
+
+  /* ── THE ENTRY POINT ──
+     On the Feature Types screen, above an often-empty list. Styled as an offer rather than as a
+     button: an accent-tinted panel that reads as "here is a shortcut", not as the primary
+     destructive-looking action. "New feature type" below it keeps the plain pill it always had,
+     so the two are visibly different KINDS of action rather than two ranks of the same one. */
+  .pa-open-btn {
+    display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box;
+    padding:14px; margin-bottom:16px; text-align:left; cursor:pointer;
+    font-family:var(--font); border-radius:var(--rl);
+    background:rgba(var(--accent-rgb),0.09);
+    border:1px solid rgba(var(--accent-rgb),0.30);
+  }
+  .pa-open-btn:active { background:rgba(var(--accent-rgb),0.16); }
+  .pa-open-icon {
+    flex-shrink:0; width:36px; height:36px; border-radius:12px; font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(var(--accent-rgb),0.16);
+  }
+  .pa-open-body { flex:1; min-width:0; }
+  .pa-open-title { display:block; font-size:14px; font-weight:800; color:var(--white); letter-spacing:-0.015em; }
+  .pa-open-sub { display:block; margin-top:3px; font-size:11.5px; font-weight:600; line-height:1.45; color:var(--text-secondary); }
+  .pa-open-chevron { flex-shrink:0; color:var(--accent-primary); }
+
+  /* ── THE SHEET ──
+     Taller than a default modal box because this is a browsing surface, not a confirmation. The
+     list scrolls inside it rather than the box growing, so the search field, the category chips
+     and the Add button all stay pinned while the results move underneath them — on a phone, a
+     picker whose action button scrolls away is a picker you lose your place in. */
+  .pa-box { max-height:88vh; display:flex; flex-direction:column; }
+  .pa-sub { font-size:12px; font-weight:600; line-height:1.5; color:var(--text-secondary); margin-bottom:12px; }
+
+  .pa-search { position:relative; margin-bottom:10px; }
+  .pa-search-icon {
+    position:absolute; left:11px; top:50%; transform:translateY(-50%);
+    width:15px; height:15px; color:var(--text-tertiary); pointer-events:none;
+  }
+  .pa-search input {
+    width:100%; box-sizing:border-box; padding:10px 12px 10px 34px;
+    font-family:var(--font); font-size:13.5px; font-weight:600; color:var(--white);
+    background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:12px;
+  }
+  .pa-search input:focus { outline:none; border-color:rgba(var(--accent-rgb),0.55); }
+
+  /* Horizontally scrolling rather than wrapping: eight categories wrapped to three lines pushes
+     the list itself off the fold on a short phone, and the categories are a filter — a control
+     that should cost one line whatever it contains. */
+  .pa-chips {
+    display:flex; gap:6px; overflow-x:auto; padding-bottom:8px; margin-bottom:4px;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  .pa-chips::-webkit-scrollbar { display:none; }
+  .pa-chip {
+    flex-shrink:0; padding:6px 11px; border-radius:999px; cursor:pointer; white-space:nowrap;
+    font-family:var(--font); font-size:11.5px; font-weight:700; color:var(--text-secondary);
+    background:var(--surface-sunken); border:1px solid var(--card-border);
+  }
+  .pa-chip.sel {
+    background:rgba(var(--accent-rgb),0.16); border-color:rgba(var(--accent-rgb),0.45);
+    color:var(--accent-hover);
+  }
+  .pa-chip:active { opacity:0.6; }
+
+  .pa-count {
+    font-size:10px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase;
+    color:var(--text-tertiary); margin:2px 0 8px;
+  }
+
+  .pa-list { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; margin:0 -4px; padding:0 4px; }
+
+  .pa-row {
+    border:1px solid var(--card-border); border-radius:12px; margin-bottom:8px;
+    background:var(--card-bg); overflow:hidden;
+  }
+  .pa-row.sel { border-color:rgba(var(--accent-rgb),0.55); background:rgba(var(--accent-rgb),0.07); }
+  .pa-row-head { display:flex; align-items:flex-start; gap:10px; padding:11px 12px; }
+
+  /* Selecting and reading are separate gestures on purpose — see the note on
+     plotarchiveToggleExpand(). The checkbox is its own target so tapping the row to find out what
+     is in a preset never commits you to adding it. 30px square keeps it above the comfortable
+     touch floor without dominating the row. */
+  .pa-check {
+    flex-shrink:0; width:22px; height:22px; margin-top:2px; border-radius:8px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+    background:var(--surface-sunken); border:1.5px solid var(--card-border); color:var(--on-accent);
+  }
+  .pa-check.on { background:var(--accent-primary); border-color:var(--accent-primary); }
+  .pa-check:active { opacity:0.6; }
+
+  .pa-row-body {
+    flex:1; min-width:0; text-align:left; background:none; border:none; padding:0; cursor:pointer;
+    font-family:var(--font);
+  }
+  .pa-row-body:active { opacity:0.6; }
+  .pa-row-title { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .pa-glyphs { display:inline-flex; align-items:center; gap:2px; flex-shrink:0; }
+  .pa-glyph { display:inline-flex; align-items:center; }
+  .pa-glyph svg { width:14px; height:14px; display:block; }
+  .pa-row-name { font-size:13.5px; font-weight:800; color:var(--white); letter-spacing:-0.015em; }
+  /* Not a warning — a fact. A preset already in the project can be added again quite legitimately
+     (two pole types with different owners), so this informs rather than blocks. */
+  .pa-added {
+    font-size:9.5px; font-weight:800; letter-spacing:0.05em; text-transform:uppercase;
+    padding:2px 7px; border-radius:999px;
+    background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.36); color:var(--success);
+  }
+  .pa-row-blurb { display:block; margin-top:4px; font-size:11.5px; font-weight:600; line-height:1.45; color:var(--text-secondary); }
+  .pa-row-meta { display:block; margin-top:5px; font-size:10px; font-weight:800; letter-spacing:0.05em; text-transform:uppercase; color:var(--text-tertiary); }
+  .pa-row-chevron { flex-shrink:0; margin-top:3px; color:var(--text-tertiary); transition:transform var(--dur-base) ease; }
+  .pa-row-chevron.open { transform:rotate(180deg); }
+
+  /* The expanded field list. This is the part that makes the library trustworthy — a preset you
+     cannot inspect before adding is a preset you have to add and then audit. */
+  .pa-fields { padding:0 12px 10px 44px; }
+  .pa-field-row {
+    display:flex; align-items:baseline; flex-wrap:wrap; gap:6px;
+    padding:7px 0; border-top:1px solid var(--card-border);
+  }
+  .pa-field-label { font-size:12px; font-weight:700; color:var(--white); }
+  .pa-field-type { font-size:10.5px; font-weight:600; color:var(--text-tertiary); }
+  .pa-field-tags { display:inline-flex; gap:4px; flex-wrap:wrap; }
+  .pa-field-tag {
+    font-size:9px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase;
+    padding:1.5px 6px; border-radius:999px;
+    background:var(--surface-sunken); border:1px solid var(--card-border); color:var(--text-secondary);
+  }
+
+  #plotarchiveAddBtn:disabled { opacity:0.45; pointer-events:none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pa-row-chevron { transition:none; }
+  }
+
+  /* The same offer, inside the feature type editor. Slightly tighter than the list version since
+     it sits directly above a card rather than above an empty screen, and it must not out-shout
+     the form it is introducing. */
+  .pa-open-inline { padding:12px; margin-bottom:14px; }
+  .pa-open-inline:active { background:rgba(var(--accent-rgb),0.16); }
+  .pa-open-inline .pa-open-icon { width:32px; height:32px; font-size:16px; }
+  .pa-open-inline .pa-open-title { font-size:13.5px; }

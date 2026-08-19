@@ -411,6 +411,30 @@ function featureTypeFilled(key){
   return !(ft && ft.fill === false);
 }
 
+// ══ ONE CALL FOR THE WHOLE SYMBOL ══
+// The four accessors above are the primitives, but almost every renderer wants all four at once
+// and was writing the same four-line preamble. Worse, a renderer that only remembered three of
+// them (the Collect preview drew every type in the accent colour with a solid stroke, the Collect
+// satellite map drew every line orange) looked deliberate rather than unfinished, so the gap
+// survived several passes over those files. Asking for the symbol as one object is what makes
+// "did this surface honour the type's styling?" answerable by grep instead of by eye.
+function featureTypeSymbol(key){
+  return {
+    color: featureTypeColor(key),
+    shape: featureTypeShape(key),
+    lineStyle: featureTypeLineStyle(key),
+    filled: featureTypeFilled(key)
+  };
+}
+
+// The feature type the Collect tab is currently capturing as — read from the picker rather than
+// from a saved feature, because during capture there is no feature yet. Returns null before a
+// type is chosen, which every featureType* accessor already treats as "use the defaults".
+function currentCaptureFtKey(){
+  const sel = document.getElementById('featureTypeSelect');
+  return sel && sel.value ? sel.value : null;
+}
+
 // Leaflet's dashArray option, scaled to the stroke weight so a thick review-map polygon border
 // and a thin PlotAtlas measurement line both read as "dashed" rather than one looking solid.
 // Returns null for solid, which is what Leaflet/most callers treat as "no dash option at all".

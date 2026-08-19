@@ -315,11 +315,11 @@ function noteBlankFieldsOnCollapse(titleEl){
   const c = collectBlankCounts();
   if (!c.blank) return;
   if (c.requiredBlank){
-    showToast(`${c.requiredBlank} required field${c.requiredBlank === 1 ? '' : 's'} still empty — save will ask for ${c.requiredBlank === 1 ? 'it' : 'them'}`);
+    showToast(`${c.requiredBlank} required field${c.requiredBlank === 1 ? '' : 's'} still empty. Save will ask for ${c.requiredBlank === 1 ? 'it' : 'them'}`);
   } else {
     // Phrased as an observation, not an instruction. "You can still save" is the part that stops
     // this reading as an error, which is what it would otherwise be mistaken for.
-    showToast(`${c.blank} field${c.blank === 1 ? '' : 's'} left blank — that's fine, you can still save`);
+    showToast(`${c.blank} field${c.blank === 1 ? '' : 's'} left blank, that's fine, you can still save`);
   }
 }
 
@@ -823,7 +823,7 @@ function commitVertex(lat, lon, alt, acc, weak, manual){
     // Capture first, ask never — a blocking "capture anyway?" confirm is the one thing that could
     // push a point past the 5-second budget if someone hesitates on it. Undo (same mechanics as
     // deletePoint) gives the same second chance without ever pausing the capture itself.
-    showUndoToast(`Weak fix (±${acc.toFixed(1)} m) — vertex ${currentVertices.length} captured`, ()=>{
+    showUndoToast(`Weak fix (±${acc.toFixed(1)} m), vertex ${currentVertices.length} captured`, ()=>{
       const i = currentVertices.indexOf(vertex);
       if (i===-1) return;
       currentVertices.splice(i,1);

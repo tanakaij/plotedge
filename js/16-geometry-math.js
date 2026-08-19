@@ -54,7 +54,7 @@ function peMeasure(){
     lines.push(`Span      ${formatLength(haversineM(a.lat,a.lon,b.lat,b.lon))}`);
     lines.push(`Bearing   ${peBearing(a,b).toFixed(1)}° (start→end)`);
   }
-  peShowResult(`Measure — ${s.name}`, lines);
+  peShowResult(`Measure: ${s.name}`, lines);
 }
 
 // Initial great-circle bearing, normalised to 0–360.
@@ -105,7 +105,7 @@ function peCentroid(){
   const cLines = (cp && cp.units !== 'degrees')
     ? [`${cp.yLabel}  ${cp.y.toFixed(3)}`, `${cp.xLabel}  ${cp.x.toFixed(3)}`]
     : [`Lat  ${c.lat.toFixed(6)}`, `Lon  ${c.lon.toFixed(6)}`];
-  peShowResult(`Centroid — ${s.name}`, cLines, 'Added as a new derived sketch.');
+  peShowResult(`Centroid: ${s.name}`, cLines, 'Added as a new derived sketch.');
 }
 
 
@@ -115,11 +115,11 @@ function peConvexHull(){
   if (s.vertices.length < 3){ showToast('Need at least 3 vertices for a hull'); return; }
   const proj = peProjector(s.vertices);
   const hull = peConvexHullXY(s.vertices.map(proj.fwd)).map(proj.inv);
-  if (hull.length < 3){ showToast('Those vertices are collinear — no hull'); return; }
+  if (hull.length < 3){ showToast('Those vertices are collinear, no hull'); return; }
   const r = polygonAreaAndPerimeterM(hull);
   const area = r.area!=null?r.area:r.areaSqm;
   peAddSketch('polygon', hull, `${s.name} hull`, { derived:true, note:'convex hull' });
-  peShowResult(`Convex hull — ${s.name}`, [
+  peShowResult(`Convex hull: ${s.name}`, [
     `Input     ${s.vertices.length} vertices`,
     `Hull      ${hull.length} vertices`,
     `Area      ${formatArea(area)}`
@@ -160,7 +160,7 @@ function runBuffer(){
   const ring = out.rings[0];
   const r = polygonAreaAndPerimeterM(ring);
   peAddSketch('polygon', ring, `${s.name} +${dist}m`, { derived:true, note:`buffer ${dist}m` });
-  peShowResult(`Buffer — ${s.name}`, [
+  peShowResult(`Buffer: ${s.name}`, [
     `Distance  ${formatLength(dist)}`,
     `Area      ${formatArea(r.area!=null?r.area:r.areaSqm)}`,
     `Vertices  ${ring.length}`
@@ -190,7 +190,7 @@ function pePointInPolygon(){
   const names = [...insideSketches.map(x=>x.name), ...new Set(insideFeatures)];
   if (names.length) lines.push('', ...names.slice(0,12).map(n=>`  · ${escapeHtml(n)}`));
   if (names.length>12) lines.push(`  …and ${names.length-12} more`);
-  peShowResult(`Points in ${s.name}`, lines, 'Exact ray-casting test — no approximation here.');
+  peShowResult(`Points in ${s.name}`, lines, 'Exact ray-casting test, no approximation here.');
 }
 
 
@@ -219,7 +219,7 @@ function peOverlay(kind){
       `A  ${escapeHtml(a.name)}`,
       `B  ${escapeHtml(b.name)}`,
       '',
-      kind==='intersect' ? 'No overlap between these polygons.' : 'A is entirely inside B — nothing remains.'
+      kind==='intersect' ? 'No overlap between these polygons.' : 'A is entirely inside B, nothing remains.'
     ]);
     return;
   }
@@ -624,10 +624,13 @@ function closeHelp(){ document.getElementById('helpModal').classList.remove('sho
 // can drift out of sync with the other or accidentally show the same action twice.
 const QA_REGISTRY = [
   { id:'featuretypes', group:'Set up', label:'Feature Types',   run:()=>showFeatureTypes(),
-    desc:'Define what this project captures — fields, geometry, validation',
+    desc:'Define what this project captures, fields, geometry, validation',
     icon:'<path d="M12 2 2 7l10 5 10-5z"/><path d="m2 12 10 5 6-3"/><circle cx="18.5" cy="18.5" r="3"/><path d="M18.5 14.4v1.1M18.5 21.5v1.1M14.4 18.5h1.1M21.5 18.5h1.1"/>' },
+  { id:'plotarchive', group:'Set up', label:'PlotArchive',    run:()=>openPlotArchive(),
+    desc:'Ready-made feature types you can add and then edit',
+    icon:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/>' },
   { id:'import', group:'Data',       label:'Import',          run:()=>switchTabNav('import'),
-    desc:'Bring GeoJSON, CSV or a PlotPack into this project',
+    desc:'Open a PlotPack, or bring in a GeoPackage or CSV',
     icon:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>' },
   { id:'export', group:'Data',       label:'Export',          run:()=>switchTabNav('export'),
     desc:'Send this project out as files, a web map or to a cloud endpoint',
@@ -669,7 +672,7 @@ const QA_REGISTRY = [
     desc:'Zip every project on this device, not just the open one',
     icon:'<path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M23 3H1l4 5h14z"/><line x1="10" y1="12" x2="14" y2="12"/>' },
   { id:'notes', group:'Utilities',        label:'Quick Notes',     run:()=>openQuickNotesModal(),
-    desc:'A scratchpad for this project — site access, contacts, reminders',
+    desc:'A scratchpad for this project: site access, contacts, reminders',
     icon:'<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/>' },
   // Gated by the Settings toggle via available(). PlotLens belongs here rather than as a one-off
   // row on Review: it is the same class of tool as PlotEtch, Media Gallery and Attribute Table —
@@ -679,7 +682,7 @@ const QA_REGISTRY = [
     desc:'Turn this project’s photos into a narrated visual story',
     icon:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/>' },
   { id:'plotvault', group:'Explore', label:'PlotVault',       run:()=>openPlotVault(),
-    desc:'Push and pull this project against a shared cloud vault',
+    desc:'Read reference layers off a bucket without downloading the file',
     icon:'<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>' },
   { id:'help', group:'Utilities',         label:'Help & About',    run:()=>openHelp(),
     desc:'How the app works, and where your data actually lives',
@@ -740,7 +743,7 @@ const QA_SEEDED_KEY = 'plotedge_qa_seeded';
 
 // Add an id here when a new action ships. Anything already listed will not be
 // offered twice, so this is append-only.
-const QA_SEED_ACTIONS = ['plotatlas', 'plotmind', 'plotvault'];
+const QA_SEED_ACTIONS = ['plotatlas', 'plotmind', 'plotvault', 'plotarchive'];
 
 function qaSeedNewActions(){
   try {

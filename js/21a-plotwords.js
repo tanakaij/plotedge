@@ -39,7 +39,7 @@ const PLOTWORDS = {
   plotetch: {
     name: 'PlotEtch',
     short: 'Draw on the map',
-    long: 'Draw features by tapping the map, for things you can see but cannot walk to — the far side of a river, a roof, the middle of a dam. Sketches have no GPS accuracy, so send one to Capture and save it there to make it a real feature.',
+    long: 'Draw features by tapping the map, for things you can see but cannot walk to: the far side of a river, a roof, the middle of a dam. Sketches have no GPS accuracy, so send one to Capture and save it there to make it a real feature.',
     open: 'openPlotEtch'
   },
   plotatlas: {
@@ -51,13 +51,19 @@ const PLOTWORDS = {
   plotmind: {
     name: 'PlotMind',
     short: 'Ask about your data',
-    long: 'Ask questions about your survey in plain language — "how many poles are missing photos", "which features were captured on Tuesday" — and get an answer without building a query.',
+    long: 'Ask questions about your survey in plain language ("how many poles are missing photos", "which features were captured on Tuesday") and get an answer without building a query.',
     open: 'openPlotMind'
   },
+  // ══ THIS ENTRY DESCRIBED THE WRONG MODULE ══
+  // It read "Photo storage. Where your photos are kept and backed up", which is the device photo
+  // store (js/04a-photostore.js, surfaced as Storage in Settings) and has nothing to do with
+  // PlotVault. PlotVault reads reference layers out of a bucket and cannot write anything at all.
+  // Somebody following the old wording would have gone looking for their photos in it, found a
+  // URL box, and concluded the app had lost them.
   plotvault: {
     name: 'PlotVault',
-    short: 'Photo storage',
-    long: 'Where your photos are kept and backed up. Shows how much space they are using and lets you free some up without losing the survey.',
+    short: 'Reference layers',
+    long: 'Reads existing map data straight off a web address without downloading the whole file, so you can see the council\'s pipes or plots underneath your own work. It only reads the part you are looking at, and it never changes anything at the other end.',
     open: 'openPlotVault'
   },
   plotlens: {
@@ -74,12 +80,12 @@ const PLOTWORDS = {
   plotout: {
     name: 'PlotOut',
     short: 'Outdoor capture',
-    long: 'Ordinary outdoor capture, using the GPS. This is the normal mode — you only need PlotIn when you go inside.'
+    long: 'Ordinary outdoor capture, using the GPS. This is the normal mode. You only need PlotIn when you go inside.'
   },
   plotpack: {
     name: 'PlotPack',
     short: 'Send a whole project',
-    long: 'PlotEdge’s own file type. One .plotpack holds an entire project — features, photos, notes and the feature type setup — so you can hand a job to a colleague or move it to another phone. It is really a ZIP, so anyone can open it even without PlotEdge.'
+    long: 'PlotEdge’s own file type. One .plotpack holds an entire project (features, photos, notes and the feature type setup) so you can hand a job to a colleague or move it to another phone. It is really a ZIP, so anyone can open it even without PlotEdge.'
   },
   plotgrid: {
     name: 'PlotGrid',
@@ -89,7 +95,7 @@ const PLOTWORDS = {
   plotfix: {
     name: 'PlotFix',
     short: 'GPS quality',
-    long: 'Shows how good your GPS fix actually is — fix type, satellites, accuracy — and can stop you capturing when it is not good enough for the job. Every point you save records what its fix was, so you can prove it later.'
+    long: 'Shows how good your GPS fix actually is (fix type, satellites, accuracy) and can stop you capturing when it is not good enough for the job. Every point you save records what its fix was, so you can prove it later.'
   },
   plotmate: {
     name: 'PlotMate',
@@ -100,6 +106,38 @@ const PLOTWORDS = {
     name: 'PlotCAD',
     short: 'CAD drawing export',
     long: 'Exports your survey as a CAD drawing (.dxf) in real metres, ready to open in AutoCAD, Civil 3D or BricsCAD. Layers are split by feature type so a draughtsman can work with it straight away.'
+  },
+  plotarchive: {
+    name: 'PlotArchive',
+    short: 'Ready-made feature types',
+    long: 'A library of feature types that are already set up (utility poles, water meters, land parcels, buildings and more) with their questions, choice lists and colours filled in. Add one and edit it, instead of building it from nothing. Once added it is an ordinary feature type like any other.',
+    open: 'openPlotArchive'
+  },
+  // ══ THE FOUR THAT WERE MISSING ══
+  // These shipped in the app with no entry here. The glossary check only scans index.html for
+  // Plot* names in visible TEXT, so a name that reaches the user through a JavaScript-rendered
+  // banner, a field label or a toast slipped past it — which is exactly how four proper nouns
+  // ended up in front of crews with nothing anywhere explaining them.
+  plotseed: {
+    name: 'PlotSeed',
+    short: 'Carry answers forward',
+    long: 'Carries an answer forward from the last feature so you do not retype it forty times down one street. Anything filled in this way stays visibly marked until you touch it, so you can always tell what you actually looked at from what the app assumed.'
+  },
+  plotbounds: {
+    name: 'PlotBounds',
+    short: 'Set the working area',
+    long: 'Lets you pick the site on a map instead of relying on wherever you happened to be standing, and draw a boundary around the job. Anything saved far outside it is flagged, so a stray position does not quietly end up in the survey.'
+  },
+  plotbank: {
+    name: 'PlotBank',
+    short: 'Suggests what you type',
+    long: 'Remembers the words this crew actually types into each field and offers them back as tappable suggestions. It never fills anything in on its own. A suggestion only becomes an answer when you tap it.'
+  },
+  plotwords: {
+    name: 'PlotWords',
+    short: 'What the names mean',
+    long: 'This glossary. Every PlotEdge name in one place, in plain English, with a way to open the thing it describes. Each name also explains itself the first time you open it.',
+    open: 'showPlotWords'
   }
 };
 

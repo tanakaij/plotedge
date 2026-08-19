@@ -982,11 +982,49 @@
   .dash-shade-headline { flex:1; min-width:0; }
   .dash-shade-title { display:block; font-size:13.5px; font-weight:800; color:var(--white); }
   .dash-shade-line { display:block; margin-top:2px; font-size:11.5px; font-weight:700; color:var(--text-secondary); letter-spacing:-0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .dash-shade-dots { display:flex; align-items:center; gap:4px; flex-shrink:0; }
-  .dash-shade-dot { width:7px; height:7px; border-radius:50%; background:var(--text-tertiary); }
-  .dash-shade-dot.ok   { background:var(--success); }
-  .dash-shade-dot.warn { background:var(--warn); }
-  .dash-shade-dot.bad  { background:var(--danger); }
+
+  /* ── THE TONE TINT ──
+     data-tone is written on .dash-shade by renderDashShade() and is the worst tone across every
+     status row. It drives the whole strip rather than a single badge: a red left rail and a warm
+     border is legible from further away than any glyph, and the two together mean the bar still
+     reads when only one of colour or shape survives — bright sun kills the tint, a cracked screen
+     protector kills the glyph.
+     Tinted on the SHADE, not the peek, so an open drawer keeps the border it was opened by.
+     `ok` and `info` deliberately get no tint at all: a status surface that is always coloured is
+     a status surface nobody looks at, so green is the ABSENCE of a mark here and the tick badge
+     carries the positive confirmation on its own. */
+  .dash-shade::after {
+    content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:transparent; transition:background var(--dur-base) ease; pointer-events:none;
+  }
+  .dash-shade[data-tone="warn"] { border-color:rgba(245,158,11,0.42); }
+  .dash-shade[data-tone="warn"]::after { background:var(--warn); }
+  .dash-shade[data-tone="bad"] { border-color:rgba(239,68,68,0.48); }
+  .dash-shade[data-tone="bad"]::after { background:var(--danger); }
+  .dash-shade[data-tone="bad"] .dash-shade-line { color:var(--danger); }
+  .dash-shade[data-tone="warn"] .dash-shade-line { color:var(--warn); }
+
+  /* One subject glyph per status row, tinted by that row's own tone. Hidden once the drawer is
+     open — the rows below then say the same thing in words, and repeating it here would just be
+     noise above the answer. */
+  .dash-shade-marks { display:flex; align-items:center; gap:3px; flex-shrink:0; font-size:11px; line-height:1; }
+  .dash-shade.open .dash-shade-marks { display:none; }
+  .dash-shade-mark { opacity:0.34; filter:grayscale(1); transition:opacity var(--dur-base) ease, filter var(--dur-base) ease; }
+  /* A row that needs attention gets its glyph back in full colour; everything fine stays greyed.
+     That inversion is the point — the eye is drawn to what is wrong, not to a row of confetti. */
+  .dash-shade-mark[data-tone="warn"], .dash-shade-mark[data-tone="bad"] { opacity:1; filter:none; }
+
+  /* The verdict. Green tick when every row is fine, red warning when one is not. Sized well above
+     the marks beside it because this is the single glyph the bar exists to show. */
+  .dash-shade-verdict {
+    flex-shrink:0; font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center;
+    width:26px; height:26px; border-radius:50%; background:var(--surface-sunken); border:1px solid var(--card-border);
+    transition:background var(--dur-base) ease, border-color var(--dur-base) ease;
+  }
+  .dash-shade[data-tone="ok"] .dash-shade-verdict { background:rgba(16,185,129,0.14); border-color:rgba(16,185,129,0.40); }
+  .dash-shade[data-tone="warn"] .dash-shade-verdict { background:rgba(245,158,11,0.16); border-color:rgba(245,158,11,0.45); }
+  .dash-shade[data-tone="bad"] .dash-shade-verdict { background:rgba(239,68,68,0.16); border-color:rgba(239,68,68,0.50); }
+
   .dash-shade-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform var(--dur-base) ease; }
   .dash-shade.open .dash-shade-chevron { transform:rotate(180deg); }
   .dash-shade-body {
@@ -1002,10 +1040,16 @@
     background:none; border:none; border-top:1px solid var(--card-border);
   }
   .dash-shade-row:active { opacity:0.6; }
-  .dash-shade-row-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:var(--text-tertiary); }
-  .dash-shade-row-dot.ok   { background:var(--success); }
-  .dash-shade-row-dot.warn { background:var(--warn); }
-  .dash-shade-row-dot.bad  { background:var(--danger); }
+  /* Two glyphs per row, and they answer different questions: the icon on the left says what the
+     row is ABOUT (storage, export, the grid), the verdict on the right says how it is DOING. They
+     are kept apart so a row can change state without changing identity — the storage row is
+     always 💾, and only the mark beside it moves between ✅ and ⛔. */
+  .dash-shade-row-icon { font-size:15px; line-height:1; flex-shrink:0; width:20px; text-align:center; }
+  .dash-shade-row-verdict { font-size:13px; line-height:1; flex-shrink:0; }
+  .dash-shade-row[data-tone="ok"] .dash-shade-row-verdict,
+  .dash-shade-row[data-tone="info"] .dash-shade-row-verdict { opacity:0.55; }
+  .dash-shade-row[data-tone="bad"] .dash-shade-row-val { color:var(--danger); }
+  .dash-shade-row[data-tone="warn"] .dash-shade-row-val { color:var(--warn); }
   .dash-shade-row-body { flex:1; min-width:0; }
   .dash-shade-row-label { font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-tertiary); }
   .dash-shade-row-val { font-size:12.5px; font-weight:700; color:var(--white); margin-top:2px; line-height:1.35; }
@@ -1016,7 +1060,8 @@
   .dash-shade-grab span { display:block; width:34px; height:4px; border-radius:2px; background:var(--card-border); transition:background 0.15s, width var(--dur-base) ease; }
   .dash-shade.open .dash-shade-grab span { width:44px; background:rgba(var(--accent-rgb),0.45); }
   @media (prefers-reduced-motion: reduce) {
-    .dash-shade-body, .dash-shade-chevron, .dash-shade-grab span { transition:none; }
+    .dash-shade-body, .dash-shade-chevron, .dash-shade-grab span,
+    .dash-shade::after, .dash-shade-mark, .dash-shade-verdict { transition:none; }
   }
 
   .dash-inprogress-banner { display:flex; align-items:center; gap:10px; background:rgba(var(--accent-rgb),0.1); border:1px solid rgba(var(--accent-rgb),0.32); color:var(--accent-hover); font-size:12.5px; font-weight:700; border-radius:12px; padding:12px 14px; margin-bottom:16px; cursor:pointer; }
