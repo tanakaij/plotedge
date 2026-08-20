@@ -876,6 +876,86 @@ async function restoreDetectedBackupAt(i){
 
 
 // ══════════════════════════════════════════════════════════════════════════
+// WELCOME SCREEN — the same two gaps, on the screen people actually land on
+// ══════════════════════════════════════════════════════════════════════════
+// The "Restore from backup" button on #view-projects only ever opened handleBackupImportFile()
+// (js/17-export.js), which parses JSON and rejects anything else — a .plotpack chosen there failed
+// with "Not a PlotEdge backup file" even though .plotpack is the newer, preferred format
+// (js/17b-plotpack.js's own file-type note says as much). This dispatches on the extension the
+// person actually picked instead of assuming JSON.
+function handleWelcomeRestoreFile(event){
+  const file = event.target.files && event.target.files[0];
+  if (!file){ event.target.value = ''; return; }
+
+  if (/\.plotpack$/i.test(file.name)){
+    event.target.value = '';
+    // Reuses #foundBackupWizard — already on this screen, normally hidden — as the confirm host,
+    // same as the auto-detected-backup path just below uses it. No new markup needed.
+    const wizard = document.getElementById('foundBackupWizard');
+    if (wizard) wizard.style.display = '';
+    preparePlotpackImport(file, 'foundBackupWizard').then(() => {
+      const w = document.getElementById('foundBackupWizard');
+      const confirmBtn = w && w.querySelector('.btn-primary');
+      const cancelBtn = w && w.querySelector('.btn-outline');
+      if (confirmBtn){
+        confirmBtn.setAttribute('onclick', '');
+        confirmBtn.onclick = async () => {
+          await importPlotpackBundle();
+          if (w){ w.style.display = 'none'; w.innerHTML = ''; }
+        };
+      }
+      if (cancelBtn){
+        cancelBtn.setAttribute('onclick', '');
+        cancelBtn.onclick = () => {
+          cancelPlotpackImport();
+          if (w){ w.style.display = 'none'; w.innerHTML = ''; }
+        };
+      }
+    });
+    return;
+  }
+  // .plotedge.json — the existing, already-working path. Not touched: it clears
+  // event.target.value and reports its own toasts/errors.
+  handleBackupImportFile(event);
+}
+
+// checkForDetectedBackup() (above) is a boot-time, one-shot, zero-projects-only scan. This is the
+// on-demand counterpart, reachable from the Welcome screen's own "Scan for backups" button rather
+// than buried in Settings — Home always reaches this screen regardless of project count (see the
+// comment on #projectsListLabel in index.html), so it works whether or not this is a fresh install.
+// Deliberately bypasses the dismissed-keys filter checkForDetectedBackup() applies: a person who
+// presses Scan is asking to see everything again, including something they dismissed earlier.
+async function manualScanWelcome(){
+  const btn = document.getElementById('scanBackupsBtnWelcome');
+  if (!capPlugin('Filesystem')){
+    showToast('Scanning device storage isn\u2019t available in this build');
+    return;
+  }
+  const sub = btn && btn.querySelector('.welcome-action-sub');
+  const subOriginal = sub && sub.textContent;
+  if (sub) sub.textContent = 'Scanning\u2026';
+  if (btn) btn.style.pointerEvents = 'none';
+  try {
+    const all = await findAllDeviceBackupFiles();
+    if (!all.length){
+      showToast('No .plotpack or .plotedge.json files found');
+      return;
+    }
+    // Reuses the exact rendering the boot-time scan uses — same banner, same per-file wizard —
+    // so a single match still just says "Restore" and several still open the picker list.
+    _detectedBackups = all;
+    showDetectedBackupBanner(all);
+  } catch(e){
+    console.warn('PlotEdge: welcome-screen backup scan failed', e);
+    showToast('Scan failed, nothing was changed');
+  } finally {
+    if (sub) sub.textContent = subOriginal;
+    if (btn) btn.style.pointerEvents = '';
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
 // MANUAL BACKUP SCAN — Settings › Data › Backup & Restore
 // ══════════════════════════════════════════════════════════════════════════
 // checkForDetectedBackup() above is deliberately a one-shot: it runs once at boot and only when

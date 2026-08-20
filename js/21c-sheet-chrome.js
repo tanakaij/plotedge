@@ -59,6 +59,13 @@ const SHEET_CHROME_TITLES = { inspectModal: 'Feature details' };
 // .atlas-bm-title inside the CRS picker), and hoisting one of those would gut the sheet's body.
 const SHEET_CHROME_HEADINGS = ['.sheet-head-title', '.modal-title', '.ft-picker-title', '.modal-msg'];
 
+// A subtitle line sitting directly under the heading — .modal-sub (Analytics, PlotMind, …) or
+// #qaDrawerSub's "N more actions… · tap to run, or customise the grid below" (js/05-projects.js).
+// Folded into the SAME header bar as the title rather than left as a second, separately-pinned
+// element below it — two independently sticky pieces read as two headers stacked on top of each
+// other, each with its own edge and background seam; one bar with two lines in it reads as one.
+const SHEET_CHROME_SUBTITLES = ['.modal-sub', '.qa-drawer-sub'];
+
 const SHEET_CLOSE_SVG =
   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
   'stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -79,6 +86,18 @@ function findSheetHeading(box){
     }
   }
   return null;
+}
+
+// Only counts a subtitle that is the heading's OWN immediate next sibling in .modal-box's flow —
+// never something merely nearby. That is what stops, say, PlotArchive's .pa-controls block (a
+// search field + chips, not a caption) from being mistaken for one, and it is also why this only
+// runs for a heading that is itself a direct child of box (the three-sheet Cancel/Title/Done case,
+// where heading lives inside .sheet-head, has no comparable "next sibling" to check).
+function findSheetSubtitle(box, heading){
+  if (heading.parentElement !== box) return null;
+  const sib = heading.nextElementSibling;
+  if (!sib) return null;
+  return SHEET_CHROME_SUBTITLES.some(sel => sib.matches(sel)) ? sib : null;
 }
 
 function buildSheetClose(){
@@ -113,6 +132,9 @@ function applySheetChrome(overlay){
     heading.textContent = title;
   }
 
+  // Found BEFORE the heading is moved anywhere — findSheetSubtitle reads its live position in box.
+  const subtitle = findSheetSubtitle(box, heading);
+
   const bar = document.createElement('div');
   bar.className = 'sheet-head-bar';
 
@@ -120,7 +142,19 @@ function applySheetChrome(overlay){
   // #attrStatsTitle and friends keep resolving to the same element and every renderer that writes
   // a sheet title by id carries on working with no change.
   heading.classList.add('sheet-head-name');
-  bar.appendChild(heading);
+
+  // Title and subtitle share one wrapper so they read, and pin, as a single header — not two
+  // separately-sticky elements stacked with a seam between them. #attrStatsTitle-style ids stay on
+  // the nodes themselves (only their parent changes), so nothing that writes a title or subtitle by
+  // id elsewhere in the app needs to change.
+  const textWrap = document.createElement('div');
+  textWrap.className = 'sheet-head-text';
+  textWrap.appendChild(heading);
+  if (subtitle){
+    subtitle.classList.add('sheet-head-desc');
+    textWrap.appendChild(subtitle);
+  }
+  bar.appendChild(textWrap);
 
   // ── The old .sheet-head row ──
   // Three sheets had Cancel | Title | Done. The X now does what the left-hand button did — and it
