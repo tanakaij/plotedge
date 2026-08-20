@@ -662,7 +662,10 @@ function plotpackUniqueName(name){
 const AUTO_BACKUP_DISMISS_KEY = 'plotedge_dismissed_backups'; // JSON array of dismissed file keys
 let _detectedBackups = []; // [{name, dir, mtime}, ...], newest first
 
-function backupFileKey(f){ return f.name + ':' + f.dir + ':' + f.mtime; }
+// Keyed on the full path now, not just the name: the scan reaches several folders, and
+// "PlotEdge_all.plotedge.json" in Download and the same name in Documents/PlotEdge are two
+// different files that must dismiss independently.
+function backupFileKey(f){ return f.dir + ':' + (f.path || f.name) + ':' + f.mtime; }
 
 function readDismissedBackupKeys(){
   try { return new Set(JSON.parse(localStorage.getItem(AUTO_BACKUP_DISMISS_KEY) || '[]')); }
@@ -674,37 +677,149 @@ function addDismissedBackupKeys(entries){
   try { localStorage.setItem(AUTO_BACKUP_DISMISS_KEY, JSON.stringify([...set])); } catch(e) {}
 }
 
-// Looks in every directory saveExportFile() is willing to write to, and returns EVERY matching
-// file, newest first — not just the most recent. A device can genuinely hold several distinct
-// project backups worth offering separately.
+// ══ WHERE A BACKUP ACTUALLY IS ══
+// This used to read exactly two paths: Documents/PlotEdge and Storage/PlotEdge — i.e. only the
+// folders saveExportFile() itself writes to. That covers one scenario (same handset, app
+// reinstalled, the export folder survived) and misses the two that matter most:
+//   · New phone. The .plotpack arrived by WhatsApp, Bluetooth, email or USB and is sitting in
+//     Download/, or the root of Documents/.
+//   · A colleague sent a project across. Same thing.
+// In both cases the scan reported "no backups found" on a device that visibly had one, which does
+// not read as "I only looked in one folder" — it reads as "your data is gone".
+// Each location is carried on the entry now (path + label), because these files are no longer all
+// under EXPORT_DIR and the reader can't reconstruct the path from the name any more.
+const BACKUP_SCAN_LOCATIONS = [
+  { dir: 'DOCUMENTS',        path: EXPORT_DIR, label: 'Documents/' + EXPORT_DIR },
+  { dir: 'EXTERNAL_STORAGE', path: EXPORT_DIR, label: 'Storage/' + EXPORT_DIR },
+  { dir: 'DOCUMENTS',        path: '',         label: 'Documents' },
+  { dir: 'EXTERNAL_STORAGE', path: 'Download', label: 'Download' },
+  { dir: 'EXTERNAL_STORAGE', path: '',         label: 'Storage' }
+];
+
+// A Downloads folder with several thousand files is ordinary, and this runs on a phone while
+// somebody waits on the Welcome screen. The cap is per location and generous enough that it can
+// only ever bite on a folder nobody could pick a file out of by hand either.
+const BACKUP_SCAN_MAX_ENTRIES = 1500;
+
+// Reading mtime costs a stat() call per file. Worth it for the handful in an export folder, not
+// for every candidate in a big Downloads directory — so it is only paid where readdir() didn't
+// already supply one and the result set is still small enough to matter.
+const BACKUP_SCAN_MAX_STATS = 40;
+
+function isBackupFileName(name){ return !!name && /\.(plotpack|plotedge\.json)$/i.test(name); }
+
+// Looks in every location a backup plausibly lands in, and returns EVERY match, newest first —
+// not just the most recent. A device can genuinely hold several distinct project backups worth
+// offering separately. Deduplicated on dir+path+name, since the same file is reachable through
+// more than one of the locations above (Documents/PlotEdge is inside Documents).
 async function findAllDeviceBackupFiles(){
   const Filesystem = capPlugin('Filesystem');
   if (!Filesystem || !Filesystem.readdir) return [];
-  const dirs = ['DOCUMENTS', 'EXTERNAL_STORAGE'];
   const results = [];
-  for (const dir of dirs){
+  const seen = new Set();
+  let stats = 0;
+  for (const loc of BACKUP_SCAN_LOCATIONS){
     let entries;
     try {
-      const res = await Filesystem.readdir({ path: EXPORT_DIR, directory: dir });
+      const res = await Filesystem.readdir({ path: loc.path, directory: loc.dir });
       entries = (res && res.files) || [];
     } catch(e) { continue; } // folder doesn't exist on this target — normal, try the next one
+    if (entries.length > BACKUP_SCAN_MAX_ENTRIES) entries = entries.slice(0, BACKUP_SCAN_MAX_ENTRIES);
     for (const raw of entries){
       // Older @capacitor/filesystem returns plain filename strings from readdir(); newer
       // versions return {name, type, mtime, uri, size} objects. Normalise both.
       const name = typeof raw === 'string' ? raw : raw.name;
-      if (!name || !/\.(plotpack|plotedge\.json)$/i.test(name)) continue;
+      if (!isBackupFileName(name)) continue;
+      if (raw && typeof raw === 'object' && raw.type === 'directory') continue;
+      const full = loc.path ? loc.path + '/' + name : name;
+      const key = loc.dir + ':' + full;
+      if (seen.has(key)) continue;
+      seen.add(key);
       let mtime = (raw && typeof raw === 'object' && raw.mtime) || 0;
-      if (!mtime){
+      let size  = (raw && typeof raw === 'object' && raw.size)  || 0;
+      if ((!mtime || !size) && stats < BACKUP_SCAN_MAX_STATS){
+        stats++;
         try {
-          const st = await Filesystem.stat({ path: EXPORT_DIR + '/' + name, directory: dir });
-          mtime = (st && st.mtime) || 0;
+          const st = await Filesystem.stat({ path: full, directory: loc.dir });
+          mtime = mtime || (st && st.mtime) || 0;
+          size  = size  || (st && st.size)  || 0;
         } catch(e) {}
       }
-      results.push({ name, dir, mtime });
+      results.push({ name, dir: loc.dir, path: full, where: loc.label, mtime, size });
     }
   }
   results.sort((a, b) => b.mtime - a.mtime);
   return results;
+}
+
+// The folders the scan actually covers, for the empty state. Naming them is the difference between
+// "you have no backups" (wrong, and frightening) and "not in these five places — try the picker".
+function backupScanLocationSummary(){
+  return [...new Set(BACKUP_SCAN_LOCATIONS.map(l => l.label))].join(', ');
+}
+
+function formatBackupSize(bytes){
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+}
+
+// A filename tells a crew nothing about which sites are inside it — choosing between six old
+// exports called PlotEdge_all_<date>.plotedge.json is six speculative restores. The project names
+// are right there in the JSON, so they are read and shown.
+// Size-gated on purpose: a .plotedge.json carries its photos inline as base64, so these files can
+// run to hundreds of megabytes, and reading one to label a list row would stall the screen for
+// exactly the crews with the most data. Above the threshold the row keeps its size and date, which
+// are free. .plotpack is never opened here at all — it is a zip, and JSZip has to take the whole
+// archive (photos included) into memory before the manifest can be read.
+const BACKUP_PEEK_MAX_BYTES = 4 * 1024 * 1024;
+
+async function peekBackupContents(entry){
+  if (!entry || entry._peeked) return entry;
+  entry._peeked = true;
+  if (!/\.plotedge\.json$/i.test(entry.name)) return entry;
+  if (entry.size && entry.size > BACKUP_PEEK_MAX_BYTES) return entry;
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readFile) return entry;
+  try {
+    const res = await Filesystem.readFile({ path: entry.path, directory: entry.dir });
+    if (!res || !res.data) return entry;
+    const payload = JSON.parse(decodeURIComponent(escape(atob(res.data))));
+    if (!payload || payload.peBackup !== PE_BACKUP_VERSION) return entry;
+    const metas = payload.kind === 'all' ? (payload.projects || [])
+                : payload.kind === 'project' ? [payload.project] : [];
+    entry.projectNames = metas.filter(Boolean).map(m => m.name).filter(Boolean);
+    entry.featureCount = metas.filter(Boolean)
+      .reduce((n, m) => n + (((payload.data || {})[m.id] || {}).savedFeatures || []).length, 0);
+  } catch(e) { /* unreadable or not a backup — the row keeps its plain label */ }
+  return entry;
+}
+
+// Restoring is always additive: importOneBackupProject() mints a fresh id, so nothing on the device
+// is ever overwritten. The cost of that safety is that restoring the same file twice leaves two
+// identical projects and no hint of why — and Home reaches the Welcome screen even when projects
+// already exist, so a re-scan and re-restore is an easy accident. This is the warning, not a block:
+// two projects of the same name can be entirely legitimate (two visits to one site).
+function backupLooksAlreadyRestored(entry){
+  if (!entry || !entry.projectNames || !entry.projectNames.length) return false;
+  const here = new Set(projects.map(p => (p.name || '').trim().toLowerCase()));
+  return entry.projectNames.some(n => here.has((n || '').trim().toLowerCase()));
+}
+
+// One row's supporting line: kind, size, date, folder — and, where peekBackupContents() managed to
+// read it, what is actually inside.
+function describeBackupEntry(f){
+  const bits = [/\.plotpack$/i.test(f.name) ? 'PlotPack (whole project)' : 'JSON backup'];
+  if (f.projectNames && f.projectNames.length){
+    bits.push(f.projectNames.length + ' project' + (f.projectNames.length === 1 ? '' : 's') +
+      ' · ' + f.projectNames.slice(0, 3).join(', ') + (f.projectNames.length > 3 ? '…' : ''));
+    if (f.featureCount) bits.push(f.featureCount + ' feature' + (f.featureCount === 1 ? '' : 's'));
+  }
+  const size = formatBackupSize(f.size);
+  if (size) bits.push(size);
+  if (f.mtime) bits.push(new Date(f.mtime).toLocaleDateString());
+  if (f.where) bits.push(f.where);
+  return bits.join(' · ');
 }
 
 // Called once at boot (js/22-boot.js), only on the "genuine first run" path. No-op in the
@@ -734,7 +849,7 @@ function showDetectedBackupBanner(list){
   if (!banner) return;
   if (list.length === 1){
     if (title) title.textContent = 'Backup found on this device';
-    if (sub) sub.textContent = list[0].name + (list[0].mtime ? ' · ' + new Date(list[0].mtime).toLocaleDateString() : '');
+    if (sub) sub.textContent = list[0].name + ' · ' + describeBackupEntry(list[0]);
     if (btn) btn.textContent = 'Restore';
   } else {
     if (title) title.textContent = list.length + ' backups found on this device';
@@ -761,12 +876,15 @@ function renderDetectedBackupList(){
   if (btn) btn.style.display = 'none'; // the action now lives per-row, below
   wizard.style.display = '';
   wizard.innerHTML = _detectedBackups.map((f, i) => {
-    const kindLabel = /\.plotpack$/i.test(f.name) ? 'PlotPack (whole project)' : 'JSON backup';
-    const dateLabel = f.mtime ? new Date(f.mtime).toLocaleDateString() : '';
+    // A soft note, never a block. Restoring is additive by design, and two projects of the same
+    // name can be perfectly legitimate — but silently minting a second identical "Ward 7" with no
+    // hint of why is a confusing cleanup nobody asked for.
+    const dupe = backupLooksAlreadyRestored(f)
+      ? '<div class="import-summary-meta" style="color:var(--warn-ink);">Looks like a project already on this device</div>' : '';
     return '<div class="import-summary" style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;">' +
       '<div style="min-width:0;">' +
         '<div class="import-summary-title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(f.name) + '</div>' +
-        '<div class="import-summary-meta">' + kindLabel + (dateLabel ? ' · ' + dateLabel : '') + '</div>' +
+        '<div class="import-summary-meta">' + escapeHtml(describeBackupEntry(f)) + '</div>' + dupe +
       '</div>' +
       '<button class="btn btn-primary" style="flex-shrink:0;margin:0;" onclick="restoreDetectedBackupAt(' + i + ')">Restore</button>' +
     '</div>';
@@ -808,7 +926,7 @@ async function restoreDetectedBackupAt(i){
   if (singleMode && btn){ btn.disabled = true; btn.textContent = 'Reading…'; }
 
   try {
-    const res = await Filesystem.readFile({ path: EXPORT_DIR + '/' + entry.name, directory: entry.dir });
+    const res = await Filesystem.readFile({ path: entry.path || (EXPORT_DIR + '/' + entry.name), directory: entry.dir });
     const base64 = res && res.data;
     if (!base64) throw new Error('empty read');
 
@@ -919,38 +1037,55 @@ function handleWelcomeRestoreFile(event){
   handleBackupImportFile(event);
 }
 
-// checkForDetectedBackup() (above) is a boot-time, one-shot, zero-projects-only scan. This is the
-// on-demand counterpart, reachable from the Welcome screen's own "Scan for backups" button rather
-// than buried in Settings — Home always reaches this screen regardless of project count (see the
-// comment on #projectsListLabel in index.html), so it works whether or not this is a fresh install.
+// ══ ONE RECOVERY INTENT ══
+// The Welcome screen used to carry two rows: "Restore from backup" (OS file picker) and "Scan for
+// backups" (findAllDeviceBackupFiles). Presenting them as peers asked the person to choose between
+// two things they cannot tell apart, at the one moment they are least equipped to — and the Scan
+// row could only ever apologise on web, where capPlugin('Filesystem') is absent.
+// They are one intent: find my data. This scans the device where that is possible, shows anything
+// it finds, and otherwise hands straight over to the file picker — which reaches Downloads, Drive,
+// the SD card and everywhere else the scan cannot. An empty scan is no longer a dead end with a
+// toast; it says which folders were searched and opens the picker anyway.
 // Deliberately bypasses the dismissed-keys filter checkForDetectedBackup() applies: a person who
-// presses Scan is asking to see everything again, including something they dismissed earlier.
-async function manualScanWelcome(){
-  const btn = document.getElementById('scanBackupsBtnWelcome');
-  if (!capPlugin('Filesystem')){
-    showToast('Scanning device storage isn\u2019t available in this build');
-    return;
-  }
-  const sub = btn && btn.querySelector('.welcome-action-sub');
+// presses this is asking to see everything again, including something dismissed earlier.
+async function welcomeRestore(){
+  const btn = document.getElementById('importBackupBtn');
+  const sub = document.getElementById('welcomeRestoreSub');
+  // No device to scan (browser/PWA build) — go straight to the picker rather than render a control
+  // whose only possible outcome is an apology.
+  if (!capPlugin('Filesystem')){ triggerBackupImport(); return; }
+
   const subOriginal = sub && sub.textContent;
-  if (sub) sub.textContent = 'Scanning\u2026';
-  if (btn) btn.style.pointerEvents = 'none';
+  if (sub) sub.textContent = 'Looking on this device\u2026';
+  if (btn) btn.classList.add('is-scanning');
   try {
     const all = await findAllDeviceBackupFiles();
     if (!all.length){
-      showToast('No .plotpack or .plotedge.json files found');
+      showToast('Nothing in ' + backupScanLocationSummary() + ' \u2014 pick a file instead');
+      triggerBackupImport();
       return;
     }
-    // Reuses the exact rendering the boot-time scan uses — same banner, same per-file wizard —
-    // so a single match still just says "Restore" and several still open the picker list.
+    // Labelling a row with what is actually inside it is worth a short wait; peekBackupContents()
+    // is size-gated and no-ops on .plotpack, so this can only ever read a handful of small files.
+    for (const f of all.slice(0, 8)) await peekBackupContents(f);
+    // Reuses the exact rendering the boot-time scan uses — same banner, same per-file wizard — so a
+    // single match still just says "Restore" and several still open the picker list.
     _detectedBackups = all;
     showDetectedBackupBanner(all);
+    // The banner renders at the TOP of the Welcome screen; the button that triggered it sits below
+    // New project and Template. Without this, tapping Restore on a short phone could scroll nothing
+    // and look like nothing had happened.
+    const banner = document.getElementById('foundBackupBanner');
+    if (banner && banner.scrollIntoView){
+      try { banner.scrollIntoView({ behavior:'smooth', block:'nearest' }); } catch(e) { banner.scrollIntoView(); }
+    }
   } catch(e){
     console.warn('PlotEdge: welcome-screen backup scan failed', e);
-    showToast('Scan failed, nothing was changed');
+    showToast('Could not read device storage \u2014 pick a file instead');
+    triggerBackupImport();
   } finally {
     if (sub) sub.textContent = subOriginal;
-    if (btn) btn.style.pointerEvents = '';
+    if (btn) btn.classList.remove('is-scanning');
   }
 }
 
@@ -976,9 +1111,10 @@ async function scanForBackupsManually(){
     return;
   }
   if (btn){ btn.disabled = true; btn.textContent = 'Scanning\u2026'; }
-  out.innerHTML = '<div class="hub-block-desc">Looking in this device\u2019s PlotEdge folder\u2026</div>';
+  out.innerHTML = '<div class="hub-block-desc">Looking in ' + escapeHtml(backupScanLocationSummary()) + '\u2026</div>';
   try {
     _manualScanBackups = await findAllDeviceBackupFiles();
+    for (const f of _manualScanBackups.slice(0, 8)) await peekBackupContents(f);
     renderManualScanResults();
   } catch(e){
     console.warn('PlotEdge: manual backup scan failed', e);
@@ -992,16 +1128,22 @@ function renderManualScanResults(){
   const out = document.getElementById('manualBackupScanResults');
   if (!out) return;
   if (!_manualScanBackups.length){
-    out.innerHTML = '<div class="hub-block-desc">No .plotpack or .plotedge.json files found.</div>';
+    // Names the folders rather than saying "no backups found". The scan cannot see a file that
+    // arrived by email or Drive and was never saved down, so the honest answer is where it looked
+    // plus the picker, which can reach everywhere it cannot.
+    out.innerHTML = '<div class="hub-block-desc">No .plotpack or .plotedge.json files in ' +
+      escapeHtml(backupScanLocationSummary()) + '. A backup sent by email, chat or Drive will not ' +
+      'appear here until it has been saved to the device \u2014 use Restore from backup above to ' +
+      'pick it directly.</div>';
     return;
   }
   out.innerHTML = _manualScanBackups.map((f, i) => {
-    const kindLabel = /\.plotpack$/i.test(f.name) ? 'PlotPack (whole project)' : 'JSON backup';
-    const dateLabel = f.mtime ? new Date(f.mtime).toLocaleDateString() : '';
+    const dupe = backupLooksAlreadyRestored(f)
+      ? '<div class="import-summary-meta" style="color:var(--warn-ink);">Looks like a project already on this device</div>' : '';
     return '<div class="import-summary" style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;">' +
       '<div style="min-width:0;">' +
         '<div class="import-summary-title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(f.name) + '</div>' +
-        '<div class="import-summary-meta">' + kindLabel + (dateLabel ? ' \u00b7 ' + dateLabel : '') + '</div>' +
+        '<div class="import-summary-meta">' + escapeHtml(describeBackupEntry(f)) + '</div>' + dupe +
       '</div>' +
       '<button class="btn btn-primary" style="flex-shrink:0;margin:0;" onclick="restoreManualScanEntry(' + i + ')">Restore</button>' +
     '</div>';
@@ -1018,7 +1160,7 @@ async function restoreManualScanEntry(i){
   if (!Filesystem || !Filesystem.readFile){ showToast('Could not reach device storage'); return; }
 
   try {
-    const res = await Filesystem.readFile({ path: EXPORT_DIR + '/' + entry.name, directory: entry.dir });
+    const res = await Filesystem.readFile({ path: entry.path || (EXPORT_DIR + '/' + entry.name), directory: entry.dir });
     const base64 = res && res.data;
     if (!base64) throw new Error('empty read');
 

@@ -1,63 +1,78 @@
-# PlotEdge — sheet header fix
+# PlotEdge — sheet headers, backup recovery, Welcome appearance
 
-Drop these four files over the same paths in `plotedge-main/`. No markup changes, no new
-files, no build step. `npm test` → 450/450.
+Drop these over the same paths in `plotedge-main/`. Includes the earlier header fix, so this
+supersedes `plotedge-header-fix.zip`. `npm test` → **468/468** (was 448; 18 of the new ones are
+a new suite, `tests/backup-scan.test.js`, wired into `tests/run.js`).
 
 ```
-css/12-polish.css
-js/21c-sheet-chrome.js
-js/07-navigation.js
-tests/survey.test.js
+index.html
+css/03-base.css          css/12-polish.css
+js/05-projects.js        js/07-navigation.js
+js/17b-plotpack.js       js/21c-sheet-chrome.js
+tests/backup-scan.test.js  tests/survey.test.js  tests/run.js
 ```
 
-## Why the previous attempts didn't hold
+---
 
-The four symptoms weren't four bugs. `.sheet-head-bar` was `position:sticky` inside
-`.modal-box`, and `.modal-box` was at the same time the rounded card, the scroll container,
-a `will-change:transform` compositing layer, and a masked element (the corner-clip hack in
-`05-components.css`). Every reported fault falls out of that one arrangement, so patching
-them individually kept moving the problem:
+## 1 · Sheet headers (from the previous round)
 
-| Screenshot | What you saw | Cause |
-|---|---|---|
-| Help & about | content painting above the sheet's own top edge | a sticky element promotes to its own layer; inside a rounded, transformed, masked scroller WebView stops clipping the layers scrolling behind it to the corner. The `mask-image` in `05-components.css` was already a failed attempt at this. |
-| Go to | "Coordinate" sliced in half by the header | correct sticky behaviour that *looks* broken — `scrollFocusedIntoView()` uses `block:'center'`, and the box's `max-height` collapses when the keyboard opens |
-| Settings | top of the "Appearance" card clipped | same |
-| PlotArchive | title crammed against the copy | the bar's `margin:-22px -20px 18px` assumed `.modal-box`'s exact padding, and `.pa-controls` was a *second* sticky block offset by a JS-measured `--sheet-head-h` |
+Unchanged from `plotedge-header-fix.zip` — the sheet is three flex rows (header / `.sheet-body` /
+actions), nothing is sticky, the corner clip is plain `overflow:hidden`, the header carries a
+themed accent tint, and the duplicate `.modal-x` injected on every sheet in the browser is gone.
 
-## What changed
+## 2 · Backup recovery
 
-**The sheet is three rows now.** `.modal-box` stops scrolling and becomes a flex column of
-header / `.sheet-body` / action row. The body is the only scroller. Corner clipping goes
-back to plain `overflow:hidden` on a rounded box, and the mask is switched off. Nothing is
-pinned over anything, so nothing can overlap, escape, or collide. `.pa-box` already used
-this exact pattern, so it's the codebase's own precedent rather than a new idea.
+**The scan can now find backups that arrived from somewhere else.** `findAllDeviceBackupFiles()`
+read only `Documents/PlotEdge` and `Storage/PlotEdge` — i.e. only where PlotEdge itself writes — so
+a `.plotpack` sent by WhatsApp, email or USB, sitting in `Download/`, produced "no backups found".
+It now searches five locations, deduplicates across the overlaps, and carries a real path per entry
+(`{name, dir, path, where, mtime, size}`) rather than reconstructing one from the filename.
 
-**The header follows the theme.** It was flat `var(--card-bg)` — identical to the sheet
-under it. That's structural, not a wrong value: the six pillars override `--grad-1` and
-`--accent-*` but never `--card-bg`, so it was the one surface in the app that *couldn't*
-respond to a theme change. It's now an opaque `--card-bg` base under a `--sheet-head-tint`
-accent gradient, tracking pillar and light/dark the way `header` and `.subpage-header` do.
+Two caps keep it honest on a phone: `BACKUP_SCAN_MAX_ENTRIES` (1500 per folder — a Downloads
+directory bigger than that is not hand-searchable either) and `BACKUP_SCAN_MAX_STATS` (40, since
+`stat()` is a call per file and only pays for itself in a small folder).
 
-## Two bugs found on the way, both fixed
+**Scan and Restore are one row.** They were never peers — scanning is a shortcut for restoring, and
+a reinstalling crew has no basis on which to choose. `welcomeRestore()` scans where it can, shows
+what it finds, and otherwise opens the file picker, which reaches Drive, Downloads and the SD card.
+An empty scan names the folders it searched and opens the picker anyway. On web it *is* the picker,
+so the row that could previously only apologise is gone.
 
-1. **Every sheet had two close buttons in the browser.** `installModalCloseButtons()` defers
-   to `DOMContentLoaded` when `readyState === 'loading'` — true in the app, so it ran *after*
-   `normalizeSheetChrome()` and injected a `.modal-x` into all 30 sheets. Only
-   `.modal-box:has(> .sheet-head-bar) > .modal-x{display:none}` was hiding it, i.e. it
-   depended on `:has()` support. In the test harness scripts are appended after parse, so
-   the order flips and the suite's existing `strayX` assertion passed for a bug that shipped.
-   The new test reproduces the app's ordering explicitly (verified: it fails without the fix).
-2. `markSheetScrollable()` measured `.modal-box`, which is no longer the scroller — it now
-   measures `.sheet-body`, so the action row keeps its divider.
+**Rows say what is inside them.** `peekBackupContents()` reads the project names and feature count
+out of a `.plotedge.json` so a list of six exports isn't six guesses. Size-gated at 4 MB, and it
+never opens a `.plotpack` — that's a zip, and JSZip would pull the whole archive, photos included,
+into memory to read one manifest. Those rows show size and folder instead.
 
-Nothing depends on `:has()` any more: `js/21c-sheet-chrome.js` sets a `has-sheet-chrome`
-class, so an older field WebView can't silently fall back to the layout this replaces.
+**Restoring a file twice is flagged.** Imports stay additive (`importOneBackupProject()` mints a
+fresh id, nothing is overwritten) — `backupLooksAlreadyRestored()` just adds a note, since two
+projects of one name can be legitimate.
 
-## Worth knowing
+The Data hub scan (`scanForBackupsManually`) gets all of the same.
 
-- `--sheet-head-h` is still published but nothing depends on it for correctness now; a stale
-  value costs a few pixels of padding instead of hiding the top of a sheet.
-- `#confirmModal` is still exempt, as before.
-- All 30 sheets verified: header first, body second, action row last, close button right-most,
-  no stray `.modal-x`, and re-running either pass in either order is a no-op.
+## 3 · Welcome appearance
+
+- **Recovery row is visually distinct.** All three rows were one shape; the restore row's icon tile
+  now uses the accent tint `.install-banner-icon` already uses. On light themes that also fixes a
+  real contrast problem — `#F1F5F9` tile inside a `#FFFFFF` card holding a `#64748B` glyph, on the
+  theme meant for sunlight.
+- **Spinner instead of a lying chevron.** The chevron promised "opens a screen"; the scan worked in
+  place and rendered above the button. `.is-scanning` dims the row, blocks the tap, and spins in the
+  trailing slot. The banner also gets `scrollIntoView` so the result is never off-screen from the
+  control that caused it.
+- **`#foundBackupBanner` no longer wears the install nag's clothes** — accent surface and a 4px
+  accent left edge, so "your data is here" and "install this app" are told apart before either is read.
+- **`.welcome-shell` uncentres when the projects list has rows** (`.has-projects`, set by
+  `renderProjectsList()`). A centred flex column taller than its container overflows past the start
+  edge where scrolling can't reach it, stranding the logo and New project above the top.
+- **Light-mode logo halo.** It was `--accent-rgb-deep` at 0.38 — the darkest accent variant, blurred
+  behind a logo on a near-white canvas. Light themes get the ordinary accent at 0.20 and a softer
+  drop-shadow.
+- **Compact density reaches these rows**, which it previously skipped entirely.
+
+## Notes
+
+- Your existing suite caught two of my mistakes (a class with no pressed state, and a function left
+  unreachable). Both fixed rather than worked around.
+- `manualScanWelcome()` is removed, not aliased — nothing called it once the rows merged.
+- I still can't render here, so the light-theme colour judgements are read from tokens. Worth your
+  eyes on the halo and the tinted tile across the six pillars before you ship.

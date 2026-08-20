@@ -81,6 +81,14 @@
     align-items: center;
     padding: 24px 0 calc(32px + var(--sab));
   }
+  /* ══ CENTRED ONLY WHILE THERE IS NOTHING TO SCROLL ══
+     justify-content:center is right for a true first run — a short column floating in the middle
+     of the screen. But renderLandingScreen() (the Home button) forces this screen open regardless
+     of project count, and with a real list the column runs past 100dvh. A vertically-centred flex
+     column taller than its container overflows EQUALLY in both directions, and the overflow above
+     the start edge is unreachable by scrolling — so the logo and New project get stranded off the
+     top. renderProjectsList() adds .has-projects whenever it actually renders rows. */
+  .welcome-shell.has-projects { justify-content: flex-start; }
   /* align-items:center would otherwise shrink-wrap this to its content width. The panel keeps
      its 20px side margins, so its width is 100% minus those margins rather than a flat 100% —
      otherwise margin + width would overrun the viewport and force a horizontal scrollbar. */
@@ -113,11 +121,21 @@
      several thousand characters long, so it is never touched by markup edits; sizing it from CSS
      keeps the logo re-scalable without ever rewriting that line. */
   .welcome-logo img { position:relative; width:64px; height:auto; filter:drop-shadow(0 8px 22px rgba(0,0,0,0.42)); }
+  /* The halo was --accent-rgb-deep at 0.38 in every theme. On dark that is a glow. On light,
+     --accent-rgb-deep is the DARKEST accent variant (e.g. 4,120,87 for the default pillar, 120,53,15
+     for Land) painted behind a logo on a near-white canvas — a smudge rather than a glow, on the
+     mode used outdoors. Light themes get the same shape drawn with the ordinary accent at a much
+     lower alpha, so it reads as light catching the mark instead of a shadow under it.
+     The drop-shadow on the mark itself is likewise a dark-mode value; light mode softens it. */
   .welcome-logo-glow {
     position:absolute; inset:-22px; border-radius:50%;
     background: radial-gradient(circle, rgba(var(--accent-rgb-deep),0.38) 0%, transparent 70%);
     filter: blur(14px); pointer-events:none;
   }
+  [data-theme="light"] .welcome-logo-glow {
+    background: radial-gradient(circle, rgba(var(--accent-rgb),0.20) 0%, transparent 70%);
+  }
+  [data-theme="light"] .welcome-logo img { filter:drop-shadow(0 6px 16px rgba(15,23,42,0.16)); }
   .welcome-wordmark { font-family:var(--font-display); font-size:34px; font-weight:700; letter-spacing:-0.025em; line-height:1; color:var(--white); }
   .welcome-wordmark-edge {
     background: linear-gradient(100deg, var(--accent-hover) 0%, var(--accent-primary) 100%);
@@ -136,9 +154,63 @@
   }
   .welcome-action:active { transform:scale(0.985); border-color:var(--accent-primary); }
   .welcome-action-icon { width:36px; height:36px; flex-shrink:0; border-radius:var(--radius-md); background:var(--surface-sunken); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); }
+  /* ══ THE RECOVERY ROW READS DIFFERENTLY FROM THE CREATION ROWS ══
+     Every .welcome-action was identical — same card, same sunken tile, same --text-secondary
+     glyph, same chevron — so "start something new" and "get my data back" were the same shape and
+     a reinstalling crew had to read all of them to find the one they wanted. On the light theme
+     that was worse than a hierarchy problem: --surface-sunken (#F1F5F9) inside a #FFFFFF card
+     behind an #E2E8F0 border is a tile you can barely see, holding a #64748B glyph — on the theme
+     that exists specifically for working in sunlight.
+     The accent tint is the same one .install-banner-icon already uses, so this introduces no new
+     colour; it fixes the contrast and the hierarchy in one declaration, and it follows the pillar
+     theme because --accent-rgb does. */
+  .welcome-action-recovery .welcome-action-icon {
+    background:rgba(var(--accent-rgb),0.14);
+    border-color:rgba(var(--accent-rgb),0.30);
+    color:var(--accent-primary);
+  }
+  /* The row already inherits .welcome-action:active, but this class is what the press-feedback
+     audit in tests/ reads, and the tile is the part of THIS row that should answer the tap. */
+  .welcome-action-recovery:active .welcome-action-icon { background:rgba(var(--accent-rgb),0.26); }
   .welcome-action-body { flex:1; min-width:0; }
   .welcome-action-sub { display:block; margin-top:2px; font-size:12px; font-weight:600; color:var(--text-tertiary); }
   .welcome-action-chevron { flex-shrink:0; color:var(--text-tertiary); }
+
+  /* ══ THE SCANNING STATE ══
+     The old Scan row went inert via `pointerEvents:none` and rewrote its 12px subtitle to
+     "Scanning…", leaving a row that still looked fully lit and tappable while doing nothing —
+     the only feedback on the screen was one line of grey text changing. .is-scanning dims the
+     whole row, swaps the chevron for a spinner in the same slot, and blocks the tap through
+     pointer-events so a second press can't queue a second scan. */
+  .welcome-action-spin { display:none; flex-shrink:0; width:15px; height:15px; }
+  .welcome-action.is-scanning { opacity:0.62; pointer-events:none; }
+  .welcome-action.is-scanning .welcome-action-chevron { display:none; }
+  .welcome-action.is-scanning .welcome-action-spin {
+    display:block; border-radius:50%;
+    border:2px solid rgba(var(--accent-rgb),0.25);
+    border-top-color:var(--accent-primary);
+    animation:welcome-scan-spin 0.7s linear infinite;
+  }
+  @keyframes welcome-scan-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .welcome-action.is-scanning .welcome-action-spin { animation:none; }
+  }
+
+  /* Compact density tightened .btn, .btn-pill, .install-banner and .welcome-panel but never these
+     rows, so the whole screen shrank around three controls that stayed at 13px/14px. */
+  html[data-density="compact"] .welcome-action { padding:10px 12px; }
+  html[data-density="compact"] .welcome-action-icon { width:32px; height:32px; }
+
+  /* ══ "YOUR DATA IS HERE" IS NOT "INSTALL THIS APP" ══
+     #foundBackupBanner reuses .install-banner wholesale, so the message a crew opened the app on a
+     new phone to see rendered identically to the install nag most people dismiss without reading.
+     Same component, different weight: an accent-tinted surface and an accent left edge, so the two
+     are told apart before either is read. */
+  .found-backup-banner {
+    background:rgba(var(--accent-rgb),0.07);
+    border-color:rgba(var(--accent-rgb),0.34);
+    border-left:4px solid var(--accent-primary);
+  }
 
   /* ══ PLOTLENS ══ */
 

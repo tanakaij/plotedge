@@ -245,7 +245,7 @@ try {
          in the app's own export folder, Documents/PlotEdge. Detection is automatic; importing
          never is — the person still taps Restore, so a fresh install can never surprise them
          with data they didn't ask for. -->
-    <div class="install-banner" id="foundBackupBanner" style="display:none;">
+    <div class="install-banner found-backup-banner" id="foundBackupBanner" style="display:none;">
       <div class="install-banner-icon">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </div>
@@ -281,27 +281,30 @@ try {
       <span class="welcome-action-body">Start from a template<span class="welcome-action-sub">Sample project, ready to collect</span></span>
       <svg class="welcome-action-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
     </button>
-    <!-- Restore stays on this screen while Export/Backup move to the Data tab: on a device with
-         zero projects an "Export all" can only ever produce an empty file, whereas restoring is
-         precisely what a reinstall or a new handset needs first. -->
-    <button class="welcome-action" onclick="triggerBackupImport()" id="importBackupBtn">
+    <!-- ══ ONE RECOVERY ROW, NOT TWO ══
+         This used to be two rows — "Restore from backup" (OS file picker) and "Scan for backups"
+         (findAllDeviceBackupFiles) — presented as peers. They are not peers: scanning is a
+         shortcut for restoring, and a person who has just reinstalled has no basis on which to
+         pick between them. Worse, Scan dead-ended on web, where capPlugin('Filesystem') is absent
+         and the row could only ever apologise.
+         welcomeRestore() collapses both into one intent: it scans the device first where that is
+         possible, shows anything it finds, and falls through to the file picker — which can reach
+         Downloads, Drive and the SD card, i.e. everywhere the scan cannot — whenever the scan is
+         unavailable or comes back empty. On web that is simply the picker, immediately, with no
+         dead end to explain.
+         .welcome-action-recovery tints the icon so "get my data back" is a different colour from
+         "start something new" (the Template row above), which is the whole hierarchy this screen
+         needs: three identically-styled rows meant a reinstalling crew had to read all three. -->
+    <button class="welcome-action welcome-action-recovery" onclick="welcomeRestore()" id="importBackupBtn">
       <span class="welcome-action-icon">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       </span>
-      <span class="welcome-action-body">Restore from backup<span class="welcome-action-sub">.plotpack or .plotedge.json file</span></span>
-      <svg class="welcome-action-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-    </button>
-    <!-- ══ MANUAL SCAN, RIGHT HERE ON WELCOME ══ — checkForDetectedBackup() (js/17b-plotpack.js)
-         already scans automatically at boot and shows #foundBackupBanner above, but only once, and
-         only on a genuine zero-project first run. This button calls the same scan on demand — after
-         copying a file onto the device, after dismissing the banner, or any other time this screen
-         is open (Home always reaches this screen — see the comment on #projectsListLabel below) —
-         and reuses the same banner/wizard to show what it finds. See manualScanWelcome(). -->
-    <button class="welcome-action" onclick="manualScanWelcome()" id="scanBackupsBtnWelcome">
-      <span class="welcome-action-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      </span>
-      <span class="welcome-action-body">Scan for backups<span class="welcome-action-sub">Look for .plotpack or .plotedge.json files on this device</span></span>
+      <span class="welcome-action-body">Restore from backup<span class="welcome-action-sub" id="welcomeRestoreSub">Look on this device, or pick a .plotpack / .plotedge.json file</span></span>
+      <!-- The trailing slot is a spinner while a scan is running, and a chevron otherwise. The old
+           Scan row carried a chevron permanently, which promises "this opens a screen" — it did not;
+           it worked in place and rendered its result in the banner ABOVE the button, so on a short
+           phone tapping it could look like nothing had happened at all. -->
+      <span class="welcome-action-spin" aria-hidden="true"></span>
       <svg class="welcome-action-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
     </button>
     <!-- ══ PROJECTS LIST ══

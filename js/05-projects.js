@@ -587,6 +587,12 @@ function renderProjectsList() {
   // screen open regardless of count; when it does that with existing projects, this is what
   // actually shows them instead of leaving the crew on a screen with nowhere to display the list.
   if (!el) return;
+  // .welcome-shell is justify-content:center, which is correct for a cold launch and wrong the
+  // moment this list has rows: a centred flex column taller than the viewport overflows past the
+  // start edge, where scrolling cannot reach it, and strands the logo and New project above the
+  // top of the screen. See .welcome-shell.has-projects in css/03-base.css.
+  const shell = el.closest('.welcome-shell');
+  if (shell) shell.classList.toggle('has-projects', !!projects.length);
   if (!projects.length) {
     el.style.display = 'none';
     el.innerHTML = '';
