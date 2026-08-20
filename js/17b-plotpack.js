@@ -640,6 +640,241 @@ function plotpackUniqueName(name){
 }
 
 
+// ══════════════════════════════════════════════════════════════════════════
+// AUTO-DETECT LOCAL BACKUPS — offered on a genuinely empty device
+// ══════════════════════════════════════════════════════════════════════════
+// scripts/patch-android-manifest.py turned off Android's OS-level Auto Backup because it was
+// silently restoring old app data on a fresh install — the exact bug this replaces. A fresh
+// install now ALWAYS lands on an empty Welcome screen (js/22-boot.js). This is the deliberate,
+// visible substitute: if one or more .plotpack / .plotedge.json files are sitting in the app's
+// own export folder (Documents/PlotEdge — wherever js/17-export.js's saveExportFile() already
+// writes to), a dismissible banner on Welcome offers to bring them back. Detection is automatic
+// and silent; importing never is — the person always taps Restore, per file.
+//
+// A crew reinstalling PlotEdge on a new phone commonly has several old per-project exports
+// sitting in that folder, not one — one per site they were working. All of them are surfaced,
+// not just the newest, and each imports independently: importing one never removes the others
+// from the list, since a JSON/plotpack import always creates a brand-new project id rather than
+// overwriting anything (see importOneBackupProject() / importPlotpackBundle()).
+//
+// Deliberately scoped to projects.length === 0: this can never fire once a real project exists
+// on the device, so it can never interrupt someone mid-survey by resurrecting an old bundle.
+const AUTO_BACKUP_DISMISS_KEY = 'plotedge_dismissed_backups'; // JSON array of dismissed file keys
+let _detectedBackups = []; // [{name, dir, mtime}, ...], newest first
+
+function backupFileKey(f){ return f.name + ':' + f.dir + ':' + f.mtime; }
+
+function readDismissedBackupKeys(){
+  try { return new Set(JSON.parse(localStorage.getItem(AUTO_BACKUP_DISMISS_KEY) || '[]')); }
+  catch(e){ return new Set(); }
+}
+function addDismissedBackupKeys(entries){
+  const set = readDismissedBackupKeys();
+  entries.forEach(f => set.add(backupFileKey(f)));
+  try { localStorage.setItem(AUTO_BACKUP_DISMISS_KEY, JSON.stringify([...set])); } catch(e) {}
+}
+
+// Looks in every directory saveExportFile() is willing to write to, and returns EVERY matching
+// file, newest first — not just the most recent. A device can genuinely hold several distinct
+// project backups worth offering separately.
+async function findAllDeviceBackupFiles(){
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readdir) return [];
+  const dirs = ['DOCUMENTS', 'EXTERNAL_STORAGE'];
+  const results = [];
+  for (const dir of dirs){
+    let entries;
+    try {
+      const res = await Filesystem.readdir({ path: EXPORT_DIR, directory: dir });
+      entries = (res && res.files) || [];
+    } catch(e) { continue; } // folder doesn't exist on this target — normal, try the next one
+    for (const raw of entries){
+      // Older @capacitor/filesystem returns plain filename strings from readdir(); newer
+      // versions return {name, type, mtime, uri, size} objects. Normalise both.
+      const name = typeof raw === 'string' ? raw : raw.name;
+      if (!name || !/\.(plotpack|plotedge\.json)$/i.test(name)) continue;
+      let mtime = (raw && typeof raw === 'object' && raw.mtime) || 0;
+      if (!mtime){
+        try {
+          const st = await Filesystem.stat({ path: EXPORT_DIR + '/' + name, directory: dir });
+          mtime = (st && st.mtime) || 0;
+        } catch(e) {}
+      }
+      results.push({ name, dir, mtime });
+    }
+  }
+  results.sort((a, b) => b.mtime - a.mtime);
+  return results;
+}
+
+// Called once at boot (js/22-boot.js), only on the "genuine first run" path. No-op in the
+// browser/PWA build — there is no device folder to scan without the Filesystem plugin, so
+// nothing is offered there and the Welcome screen behaves exactly as it always has.
+async function checkForDetectedBackup(){
+  if (projects.length) return;
+  if (!capPlugin('Filesystem')) return;
+  try {
+    const all = await findAllDeviceBackupFiles();
+    if (!all.length) return;
+    const dismissed = readDismissedBackupKeys();
+    const pending = all.filter(f => !dismissed.has(backupFileKey(f)));
+    if (!pending.length) return;
+    _detectedBackups = pending;
+    showDetectedBackupBanner(pending);
+  } catch(e) {
+    console.warn('PlotEdge: backup auto-detect failed', e);
+  }
+}
+
+function showDetectedBackupBanner(list){
+  const banner = document.getElementById('foundBackupBanner');
+  const title = document.getElementById('foundBackupTitle');
+  const sub = document.getElementById('foundBackupSub');
+  const btn = document.getElementById('foundBackupBtn');
+  if (!banner) return;
+  if (list.length === 1){
+    if (title) title.textContent = 'Backup found on this device';
+    if (sub) sub.textContent = list[0].name + (list[0].mtime ? ' · ' + new Date(list[0].mtime).toLocaleDateString() : '');
+    if (btn) btn.textContent = 'Restore';
+  } else {
+    if (title) title.textContent = list.length + ' backups found on this device';
+    if (sub) sub.textContent = 'Different projects, most recent first. Pick which to restore.';
+    if (btn) btn.textContent = 'Choose';
+  }
+  banner.style.display = '';
+}
+
+// The banner's one action button: a single match restores directly, several open the picker
+// list below instead — restoring the wrong one of several by accident is worse than one extra
+// tap.
+function handleFoundBackupAction(){
+  if (!_detectedBackups.length) return;
+  if (_detectedBackups.length === 1) restoreDetectedBackupAt(0);
+  else renderDetectedBackupList();
+}
+
+function renderDetectedBackupList(){
+  const wizard = document.getElementById('foundBackupWizard');
+  const btn = document.getElementById('foundBackupBtn');
+  if (!wizard) return;
+  if (!_detectedBackups.length){ dismissFoundBackupBanner(); return; }
+  if (btn) btn.style.display = 'none'; // the action now lives per-row, below
+  wizard.style.display = '';
+  wizard.innerHTML = _detectedBackups.map((f, i) => {
+    const kindLabel = /\.plotpack$/i.test(f.name) ? 'PlotPack (whole project)' : 'JSON backup';
+    const dateLabel = f.mtime ? new Date(f.mtime).toLocaleDateString() : '';
+    return '<div class="import-summary" style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;">' +
+      '<div style="min-width:0;">' +
+        '<div class="import-summary-title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(f.name) + '</div>' +
+        '<div class="import-summary-meta">' + kindLabel + (dateLabel ? ' · ' + dateLabel : '') + '</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" style="flex-shrink:0;margin:0;" onclick="restoreDetectedBackupAt(' + i + ')">Restore</button>' +
+    '</div>';
+  }).join('') + '<button class="btn btn-outline" onclick="dismissFoundBackupBanner()" style="width:100%;">Done</button>';
+}
+
+// Removes one entry from the pending list (it has either been imported or its own confirm step
+// was cancelled — see the two callers below) and either re-renders the remaining picker or, if
+// that was the last one, closes the whole banner/wizard.
+function removeDetectedBackupEntry(entry){
+  _detectedBackups = _detectedBackups.filter(f => backupFileKey(f) !== backupFileKey(entry));
+  if (_detectedBackups.length) renderDetectedBackupList();
+  else { dismissFoundBackupBannerUI(); }
+}
+
+// UI-only close: hides the banner/wizard without touching the dismissed-keys store. Used once
+// the list is empty because every entry was already imported (or cancelled/removed), so there is
+// nothing left that would need re-dismissing later.
+function dismissFoundBackupBannerUI(){
+  const banner = document.getElementById('foundBackupBanner');
+  const wizard = document.getElementById('foundBackupWizard');
+  if (banner) banner.style.display = 'none';
+  if (wizard){ wizard.style.display = 'none'; wizard.innerHTML = ''; }
+}
+
+function dismissFoundBackupBanner(){
+  if (_detectedBackups.length) addDismissedBackupKeys(_detectedBackups);
+  _detectedBackups = [];
+  dismissFoundBackupBannerUI();
+}
+
+async function restoreDetectedBackupAt(i){
+  const entry = _detectedBackups[i];
+  if (!entry) return;
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readFile){ showToast('Could not reach device storage'); return; }
+  const singleMode = _detectedBackups.length === 1;
+  const btn = document.getElementById('foundBackupBtn');
+  if (singleMode && btn){ btn.disabled = true; btn.textContent = 'Reading…'; }
+
+  try {
+    const res = await Filesystem.readFile({ path: EXPORT_DIR + '/' + entry.name, directory: entry.dir });
+    const base64 = res && res.data;
+    if (!base64) throw new Error('empty read');
+
+    if (/\.plotpack$/i.test(entry.name)){
+      // Route through the exact same wizard the manual Import screen uses — JSZip parse,
+      // manifest + format-version check, per-part checksum verification, and the
+      // "Restore as a new project / Cancel" confirm — see preparePlotpackImport() and
+      // renderPlotpackImportWizard() above. Rendered into #foundBackupWizard, right here on
+      // Welcome, instead of the Import screen's own host.
+      const bytes = atob(base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
+      const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
+      await preparePlotpackImport(file, 'foundBackupWizard');
+      // preparePlotpackImport() renders its own confirm/cancel buttons via
+      // renderPlotpackImportWizard(), which always calls the shared importPlotpackBundle() /
+      // cancelPlotpackImport(). Those don't know about this list, so their buttons are rewired
+      // here, right after render, to also fold this entry out of the pending list once the
+      // person actually decides — never before, so a bundle that fails its checksum stays in
+      // the list to try again rather than silently disappearing.
+      const wizard = document.getElementById('foundBackupWizard');
+      const confirmBtn = wizard && wizard.querySelector('.btn-primary');
+      const cancelBtn = wizard && wizard.querySelector('.btn-outline');
+      if (confirmBtn){
+        confirmBtn.setAttribute('onclick', '');
+        confirmBtn.onclick = async () => { await importPlotpackBundle(); removeDetectedBackupEntry(entry); };
+      }
+      if (cancelBtn){
+        cancelBtn.setAttribute('onclick', '');
+        cancelBtn.onclick = () => { cancelPlotpackImport(); if (!singleMode) renderDetectedBackupList(); else dismissFoundBackupBannerUI(); };
+      }
+    } else {
+      // .plotedge.json — identical validation and import to handleBackupImportFile() in
+      // js/17-export.js, just fed from the device filesystem instead of a file picker. No
+      // separate confirm step, same as that existing flow: a JSON backup is always additive
+      // (importOneBackupProject() mints a fresh id), so there is nothing destructive to confirm.
+      const text = decodeURIComponent(escape(atob(base64)));
+      let payload;
+      try { payload = JSON.parse(text); }
+      catch(e){ showToast('That backup file is not valid JSON'); return; }
+      if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
+        showToast('That is not a PlotEdge backup file'); return;
+      }
+      let ids = [];
+      if (payload.kind === 'project'){
+        ids.push(importOneBackupProject(payload.project, payload.data));
+      } else if (payload.kind === 'all'){
+        (payload.projects || []).forEach(meta => ids.push(importOneBackupProject(meta, (payload.data || {})[meta.id])));
+      } else {
+        showToast('Unrecognised backup type'); return;
+      }
+      if (!ids.length){ showToast('That backup contained no projects'); return; }
+      persistStore();
+      refreshProjectsScreen();
+      showToast('✓ Restored ' + ids.length + ' project' + (ids.length === 1 ? '' : 's'));
+      removeDetectedBackupEntry(entry);
+    }
+  } catch(e){
+    console.warn('PlotEdge: auto-restore failed', e);
+    showToast('Could not read that backup file');
+  } finally {
+    if (singleMode && btn){ btn.disabled = false; btn.textContent = 'Restore'; }
+  }
+}
+
+
 // SubtleCrypto is unavailable on an insecure origin; a Capacitor WebView is
 // https so this is the normal path, but the fallback keeps export working on a
 // plain-http dev server instead of failing at the last step.

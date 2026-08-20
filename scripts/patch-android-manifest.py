@@ -126,10 +126,39 @@ def patch_soft_input_mode(xml: str) -> str:
 
 def patch_backup_attrs(xml: str) -> str:
     """
-    Force android:allowBackup="true" (and the Android 12+ equivalent) on the
+    Force android:allowBackup="false" (and the Android 12+ equivalent) on the
     <application> tag. Set explicitly rather than relying on the platform
     default, because the default flipped between target SDK levels and the
     generated manifest does not pin it either way.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    WHY FALSE — this is the "a stale project is already open after a fresh
+    install, and I never imported anything" bug.
+
+    This used to be forced to "true" on the theory that OS-level Auto Backup
+    was a free second line of defence behind the in-app .plotpack export. In
+    practice it was worse than doing nothing: Auto Backup snapshots the whole
+    WebView data directory (localStorage, IndexedDB — i.e. every project) to
+    the user's Google account on its own schedule (Wi-Fi + charging, at most
+    once/24h) and SILENTLY restores that snapshot the moment the app is
+    freshly installed — no picker, no confirmation, no in-app code path
+    involved at all. Two concrete consequences reported in the field:
+
+      1. A "fresh" install is never actually empty. It opens straight into
+         whatever project was active at the last snapshot, with no landing
+         screen and no chance to choose - even though the person doing the
+         installing never supplied a backup.
+      2. Because the snapshot is periodic, not synchronous with every save,
+         the project it restores is frequently STALE - an older save, not the
+         work that was actually last done on the device.
+
+    The in-app .plotpack / device-settings export (js/17b-plotpack.js) is the
+    intentional, explicit way data moves between installs or devices - it is
+    a deliberate user action with a file the person chose. OS Auto Backup was
+    doing the same job invisibly and worse. Turning it off makes a fresh
+    install always land on the real landing screen, and makes ".plotpack" the
+    only path old data can come back by.
+    ═══════════════════════════════════════════════════════════════════════════
     """
     import re as _re
 
@@ -140,8 +169,8 @@ def patch_backup_attrs(xml: str) -> str:
     tag = m.group(0)
     new_tag = tag
     for attr, value in (
-        ("android:allowBackup", "true"),
-        ("android:fullBackupOnly", "true"),
+        ("android:allowBackup", "false"),
+        ("android:fullBackupOnly", "false"),
     ):
         if attr in new_tag:
             new_tag = _re.sub(
@@ -263,15 +292,15 @@ def main() -> int:
         )
         print(f"  adding: {feat} (required=false)")
 
-    # ══ AUTO-BACKUP ══
+    # ══ AUTO-BACKUP — DELIBERATELY OFF ══
     # All captured data lives in the WebView's localStorage, i.e. inside the app
-    # data directory. Android's Auto Backup / device-transfer will carry that
-    # directory to a new phone or restore it after a factory reset, but ONLY if
-    # allowBackup is on. Capacitor's generated manifest leaves it unset, so a
-    # crew changing devices silently starts from nothing. This is a second line
-    # of defence behind the in-app backup file, not a replacement for it — a
-    # sideloaded APK is not restored by Play, so the export is still the copy
-    # that matters most.
+    # data directory. Android's Auto Backup / device-transfer would carry that
+    # directory to a new phone or silently restore it after a fresh install —
+    # which is exactly the bug this now prevents: a "fresh" install opening
+    # straight into an old, possibly stale project with no landing screen and
+    # no explicit action from the person installing it. See patch_backup_attrs()
+    # for the full story. The in-app .plotpack export (js/17b-plotpack.js) is
+    # the one intentional path data moves between installs or devices.
     xml = patch_backup_attrs(xml)
 
     # ══ KEYBOARD RESIZE ══

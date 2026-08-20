@@ -2167,6 +2167,21 @@
      dismiss. Only the horizontal axis needs clipping here (to keep the ::before light-catch inside
      the rounded corners), so scrolling is restored on the axis that matters. */
   .modal-box { position:relative; overflow-x:hidden; overflow-y:auto; }
+  /* ══ STICKY HEADER + ROUNDED CORNER CLIP (WebView compositor bug) ══
+     .modal-box is simultaneously the rounded card, the scroll container, and the parent of a
+     position:sticky header (.sheet-head-bar). That combination is a known Chromium/WebView
+     clipping bug: a scrolling container with border-radius fails to clip content to the rounded
+     corner once it has a sticky descendant, because the sticky element gets promoted to its own
+     compositing layer and the corner clip isn't reliably reapplied to the layers scrolling behind
+     it. The visible symptom is exactly "content sliding out past the top edge of the sheet" instead
+     of disappearing under the header.
+     A mask forces the browser to composite the clip as an actual mask image rather than a plain
+     overflow-clip, which is unaffected by that layer-promotion bug and reliably respects the
+     rounded top corners regardless of what's scrolling underneath. */
+  .modal-box {
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    mask-image: radial-gradient(white, black);
+  }
   .modal-box::before {
     content:''; position:absolute; inset:0 0 auto 0; height:60px; pointer-events:none;
     background:linear-gradient(180deg, rgba(255,255,255,0.05), transparent);

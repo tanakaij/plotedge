@@ -238,6 +238,32 @@ try {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
+    <!-- ══ AUTO-DETECTED BACKUP BANNER ══ — hidden by default; shown by
+         checkForDetectedBackup() (js/17b-plotpack.js) when the device has zero projects (a
+         genuine fresh install, now that scripts/patch-android-manifest.py no longer lets Android
+         silently restore old data on its own) AND a .plotpack or .plotedge.json file is sitting
+         in the app's own export folder, Documents/PlotEdge. Detection is automatic; importing
+         never is — the person still taps Restore, so a fresh install can never surprise them
+         with data they didn't ask for. -->
+    <div class="install-banner" id="foundBackupBanner" style="display:none;">
+      <div class="install-banner-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </div>
+      <div class="install-banner-body">
+        <div class="install-banner-title" id="foundBackupTitle">Backup found on this device</div>
+        <div class="install-banner-sub" id="foundBackupSub">A saved project is available to restore.</div>
+      </div>
+      <button class="install-banner-btn" id="foundBackupBtn" onclick="handleFoundBackupAction()">Restore</button>
+      <button class="install-banner-close" onclick="dismissFoundBackupBanner()" aria-label="Dismiss">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <!-- Two things render in here, never at once: the plain multi-file picker list
+         (renderDetectedBackupList()) when several backups were found, or — while restoring one
+         .plotpack off that list — the standard "N features, N photos — Restore as a new
+         project / Cancel" confirm step (renderPlotpackImportWizard() in js/17b-plotpack.js),
+         reused as-is from the manual Import screen. -->
+    <div id="foundBackupWizard" style="display:none;margin-top:14px;"></div>
     <button class="btn-pill" onclick="showNewProject()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       New project

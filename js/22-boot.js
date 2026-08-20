@@ -62,6 +62,10 @@ window.addEventListener('offline', updateNetworkGradientState);
       // Genuine first run: Welcome is the correct landing screen. It carries no app chrome.
       activateView('view-projects');
       renderProjectsList();
+      // Device has zero projects — the one case checkForDetectedBackup() (js/17b-plotpack.js)
+      // is allowed to offer a restore banner. Fire-and-forget: it's an async Filesystem scan
+      // that only ever shows a dismissible banner, never blocks or changes what's on screen.
+      if (typeof checkForDetectedBackup === 'function') checkForDetectedBackup();
     }
   } catch(e) {
     // If resuming threw for any reason (e.g. a map-library hiccup), fall back to the normal
