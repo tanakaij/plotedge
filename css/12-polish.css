@@ -47,6 +47,12 @@
      controls. Pinned, the sheet always says what it is. z-index clears
      .modal-actions (2) and the old .modal-x (3). */
   .sheet-head-bar {
+    /* Fixed, not measured: --sheet-close (32px) is always the tallest child (the title's own
+       line-height is ~20.6px), so bar height is that plus the 13px top/bottom padding plus the
+       1px bottom border — 59px — regardless of how long the title is. .sheet-head-name is
+       white-space:nowrap, so it can never grow the bar by wrapping. This is what lets the
+       subtitle rule below stick to a fixed offset instead of measuring the bar at runtime. */
+    --sheet-head-h: 59px;
     position:sticky; top:0; z-index:5;
     display:flex; align-items:center; gap:10px;
     margin:-22px -20px 18px; padding:13px 14px 13px 16px;
@@ -119,10 +125,25 @@
   .sheet-head-action:active { filter:brightness(0.92); }
   .sheet-head-action + .sheet-close { margin-left:0; }
 
-  /* A subtitle directly under a header bar was written against the old spacing,
-     where the heading carried its own 20px margin. The bar owns that gap now, so
-     the paragraph only needs to close the distance to the body. */
+  /* ══ SUBTITLE PINNING — the "cut off / scrolls under the status bar" report ══
+     .sheet-head-bar pins the TITLE, but a subtitle sitting directly under it — .modal-sub, or the
+     "N more actions… · tap to run, or customise the grid below" line js/05-projects.js writes into
+     #qaDrawerSub — was still an ordinary child of .modal-box, the scroll container. On any sheet
+     with enough content to scroll, that line travelled up and out with the rest of the body instead
+     of staying put under the pinned title, which reads as the header being incomplete or the text
+     getting cut off. Pinning it too, directly beneath the bar at the bar's own fixed height
+     (--sheet-head-h, set above — fixed because the title can't wrap or grow it), keeps both lines
+     on screen for as long as the sheet is open, with its own opaque background and hairline so
+     content scrolling underneath is fully hidden rather than showing through.
+     .pa-sub is excluded on purpose: PlotArchive already pins its subtitle as part of the larger
+     .pa-controls block (§2 below), so pinning it again here would double up the sticky offset. */
   .sheet-head-bar + .modal-sub,
+  .sheet-head-bar + .qa-drawer-sub {
+    position:sticky; top:var(--sheet-head-h); z-index:4;
+    background:var(--card-bg);
+    margin:-4px -20px 12px; padding:0 20px 10px;
+    border-bottom:1px solid var(--card-border);
+  }
   .sheet-head-bar + .pa-sub { margin-top:-4px; }
 
   /* .modal-x is the close button ONE sheet had before this file existed. The

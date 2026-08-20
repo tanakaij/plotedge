@@ -875,6 +875,126 @@ async function restoreDetectedBackupAt(i){
 }
 
 
+// ══════════════════════════════════════════════════════════════════════════
+// MANUAL BACKUP SCAN — Settings › Data › Backup & Restore
+// ══════════════════════════════════════════════════════════════════════════
+// checkForDetectedBackup() above is deliberately a one-shot: it runs once at boot and only when
+// projects.length === 0, so it can never resurrect an old bundle over someone's shoulder mid-survey.
+// That leaves no way to look again — after copying a new .plotpack onto the device, after dismissing
+// the Welcome banner, or simply because a device already has projects on it and the banner therefore
+// never ran at all. This is that on-demand path: a "Scan for backups" button in Backup & Restore that
+// calls the same findAllDeviceBackupFiles(), but renders into its own container and keeps its own
+// list, so it never touches _detectedBackups or the Welcome banner's dismissed-keys bookkeeping.
+let _manualScanBackups = [];
+
+async function scanForBackupsManually(){
+  const btn = document.getElementById('scanBackupsBtnPm');
+  const out = document.getElementById('manualBackupScanResults');
+  if (!out) return;
+  if (!capPlugin('Filesystem')){
+    out.innerHTML = '<div class="hub-block-desc">Scanning device storage isn\u2019t available in this build.</div>';
+    return;
+  }
+  if (btn){ btn.disabled = true; btn.textContent = 'Scanning\u2026'; }
+  out.innerHTML = '<div class="hub-block-desc">Looking in this device\u2019s PlotEdge folder\u2026</div>';
+  try {
+    _manualScanBackups = await findAllDeviceBackupFiles();
+    renderManualScanResults();
+  } catch(e){
+    console.warn('PlotEdge: manual backup scan failed', e);
+    out.innerHTML = '<div class="hub-block-desc">Scan failed. Nothing was changed.</div>';
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = 'Scan for backups'; }
+  }
+}
+
+function renderManualScanResults(){
+  const out = document.getElementById('manualBackupScanResults');
+  if (!out) return;
+  if (!_manualScanBackups.length){
+    out.innerHTML = '<div class="hub-block-desc">No .plotpack or .plotedge.json files found.</div>';
+    return;
+  }
+  out.innerHTML = _manualScanBackups.map((f, i) => {
+    const kindLabel = /\.plotpack$/i.test(f.name) ? 'PlotPack (whole project)' : 'JSON backup';
+    const dateLabel = f.mtime ? new Date(f.mtime).toLocaleDateString() : '';
+    return '<div class="import-summary" style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;">' +
+      '<div style="min-width:0;">' +
+        '<div class="import-summary-title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(f.name) + '</div>' +
+        '<div class="import-summary-meta">' + kindLabel + (dateLabel ? ' \u00b7 ' + dateLabel : '') + '</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" style="flex-shrink:0;margin:0;" onclick="restoreManualScanEntry(' + i + ')">Restore</button>' +
+    '</div>';
+  }).join('') + '<div id="manualScanImportWizard"></div>';
+}
+
+// Mirrors restoreDetectedBackupAt() above (same two file kinds, same wizard-based .plotpack
+// confirm step), kept as its own copy rather than a shared helper so this on-demand path can never
+// be affected by a future change scoped to the boot-time banner, or vice versa.
+async function restoreManualScanEntry(i){
+  const entry = _manualScanBackups[i];
+  if (!entry) return;
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readFile){ showToast('Could not reach device storage'); return; }
+
+  try {
+    const res = await Filesystem.readFile({ path: EXPORT_DIR + '/' + entry.name, directory: entry.dir });
+    const base64 = res && res.data;
+    if (!base64) throw new Error('empty read');
+
+    if (/\.plotpack$/i.test(entry.name)){
+      const bytes = atob(base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
+      const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
+      await preparePlotpackImport(file, 'manualScanImportWizard');
+      const wizard = document.getElementById('manualScanImportWizard');
+      const confirmBtn = wizard && wizard.querySelector('.btn-primary');
+      const cancelBtn = wizard && wizard.querySelector('.btn-outline');
+      if (confirmBtn){
+        confirmBtn.setAttribute('onclick', '');
+        confirmBtn.onclick = async () => {
+          await importPlotpackBundle();
+          _manualScanBackups = _manualScanBackups.filter((_, idx) => idx !== i);
+          renderManualScanResults();
+        };
+      }
+      if (cancelBtn){
+        cancelBtn.setAttribute('onclick', '');
+        cancelBtn.onclick = () => { cancelPlotpackImport(); renderManualScanResults(); };
+      }
+    } else {
+      // .plotedge.json — identical validation to handleBackupImportFile() in js/17-export.js,
+      // just fed from the device filesystem instead of a file picker.
+      const text = decodeURIComponent(escape(atob(base64)));
+      let payload;
+      try { payload = JSON.parse(text); }
+      catch(e){ showToast('That backup file is not valid JSON'); return; }
+      if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
+        showToast('That is not a PlotEdge backup file'); return;
+      }
+      let ids = [];
+      if (payload.kind === 'project'){
+        ids.push(importOneBackupProject(payload.project, payload.data));
+      } else if (payload.kind === 'all'){
+        (payload.projects || []).forEach(meta => ids.push(importOneBackupProject(meta, (payload.data || {})[meta.id])));
+      } else {
+        showToast('Unrecognised backup type'); return;
+      }
+      if (!ids.length){ showToast('That backup contained no projects'); return; }
+      persistStore();
+      refreshProjectsScreen();
+      showToast('\u2713 Restored ' + ids.length + ' project' + (ids.length === 1 ? '' : 's'));
+      _manualScanBackups = _manualScanBackups.filter((_, idx) => idx !== i);
+      renderManualScanResults();
+    }
+  } catch(e){
+    console.warn('PlotEdge: manual backup restore failed', e);
+    showToast('Could not read that backup file');
+  }
+}
+
+
 // SubtleCrypto is unavailable on an insecure origin; a Capacitor WebView is
 // https so this is the normal path, but the fallback keeps export working on a
 // plain-http dev server instead of failing at the last step.

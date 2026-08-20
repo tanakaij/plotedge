@@ -500,6 +500,20 @@ try {
         Import backup
       </button>
     </div>
+    <!-- ══ MANUAL BACKUP SCAN ══ — checkForDetectedBackup() (js/17b-plotpack.js) only ever runs
+         once, automatically, and only on a device with zero projects, so it can never interrupt an
+         existing survey. This is the on-demand counterpart: press it any time — after copying files
+         onto the device, after dismissing the Welcome banner, or on a device that already has
+         projects — and it looks again. See scanForBackupsManually() in js/17b-plotpack.js. -->
+    <div class="hub-block">
+      <div class="hub-block-title">Scan device for backups</div>
+      <div class="hub-block-desc">Looks in this device's PlotEdge folder for .plotpack or .plotedge.json files and lists anything found, whether or not it was offered before.</div>
+      <button class="btn-pill btn-pill-outline" onclick="scanForBackupsManually()" id="scanBackupsBtnPm" style="margin-top:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Scan for backups
+      </button>
+      <div id="manualBackupScanResults" style="margin-top:12px;"></div>
+    </div>
     <div class="hub-block">
       <div class="hub-block-title">Export all projects</div>
       <div class="hub-block-desc">A .zip of every project's data in shareable formats, for handing off to someone else or loading into GIS. Use Backup above if the goal is to restore into PlotEdge later.</div>
