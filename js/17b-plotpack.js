@@ -627,6 +627,29 @@ async function importPlotpackBundle(){
 }
 
 
+// ══ FIX: device-settings packs failing to restore from Welcome / device-scan paths ══
+// preparePlotpackImport() detects TWO kinds of .plotpack (PLOTPACK_KIND_PROJECT and
+// PLOTPACK_KIND_SETTINGS — see the `kind` branch near its top) and renders a different wizard,
+// with a different confirm action, for each: renderPlotpackImportWizard() bakes in
+// onclick="importPlotpackBundle()", renderSettingsImportWizard() bakes in
+// onclick="importDeviceSettings()". That works as-is on the plain Import screen
+// (handlePlotpackFileChosen), which never touches those buttons after they render.
+// The three restore paths below (Welcome's own file picker, the boot-time/on-demand detected-
+// backup list, and the Settings-screen manual device scan) each have to REWIRE that confirm
+// button anyway, purely to fold the just-restored entry out of their own list once the person
+// actually decides — see the comment on restoreDetectedBackupAt() below. All three were doing
+// that rewiring straight to importPlotpackBundle(), unconditionally, regardless of which kind of
+// pack preparePlotpackImport() had actually detected. For a settings pack that meant tapping
+// "Apply these settings" ran importPlotpackBundle() instead — which reads p.features, undefined
+// on a settings pack — threw, and was swallowed by that function's own try/catch as "Restore
+// failed, nothing was changed", so the settings were silently never applied. This is the one
+// place that decision is made now, so all three call it instead of importPlotpackBundle() directly.
+async function runPendingPlotpackImport(){
+  if (pendingPlotpackImport && pendingPlotpackImport.settings) importDeviceSettings();
+  else await importPlotpackBundle();
+}
+
+
 // Two phones both holding "Harare Ring Road" is the normal case, not the odd
 // one, so the copy is labelled rather than refused or silently merged.
 function plotpackUniqueName(name){
@@ -1017,17 +1040,19 @@ async function restoreDetectedBackupAt(i){
       const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
       await preparePlotpackImport(file, 'foundBackupWizard');
       // preparePlotpackImport() renders its own confirm/cancel buttons via
-      // renderPlotpackImportWizard(), which always calls the shared importPlotpackBundle() /
-      // cancelPlotpackImport(). Those don't know about this list, so their buttons are rewired
-      // here, right after render, to also fold this entry out of the pending list once the
-      // person actually decides — never before, so a bundle that fails its checksum stays in
-      // the list to try again rather than silently disappearing.
+      // renderPlotpackImportWizard() or renderSettingsImportWizard() (see the `kind` branch near
+      // the top of preparePlotpackImport()). Those don't know about this list, so their buttons
+      // are rewired here, right after render, to also fold this entry out of the pending list
+      // once the person actually decides — never before, so a bundle that fails its checksum
+      // stays in the list to try again rather than silently disappearing. The confirm action
+      // itself goes through runPendingPlotpackImport() rather than importPlotpackBundle()
+      // directly, since the pending pack could be either kind — see that function's header.
       const wizard = document.getElementById('foundBackupWizard');
       const confirmBtn = wizard && wizard.querySelector('.btn-primary');
       const cancelBtn = wizard && wizard.querySelector('.btn-outline');
       if (confirmBtn){
         confirmBtn.setAttribute('onclick', '');
-        confirmBtn.onclick = async () => { await importPlotpackBundle(); removeDetectedBackupEntry(entry); };
+        confirmBtn.onclick = async () => { await runPendingPlotpackImport(); removeDetectedBackupEntry(entry); };
       }
       if (cancelBtn){
         cancelBtn.setAttribute('onclick', '');
@@ -1093,7 +1118,7 @@ function handleWelcomeRestoreFile(event){
       if (confirmBtn){
         confirmBtn.setAttribute('onclick', '');
         confirmBtn.onclick = async () => {
-          await importPlotpackBundle();
+          await runPendingPlotpackImport();
           if (w){ w.style.display = 'none'; w.innerHTML = ''; }
         };
       }
@@ -1251,7 +1276,7 @@ async function restoreManualScanEntry(i){
       if (confirmBtn){
         confirmBtn.setAttribute('onclick', '');
         confirmBtn.onclick = async () => {
-          await importPlotpackBundle();
+          await runPendingPlotpackImport();
           _manualScanBackups = _manualScanBackups.filter((_, idx) => idx !== i);
           renderManualScanResults();
         };

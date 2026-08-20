@@ -422,6 +422,54 @@ const main = (async () => {
     assert(run(`projectData.p1.featureTypes.length`) === 1, 'the settings restore altered a project');
   });
 
+  // ══ REGRESSION: Welcome/device-scan restore paths silently failing on settings packs ══
+  // restoreDetectedBackupAt(), restoreManualScanEntry() and handleWelcomeRestoreFile() each have
+  // to rewire the wizard's confirm button by hand (to fold the entry out of their own list once
+  // the person decides), and all three used to rewire it straight to importPlotpackBundle() —
+  // which reads pendingPlotpackImport.features, undefined on a settings pack — regardless of
+  // which kind of pack preparePlotpackImport() had actually detected. That made "Apply these
+  // settings" throw, get swallowed by importPlotpackBundle()'s own try/catch, and report "Restore
+  // failed, nothing was changed" without ever touching localStorage. runPendingPlotpackImport()
+  // is the shared fix all three now call instead — this exercises it directly against a real
+  // settings pack, the same way those three call sites do.
+  await check('runPendingPlotpackImport() applies a pending settings pack instead of trying to import it as a project', async () => {
+    run(`
+      localStorage.setItem('plotedge_theme','dark');
+      localStorage.setItem('plotedge_units','metres');
+      showConfirm = function(){}; // skip the restart prompt
+    `);
+    const file = w.__settingsPack; file.name = 'settings3.plotpack';
+    run('pendingPlotpackImport = null');
+    await w.preparePlotpackImport(file);
+    assert(run('pendingPlotpackImport && !!pendingPlotpackImport.settings'),
+      'the settings pack was not recognised');
+    const projectsBefore = run('projects.length');
+    await w.runPendingPlotpackImport();
+    assert(run(`localStorage.getItem('plotedge_theme')`) === 'light',
+      'runPendingPlotpackImport() did not apply the settings pack — the Welcome/device-scan restore paths would silently no-op again');
+    assert(run(`localStorage.getItem('plotedge_units')`) === 'feet',
+      'runPendingPlotpackImport() only partially applied the settings pack');
+    assert(run('projects.length') === projectsBefore,
+      'runPendingPlotpackImport() minted a new project from a settings pack — it fell through to importPlotpackBundle()');
+    assert(run('pendingPlotpackImport') === null,
+      'the pending import was left dangling instead of being cleared on success');
+  });
+
+  await check('every rewired restore-path confirm button routes through runPendingPlotpackImport(), not importPlotpackBundle() directly', () => {
+    // Static guard alongside the runtime check above: catches the bug coming back even in a
+    // refactor that never gets exercised by the jsdom fixture (e.g. a fourth path added later
+    // that copies the old pattern instead of this one).
+    const src = fs.readFileSync(path.join(ROOT, 'js', '17b-plotpack.js'), 'utf8');
+    const rewireSites = [...src.matchAll(/confirmBtn\.onclick = async \(\) => \{[\s\S]*?\};/g)].map(m => m[0]);
+    assert(rewireSites.length >= 3, `expected at least 3 rewired confirm buttons, found ${rewireSites.length}`);
+    rewireSites.forEach((block, i) => {
+      assert(!/await importPlotpackBundle\(\)/.test(block),
+        `rewired confirm button #${i + 1} calls importPlotpackBundle() directly again — a settings pack routed through it will silently fail`);
+      assert(/runPendingPlotpackImport\(\)/.test(block),
+        `rewired confirm button #${i + 1} does not call runPendingPlotpackImport()`);
+    });
+  });
+
   // ── widget theme ──
   await check('the widget defers to the system palette by default', () => {
     // Material You is what the rest of the home screen is doing, so matching it is the less

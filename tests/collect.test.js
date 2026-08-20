@@ -158,6 +158,27 @@ check('the shape preview shows capture order', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// PLOTIN VERTEX MAP DOES NOT STAY BLANK
+// ══════════════════════════════════════════════════════════════════════════════
+// The Collect accordion (js/08-gps.js) shows one step card at a time. The PlotIn/PlotOut toggle
+// lives in card 1 (Feature Type); the satellite/plan tap map (#vertexMap) lives in card 2
+// (GPS & Capture). Selecting PlotIn while card 1 is still open builds the Leaflet map inside
+// card 2's collapsed, 0x0 card-body — the tiles it fetches then are for a zero-size viewport, and
+// the map stays blank even once the person later opens card 2. Regression coverage for the fix:
+// setCardCollapsed() must invalidateSize() the vertex map whenever the card holding it opens.
+const gpsSrc = read('js/08-gps.js');
+
+check('opening the accordion card that holds #vertexMap kicks an invalidateSize', () => {
+  const fn = gpsSrc.match(/function setCardCollapsed\([\s\S]*?\n\}/);
+  assert(fn, 'setCardCollapsed not found');
+  assert(/vertexMap[\s\S]*?invalidateSize/.test(fn[0]),
+    'setCardCollapsed never invalidates the vertex map\'s size — PlotIn can stay a blank box even after the card opens');
+  // Must be conditioned on the card actually opening (collapsed === false), not firing on every
+  // toggle — invalidating a still-collapsed map is a no-op that hides the real bug.
+  assert(/!collapsed/.test(fn[0]), 'the invalidateSize call is not gated on the card opening');
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // SAVE IS ALL-OR-NOTHING
 // ══════════════════════════════════════════════════════════════════════════════
 const featSrc = read('js/11-features.js');

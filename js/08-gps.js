@@ -271,6 +271,20 @@ function setCardCollapsed(titleEl, collapsed){
   titleEl.classList.toggle('is-collapsed', collapsed);
   titleEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   titleEl.closest('.card')?.classList.toggle('step-collapsed', collapsed);
+  // ══ FIX: blank PlotIn satellite map ══
+  // The vertex map (js/09-geometry.js) can be toggled visible from card 1 (Feature Type, which
+  // carries the PlotIn/PlotOut Environment switch) while card 2 (GPS & Capture, which actually
+  // contains #vertexMap) is the collapsed sibling in this accordion. Leaflet sizes itself off the
+  // container's dimensions at the moment L.map() runs — a container inside a display:none
+  // card-body measures 0×0, so the tiles it fetches then are for a 0×0 viewport and the map is
+  // left showing nothing but blank space, exactly like the classic hidden-modal "grey box" bug
+  // (see openSitePicker() in js/05a-plotbounds.js) except here the fix has to run on accordion
+  // open rather than modal open, since that's the moment this particular container's size changes.
+  // toggleVertexMap()'s own invalidateSize() (js/09-geometry.js) only covers the case where card 2
+  // was already open when the map was toggled on — it can't help a map that was born at 0×0.
+  if (!collapsed && typeof vertexMap !== 'undefined' && vertexMap && body.contains(document.getElementById('vertexMap'))){
+    setTimeout(() => vertexMap.invalidateSize(), 60);
+  }
 }
 
 // ══ COLLECT ACCORDION ══

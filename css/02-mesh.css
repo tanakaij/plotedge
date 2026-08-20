@@ -299,6 +299,41 @@
   html[data-gps="poor"]  { --gps-tint: 245,158,11; --gps-a: 0.11; }
   html[data-gps="error"] { --gps-tint: 239,68,68;  --gps-a: 0.11; }
 
+  /* ══ INDOOR TEXTURE (PlotIn) ══
+     Two layered CSS gradients, no images: an offset-brick weave (four linear-gradients staggered
+     into the classic brick trick) for close-up wall texture, plus one wide repeating-linear-
+     gradient for a few evenly-spaced vertical lines that read as structural columns/door frames at
+     a glance. Both painted in --text-primary so they auto-track the theme instead of needing a
+     light/dark variant, and both stay at opacity:0 until .indoor-active is set (see
+     updateIndoorTexture() in js/06-collect.js) — this layer exists in the DOM on every screen but
+     must only ever be visible on Collect while PlotIn is selected.
+     WHY STATIC: Collect is already the app's calmest screen — data-screen="form" dials --mesh-i
+     down specifically so a moving background can't distract someone filling in a field under
+     direct sun (see the screen-intensity note above). A drifting texture here would undo that same
+     reasoning the moment PlotIn switched on, so this has no animation at all. */
+  .indoor-texture {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dur-slow) ease;
+    background-image:
+      linear-gradient(335deg, var(--text-primary) 1px, transparent 1px),
+      linear-gradient(155deg, var(--text-primary) 1px, transparent 1px),
+      linear-gradient(335deg, var(--text-primary) 1px, transparent 1px),
+      linear-gradient(155deg, var(--text-primary) 1px, transparent 1px),
+      repeating-linear-gradient(90deg, var(--text-primary) 0, var(--text-primary) 2px, transparent 2px, transparent 240px);
+    background-position: 0 2px, 4px 10px, 24px 12px, 28px 20px, 0 0;
+    background-size: 48px 24px, 48px 24px, 48px 24px, 48px 24px, 240px 100%;
+  }
+  /* Dark theme: --text-primary is near-white, so a little goes a long way. Light theme's
+     --text-primary is near-black over a much brighter page and reads fainter at the same opacity,
+     so it gets a slightly higher ceiling — tuned by eye against the same "subtle but visible"
+     brief the header watermark above uses (opacity:0.1 there, on a much smaller mark). */
+  html.indoor-active .indoor-texture { opacity: 0.09; }
+  html[data-theme="light"].indoor-active .indoor-texture { opacity: 0.11; }
+  /* Same reasoning as the mesh blobs just below: this is a legibility wash, not motion, so outdoor
+     high-contrast mode drops it entirely rather than dimming it further. */
+  html[data-contrast="high"] .indoor-texture { opacity: 0 !important; }
+
   /* ── REDUCED MOTION / LOW POWER ──
      Pause, don't hide. The palette is still doing legibility work; only the drift is a luxury. */
   @media (prefers-reduced-motion: reduce) {

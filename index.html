@@ -132,6 +132,14 @@
      inside it would be invisible on exactly the screens where the palette is
      hardest to notice changing. -->
 <div class="domain-bloom-layer" id="domainBloom" aria-hidden="true"></div>
+<!-- ══ INDOOR TEXTURE (PlotIn) ══
+     A faint concrete/brick weave plus a couple of structural column lines, painted over the mesh
+     the moment PlotIn is selected on Collect — see updateIndoorTexture() in js/06-collect.js. Its own
+     fixed layer (same convention as .mesh-bg above it in the DOM, so it paints on top) rather than
+     a variant of the mesh itself, since it needs to appear/disappear independently of the
+     data-screen band Collect already sits at, and must never show on any screen but Collect while
+     PlotIn is the active environment. Static, no animation — see css/02-mesh.css. -->
+<div class="indoor-texture" id="indoorTexture" aria-hidden="true"></div>
 
 <script>
 // Runs synchronously, before the splash markup below can paint. On any visit after the very

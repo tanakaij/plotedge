@@ -333,6 +333,10 @@ function activateView(id){
 // inside it can never disagree about the band.
 function switchTabScreenState(tab){
   setScreenState(tab === 'collect' ? 'form' : tab === 'review' ? 'map' : 'home');
+  // Leaving/entering Collect can flip whether the PlotIn indoor texture (css/02-mesh.css) should
+  // be on screen, even though currentEnvironment itself didn't change — see updateIndoorTexture()
+  // in js/06-collect.js.
+  if (typeof updateIndoorTexture === 'function') updateIndoorTexture();
 }
 
 const FIELD_TYPES = [

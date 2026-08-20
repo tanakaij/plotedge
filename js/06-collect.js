@@ -58,6 +58,18 @@ function setCollectEnvironment(env){
   if (mapToggle) mapToggle.style.display = '';
   if (env === 'PlotIn' && !vertexMapVisible) toggleVertexMap();
   else if (env === 'PlotOut' && vertexMapVisible && !currentVertices.length) toggleVertexMap();
+  updateIndoorTexture();
+}
+
+// ══ INDOOR TEXTURE (PlotIn) ══ — see css/02-mesh.css and #indoorTexture in index.html. On
+// whenever PlotIn is the active environment AND Collect is the tab actually on screen — checking
+// the tab too keeps the texture from lingering if the crew switches to Review/Dashboard mid-
+// capture without ever explicitly leaving PlotIn (setCollectEnvironment only runs when the toggle
+// itself is touched, not on every tab change). Called from here and from switchTabScreenState()
+// in js/02-state.js, which covers that tab-change case.
+function updateIndoorTexture(){
+  const active = currentEnvironment === 'PlotIn' && getCurrentTab() === 'collect';
+  document.documentElement.classList.toggle('indoor-active', active);
 }
 
 function resetCollectEnvironmentFields(){
