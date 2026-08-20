@@ -942,12 +942,11 @@ try {
              Three anonymous 7px dots used to sit on the LEFT of this bar, before the title. That
              put the status ahead of the thing being described, and it made the dots the first
              thing read and the least legible thing on the strip.
-             The signal now trails the text, in the order the eye finishes: the per-row subject
-             marks (one glyph per status row, tinted by that row's tone), then the single verdict
+             The signal now trails the text, in the order the eye finishes: the single verdict
              badge — green tick when everything is fine, red warning when it is not — then the
-             chevron that says the strip opens. The marks are hidden once the drawer is open,
-             because the rows themselves are then on screen saying the same thing in words. -->
-        <span class="dash-shade-marks" id="dashShadeMarks" aria-hidden="true"></span>
+             chevron that says the strip opens. A row of per-subject marks used to sit before the
+             badge; the whole bar now washes with the worst tone instead (see .dash-shade::before
+             in css/03-base.css), so a second row of icons making the same point was just noise. -->
         <!-- Seeded with the same drawn tick renderDashShade() will paint, so the strip never
              flashes a different glyph set between first paint and first render. -->
         <span class="dash-shade-verdict" id="dashShadeVerdict" role="img" aria-label="Status"><svg class="dash-shade-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="8.2 12.4 10.9 15 15.8 9.4"/></svg></span>

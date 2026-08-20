@@ -502,7 +502,6 @@ function renderDashShade(){
   rowsEl.innerHTML = rows.map(r => {
     const tone = shadeTone(r.tone);
     return `<button type="button" class="dash-shade-row" data-tone="${tone}" onclick="${r.run}">
-       <span class="dash-shade-row-icon" aria-hidden="true">${shadeSubjectIcon(r.icon, 'dash-shade-glyph')}</span>
        <span class="dash-shade-row-body">
          <span class="dash-shade-row-label">${escapeHtml(r.key)}</span>
          <span class="dash-shade-row-val">${escapeHtml(r.val)}</span>
@@ -514,22 +513,13 @@ function renderDashShade(){
 
   // ══ THE COLLAPSED BAR IS THE WHOLE POINT ══
   // Open, this drawer is six labelled rows and it explains itself. Shut — which is how it spends
-  // almost all of its life — it used to be three 7px grey-or-coloured dots and a sentence. Three
-  // dots cannot say WHICH three things they stand for, so the colour was the only signal and the
-  // reader had to already know the order to decode it.
-  //
-  // Now every row contributes its own subject glyph plus its verdict colour, on the right where
-  // the eye lands last and where the chevron already anchors the strip. Six small marks that each
-  // name their own subject beat three anonymous ones, and because they are the same glyphs used
-  // on the rows inside, opening the drawer confirms what the bar said rather than introducing a
-  // new vocabulary.
+  // almost all of its life — the signal is now the tint that washes the whole strip (see
+  // .dash-shade::before in css/03-base.css) plus the single verdict badge on the right. A row of
+  // per-subject marks used to sit here too, but stacked next to the verdict badge and the chevron
+  // it read as three separate icon clusters fighting for the same corner. The tint already says
+  // "something in here needs you" at a glance; the badge says pass/fail. Which row is the one to
+  // read is what opening the drawer is for.
   const worst = shadeWorstTone(rows);
-  const marks = rows.map(r => {
-    const tone = shadeTone(r.tone);
-    return `<span class="dash-shade-mark" data-tone="${tone}" title="${escapeHtml(r.key + ': ' + r.val)}">${shadeSubjectIcon(r.icon, 'dash-shade-glyph')}</span>`;
-  }).join('');
-  const marksEl = document.getElementById('dashShadeMarks');
-  if (marksEl) marksEl.innerHTML = marks;
 
   // The single verdict badge. This is the "green with a tick / red with a warning" the bar is
   // read for: it sits at the far right of the collapsed strip, and it is the ONLY element here

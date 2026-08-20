@@ -34,12 +34,13 @@
    1 · THE SHEET HEADER
    ══════════════════════════════════════════════════════════════════════════ */
 
-  /* ── THE THEMED BAR ──
+  /* ── THE BAR ──
      Full-bleed to the sheet's edges via negative margins that cancel .modal-box's
-     own padding, so the tint runs corner to corner rather than floating in a
-     padded box. The accent wash is the same family as .pa-open-btn and the KPI
-     tiles — it is the app's theme colour, so it re-tints with the palette and
-     with light/dark for free.
+     own padding, so it runs corner to corner rather than floating in a padded
+     box. Flat — same card background as the sheet body, no accent tint — so the
+     header reads as part of the sheet's own surface rather than a separate
+     coloured panel sitting on top of it. A hairline border is the only thing
+     that separates it from the content below.
 
      sticky, not static: .modal-box is the scroll container, so a long sheet used
      to scroll its own title off the top and leave you in an unlabelled wall of
@@ -51,10 +52,8 @@
     margin:-22px -20px 18px; padding:13px 14px 13px 16px;
     box-sizing:border-box;
     border-radius:24px 24px 0 0;
-    background:
-      linear-gradient(180deg, rgba(var(--accent-rgb),0.20) 0%, rgba(var(--accent-rgb),0.10) 100%),
-      var(--card-bg);
-    border-bottom:1px solid rgba(var(--accent-rgb),0.28);
+    background:var(--card-bg);
+    border-bottom:1px solid var(--card-border);
   }
   /* The bar has to carry exactly the radius the sheet it caps is using, or a
      tinted square corner pokes out past the rounded card edge. .modal-box takes
@@ -65,9 +64,10 @@
   }
   html.kb-open .sheet-head-bar { border-radius:20px 20px 0 0; }
 
-  /* The light-catch gradient .modal-box paints across its own top edge sits
-     UNDER the bar and muddies the tint. A sheet with a header does not need it —
-     the header is the light catch now. */
+  /* A plain, opaque header already covers the area .modal-box's own light-catch gradient would
+     paint across, so there's nothing to suppress or restore here — it simply doesn't show either
+     way. Left switched off to match every other sheet with a header, so toggling a sheet in or out
+     of having one doesn't also toggle a second, unrelated visual on the box beneath it. */
   .modal-box:has(> .sheet-head-bar)::before { display:none; }
 
   /* ── THE TITLE ──
