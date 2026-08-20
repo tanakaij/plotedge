@@ -729,6 +729,11 @@ function syncSettingsModalUI(){
   }
   const snapToggle = document.getElementById('settingsSnapToggle');
   if (snapToggle) snapToggle.checked = snapPref();
+  // typeof-guarded like widgetDynamicToggle above: plotalertEnabled() lives in js/21b, which loads
+  // long after this file, and syncSettingsModalUI() is reachable from js/01's own load-time
+  // applyTheme() call.
+  const alertsToggle = document.getElementById('settingsAlertsToggle');
+  if (alertsToggle && typeof plotalertEnabled === 'function') alertsToggle.checked = plotalertEnabled();
   // Reflect the stored PlotLens preference whenever Settings opens, and keep the Review entry
   // point in step with it — the toggle and the button it governs must never disagree.
   syncPlotLensEntry();

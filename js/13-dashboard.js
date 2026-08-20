@@ -335,29 +335,64 @@ function openDashMapPreviewReview(){
 // the photos are on durable storage, how much room is left, and whether the network is reachable.
 
 // ══ ONE TONE VOCABULARY, FOUR STATES ══
-// Every row resolves to one of these, and the emoji is derived from the tone rather than picked
-// per row — so a row can never end up green with a warning face on it, which is exactly the sort
+// Every row resolves to one of these, and the glyph is derived from the tone rather than picked
+// per row — so a row can never end up green with a warning mark on it, which is exactly the sort
 // of drift that makes a status surface stop being trusted. `verdict` is what the collapsed bar
 // shows when this tone is the worst one present.
 //
-// WHY EMOJI AND NOT MORE SVG. The rest of this app draws its own icons, deliberately. This is the
-// one surface where the reader is scanning rather than reading: a coloured dot alone says
-// "something is off" without saying how badly, and at 7px it is invisible in bright sun through a
-// screen protector. An emoji carries the severity in its own shape, so the bar still parses when
-// the colour does not survive the daylight — and it is the same glyph set the crew already reads
-// on every other phone screen they use, which is worth more here than visual consistency with the
-// app's own icon language.
+// ══ WHY THESE ARE DRAWN AND NO LONGER EMOJI ══
+// This surface used ✅ / ℹ️ / ⚠️ / ⛔ and a per-row emoji subject glyph (🧩 🧭 📤 📷 💾 📶). The
+// argument for that was legibility in sunlight: a shape carries severity where a 7px coloured dot
+// does not. The shape argument still holds — what did not hold is emoji as the way to get it:
+//
+//  · They are the platform's artwork, not the app's. Every one renders differently on Samsung,
+//    Pixel and a browser, at a different optical weight and a different colour, so the one surface
+//    that is supposed to read as a calibrated severity scale was the only surface in the app whose
+//    appearance PlotEdge did not control.
+//  · They cannot take the tone colour. An emoji is a full-colour bitmap glyph, so ✅ is green even
+//    when the row is warning, and the CSS had to reach for `filter:grayscale(1)` to mute the marks
+//    it could not tint — a hack that is only needed because the glyph refuses to be styled.
+//  · Nothing else in this app uses them. Every other icon here is a stroked 24px SVG on
+//    currentColor, which is precisely what lets the tone colour flow into the glyph.
+//
+// So the severity is still carried in the SHAPE — tick, i, triangle, octagon are as distinct from
+// each other as the emoji were — and it is now also carried in the COLOUR, on the app's own icon
+// grid. Both signals survive independently, which was the original requirement.
+const SHADE_ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+
 const SHADE_TONES = {
-  ok:   { emoji:'✅', verdict:'All systems ready' },
-  info: { emoji:'ℹ️', verdict:'Nothing needs attention' },
-  warn: { emoji:'⚠️', verdict:'Needs a look' },
-  bad:  { emoji:'⛔', verdict:'Needs attention now' }
+  ok:   { verdict:'All systems ready',      path:'<circle cx="12" cy="12" r="9"/><polyline points="8.2 12.4 10.9 15 15.8 9.4"/>' },
+  info: { verdict:'Nothing needs attention', path:'<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.2"/><circle cx="12" cy="7.9" r="1.15" fill="currentColor" stroke="none"/>' },
+  warn: { verdict:'Needs a look',            path:'<path d="M10.3 3.9 2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9.4" x2="12" y2="13.6"/><circle cx="12" cy="16.7" r="1.15" fill="currentColor" stroke="none"/>' },
+  bad:  { verdict:'Needs attention now',     path:'<path d="M8.6 2.9h6.8L20.9 8.4v6.8L15.4 20.7H8.6L3.1 15.2V8.4z"/><line x1="9.4" y1="9.4" x2="14.6" y2="14.6"/><line x1="14.6" y1="9.4" x2="9.4" y2="14.6"/>' }
+};
+
+// ══ SUBJECT GLYPHS ══
+// One per status row, keyed by the row's own `icon` name. These say what the row is ABOUT; the
+// tone glyph above says how it is DOING. Keeping the two vocabularies apart is what lets the
+// storage row stay the storage row whether it is green or red.
+const SHADE_SUBJECTS = {
+  types:      '<rect x="3.2" y="3.2" width="7.4" height="7.4" rx="2"/><rect x="13.4" y="3.2" width="7.4" height="7.4" rx="2"/><rect x="3.2" y="13.4" width="7.4" height="7.4" rx="2"/><rect x="13.4" y="13.4" width="7.4" height="7.4" rx="2"/>',
+  grid:       '<circle cx="12" cy="12" r="9"/><polygon points="15.9 8.1 13.9 13.9 8.1 15.9 10.1 10.1"/>',
+  export:     '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  photos:     '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.2l1.7-2.6h6.2L17 6h3a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="3.6"/>',
+  storage:    '<rect x="2.6" y="4.4" width="18.8" height="15.2" rx="2.4"/><line x1="2.6" y1="12" x2="21.4" y2="12"/><circle cx="6.6" cy="8.2" r="1.05" fill="currentColor" stroke="none"/><circle cx="6.6" cy="15.8" r="1.05" fill="currentColor" stroke="none"/>',
+  connection: '<path d="M2.6 9.2a14.6 14.6 0 0 1 18.8 0"/><path d="M5.9 12.8a9.8 9.8 0 0 1 12.2 0"/><path d="M9.2 16.4a5 5 0 0 1 5.6 0"/><circle cx="12" cy="19.6" r="1.25" fill="currentColor" stroke="none"/>',
+  offline:    '<line x1="3.2" y1="3.2" x2="20.8" y2="20.8"/><path d="M9.2 16.4a5 5 0 0 1 5.6 0"/><path d="M5.9 12.8a9.8 9.8 0 0 1 4-2.4"/><path d="M2.6 9.2a14.6 14.6 0 0 1 5.2-3.3"/><path d="M14.4 6.1a14.6 14.6 0 0 1 7 3.1"/><circle cx="12" cy="19.6" r="1.25" fill="currentColor" stroke="none"/>'
 };
 
 // '' is what the rows used to write for "neutral"; it is normalised to 'info' here so the tone is
 // always a real key and no call site has to remember the empty-string case.
 function shadeTone(t){ return SHADE_TONES[t] ? t : 'info'; }
-function shadeToneEmoji(t){ return SHADE_TONES[shadeTone(t)].emoji; }
+
+// Both builders return a complete <svg>, so the caller never has to know the attribute string.
+// `cls` is what the stylesheet hangs the size and the tone colour off.
+function shadeToneIcon(t, cls){
+  return `<svg class="${cls}" ${SHADE_ICON_ATTRS}>${SHADE_TONES[shadeTone(t)].path}</svg>`;
+}
+function shadeSubjectIcon(name, cls){
+  return `<svg class="${cls}" ${SHADE_ICON_ATTRS}>${SHADE_SUBJECTS[name] || SHADE_SUBJECTS.types}</svg>`;
+}
 
 // ══ `info` IS NOT A DEGREE OF BAD ══
 // It ranks level with `ok`, not between `ok` and `warn`. That is the whole reason the overall
@@ -385,11 +420,11 @@ function dashShadeRows(){
   // the row is ABOUT); the tone emoji beside it is the verdict (how it is DOING). Keeping the two
   // separate is what lets the same row read as ✓ or ⛔ without its identity changing.
   if (!featureTypes.length){
-    rows.push({ key:'Feature types', icon:'🧩', val:'None defined · capture is off', tone:'bad', run:'showFeatureTypes()' });
+    rows.push({ key:'Feature types', icon:'types', val:'None defined · capture is off', tone:'bad', run:'showFeatureTypes()' });
   } else {
     const nFields = featureTypes.reduce((n,t)=>n+((t.fields||[]).length),0);
     rows.push({
-      key:'Feature types', icon:'🧩',
+      key:'Feature types', icon:'types',
       val:`${featureTypes.length} type${featureTypes.length===1?'':'s'} · ${nFields} field${nFields===1?'':'s'}`,
       // A type with no fields captures a name and a shape and nothing else. Legal, occasionally
       // deliberate, usually somebody who did not finish — worth a nudge, not an alarm.
@@ -400,18 +435,18 @@ function dashShadeRows(){
 
   // ── Which grid the numbers come out in ──
   const crs = (typeof projectCrs === 'function') ? projectCrs() : null;
-  rows.push({ key:'Working grid', icon:'🧭', val: crs ? crs.label : 'WGS 84 lat/lon (degrees)', tone:'info', run:"openCrsPicker('active')" });
+  rows.push({ key:'Working grid', icon:'grid', val: crs ? crs.label : 'WGS 84 lat/lon (degrees)', tone:'info', run:"openCrsPicker('active')" });
 
   // ── Has any of it left the device ──
   const p = projects.find(x=>x.id===activeProjectId);
   if (!savedFeatures.length){
-    rows.push({ key:'Export', icon:'📤', val:'Nothing captured yet', tone:'info', run:"switchTabNav('export')" });
+    rows.push({ key:'Export', icon:'export', val:'Nothing captured yet', tone:'info', run:"switchTabNav('export')" });
   } else if (!p || !p.lastExportedAt){
-    rows.push({ key:'Export', icon:'📤', val:`Never exported · ${savedFeatures.length} waiting`, tone:'bad', run:"switchTabNav('export')" });
+    rows.push({ key:'Export', icon:'export', val:`Never exported · ${savedFeatures.length} waiting`, tone:'bad', run:"switchTabNav('export')" });
   } else {
     const since = savedFeatures.filter(f => new Date(f.editedAt||f.savedAt) > new Date(p.lastExportedAt)).length;
     rows.push({
-      key:'Export', icon:'📤',
+      key:'Export', icon:'export',
       val: since ? `${since} change${since===1?'':'s'} since ${timeAgo(p.lastExportedAt)}` : `Up to date · ${timeAgo(p.lastExportedAt)}`,
       tone: since ? 'warn' : 'ok',
       run:"switchTabNav('export')"
@@ -427,7 +462,7 @@ function dashShadeRows(){
   if (nPhotos){
     const durable = typeof photoStoreAvailable === 'function' ? photoStoreAvailable() : true;
     rows.push({
-      key:'Photos', icon:'📷',
+      key:'Photos', icon:'photos',
       val: durable ? `${nPhotos} on device storage` : `${nPhotos} held in the project store`,
       tone: durable ? 'ok' : 'warn',
       run:'showMediaGallery()'
@@ -437,7 +472,7 @@ function dashShadeRows(){
   // ── Room left on the device ──
   const info = getStorageUsageInfo();
   rows.push({
-    key:'Device storage', icon:'💾',
+    key:'Device storage', icon:'storage',
     val:`${info.percent}% used`,
     tone: info.percent >= 90 ? 'bad' : info.percent >= 75 ? 'warn' : 'ok',
     run:'showStorage()'
@@ -446,7 +481,7 @@ function dashShadeRows(){
   // ── Whether the online half of the app is reachable at all ──
   const online = navigator.onLine !== false;
   rows.push({
-    key:'Connection', icon:'📶',
+    key:'Connection', icon: online ? 'connection' : 'offline',
     // Offline is not a fault in this app — it is the design point — so it reads as neutral, not
     // as an error. It is here because it changes what PlotVault and the web map can do.
     val: online ? 'Online · cloud sync available' : 'Offline · captures stay on device',
@@ -467,12 +502,12 @@ function renderDashShade(){
   rowsEl.innerHTML = rows.map(r => {
     const tone = shadeTone(r.tone);
     return `<button type="button" class="dash-shade-row" data-tone="${tone}" onclick="${r.run}">
-       <span class="dash-shade-row-icon" aria-hidden="true">${r.icon || 'ℹ️'}</span>
+       <span class="dash-shade-row-icon" aria-hidden="true">${shadeSubjectIcon(r.icon, 'dash-shade-glyph')}</span>
        <span class="dash-shade-row-body">
          <span class="dash-shade-row-label">${escapeHtml(r.key)}</span>
          <span class="dash-shade-row-val">${escapeHtml(r.val)}</span>
        </span>
-       <span class="dash-shade-row-verdict" role="img" aria-label="${tone}">${shadeToneEmoji(tone)}</span>
+       <span class="dash-shade-row-verdict" role="img" aria-label="${SHADE_TONES[tone].verdict}">${shadeToneIcon(tone, 'dash-shade-glyph')}</span>
        <svg class="dash-shade-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
      </button>`;
   }).join('');
@@ -491,7 +526,7 @@ function renderDashShade(){
   const worst = shadeWorstTone(rows);
   const marks = rows.map(r => {
     const tone = shadeTone(r.tone);
-    return `<span class="dash-shade-mark" data-tone="${tone}" title="${escapeHtml(r.key + ': ' + r.val)}">${r.icon || 'ℹ️'}</span>`;
+    return `<span class="dash-shade-mark" data-tone="${tone}" title="${escapeHtml(r.key + ': ' + r.val)}">${shadeSubjectIcon(r.icon, 'dash-shade-glyph')}</span>`;
   }).join('');
   const marksEl = document.getElementById('dashShadeMarks');
   if (marksEl) marksEl.innerHTML = marks;
@@ -501,7 +536,7 @@ function renderDashShade(){
   // that survives at arm's length in the sun.
   const verdictEl = document.getElementById('dashShadeVerdict');
   if (verdictEl){
-    verdictEl.textContent = shadeToneEmoji(worst);
+    verdictEl.innerHTML = shadeToneIcon(worst, 'dash-shade-glyph');
     verdictEl.setAttribute('aria-label', SHADE_TONES[worst].verdict);
   }
 

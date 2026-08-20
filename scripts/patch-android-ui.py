@@ -120,13 +120,23 @@ ADAPTIVE_XML = """<?xml version="1.0" encoding="utf-8"?>
 MAIN_ACTIVITY = """package com.plotedge.app;
 
 import android.Manifest;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -152,7 +162,16 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
 
     private static final int CAMERA_PERMISSION_REQUEST = 8421;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 8422;
+    private static final String ALERT_CHANNEL_ID = "plotedge-major";
+    /** The Preferences key js/04-store.js mirrors the widget summary into. */
+    private static final String WIDGET_KEY = "plotedge_widget";
     private String pendingInsetJs = null;
+    /**
+     * Held in a field on purpose - SharedPreferences keeps only a WEAK reference
+     * to its listeners. See the note on startWidgetMirror().
+     */
+    private SharedPreferences.OnSharedPreferenceChangeListener widgetMirrorListener = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -169,6 +188,9 @@ public class MainActivity extends BridgeActivity {
         // native app, whose WebView file chooser only offers a "take photo"
         // option once CAMERA has actually been granted.
         requestCameraPermissionIfNeeded();
+        requestNotificationPermissionIfNeeded();
+        createAlertChannel();
+        startWidgetMirror();
 
         // Draw behind the status and navigation bars.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -267,6 +289,13 @@ public class MainActivity extends BridgeActivity {
         final WebView bridgeWebView = getBridge() != null ? getBridge().getWebView() : null;
         if (bridgeWebView != null) {
             bridgeWebView.addJavascriptInterface(new StatusBarBridge(), "AndroidChrome");
+            // The second interface on the same WebView. Kept separate from
+            // StatusBarBridge because they answer to different owners: that one
+            // is chrome the theme drives, this one is the app asking the OS to do
+            // something on its behalf. js/21b-plotalert.js feature-detects
+            // window.PlotEdgeNative and falls back to the web Notification API
+            // when it is absent, which is what makes the browser build work.
+            bridgeWebView.addJavascriptInterface(new PlotEdgeNativeBridge(), "PlotEdgeNative");
         }
     }
 
@@ -321,6 +350,100 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
+     * Android 13 (API 33) made notifications a runtime permission. Below that a
+     * posted notification simply appears, so there is nothing to ask for and
+     * requesting an undeclared/unavailable permission would be a no-op anyway.
+     *
+     * Asked at launch alongside CAMERA rather than at the moment the first alert
+     * fires, because the alerts that matter are posted while the app is going
+     * into the BACKGROUND - which is the one moment a permission dialog can
+     * neither be shown nor answered.
+     */
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
+        }
+        if (ContextCompat.checkSelfPermission(this, "android.permission.POST_NOTIFICATIONS")
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                new String[]{"android.permission.POST_NOTIFICATIONS"},
+                NOTIFICATION_PERMISSION_REQUEST
+            );
+        }
+    }
+
+    /**
+     * One channel, IMPORTANCE_DEFAULT. From API 26 a notification posted to a
+     * channel that does not exist is silently dropped, so this has to run before
+     * anything is posted.
+     *
+     * DEFAULT rather than HIGH deliberately: these alerts are things the user
+     * needs to SEE (an unfinished capture, a full device), not things that should
+     * take over the screen. HIGH would give them a heads-up banner over whatever
+     * the person is doing, which for a message about work already safely on disk
+     * is more interruption than the content justifies - and is how a channel gets
+     * muted wholesale.
+     *
+     * A single channel, not one per event, because the four events share one
+     * decision: do you want PlotEdge to tell you about serious things. Splitting
+     * them would give the user four switches for a preference they hold once.
+     */
+    private void createAlertChannel() {
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        try {
+            NotificationChannel ch = new NotificationChannel(
+                ALERT_CHANNEL_ID, "Major alerts", NotificationManager.IMPORTANCE_DEFAULT);
+            ch.setDescription("Unfinished captures, unexported work and low storage.");
+            NotificationManager mgr = getSystemService(NotificationManager.class);
+            if (mgr != null) {
+                mgr.createNotificationChannel(ch);
+            }
+        } catch (Exception ignored) {
+            // A missing channel costs notifications, not the app.
+        }
+    }
+
+    /**
+     * ══ THE FIX FOR "THE WIDGET DOES NOT CHANGE" ══
+     *
+     * The home screen tiles read their numbers out of the "CapacitorStorage"
+     * SharedPreferences file, which js/04-store.js rewrites on EVERY save through
+     * publishWidgetSummary(). So the stored data was always current; what was
+     * stale was the drawn tile, because a widget only redraws on its own tick -
+     * and Android clamps that to a 30-minute floor. Switch project, and the tile
+     * kept showing the old project's name for up to half an hour.
+     *
+     * Capacitor's Preferences plugin writes in THIS process, so a plain
+     * OnSharedPreferenceChangeListener sees every one of those writes the instant
+     * it lands. Hearing it here and broadcasting a widget refresh closes the loop
+     * with no custom Capacitor plugin, no extra dependency, and no JS-side call
+     * that could be forgotten at a new save site - it keys off the write itself.
+     *
+     * The listener is held in a field because SharedPreferences keeps only a WEAK
+     * reference to it; registered as a lambda or an anonymous class with no strong
+     * reference anywhere, it is collected at the next GC and the widget quietly
+     * goes stale again. That failure is intermittent and looks exactly like the
+     * bug this fixes, which is why it is worth the field and this paragraph.
+     */
+    private void startWidgetMirror() {
+        try {
+            final SharedPreferences sp =
+                getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE);
+            widgetMirrorListener = (prefs, key) -> {
+                if (WIDGET_KEY.equals(key)) {
+                    PlotEdgeWidget.refreshAll(getApplicationContext());
+                }
+            };
+            sp.registerOnSharedPreferenceChangeListener(widgetMirrorListener);
+        } catch (Exception ignored) {
+            // Falls back to the widget's own 30-minute tick and its Refresh button.
+        }
+    }
+
+    /**
      * Bridges index.html's theme switcher to the native status/nav bar icon
      * color. WebView JS-interface methods run on a background thread, so the
      * actual WindowInsetsController call is posted back to the UI thread.
@@ -338,6 +461,75 @@ public class MainActivity extends BridgeActivity {
                 controller.setAppearanceLightStatusBars(lightBackground);
                 controller.setAppearanceLightNavigationBars(lightBackground);
             });
+        }
+    }
+
+    /**
+     * What js/21b-plotalert.js reaches for first. Everything here is best-effort:
+     * a JS-interface method that throws surfaces as an opaque failure on the web
+     * side, and none of these are worth failing a save over.
+     */
+    private class PlotEdgeNativeBridge {
+
+        /**
+         * Post a system notification.
+         *
+         * `tag` is the event key from PLOTALERT_EVENTS, used as the notification
+         * id source so a second alert of the SAME kind replaces the first instead
+         * of stacking. Two "capture still open" notices in a tray say nothing the
+         * first one did not.
+         *
+         * setContentIntent reopens the app - a notification about unfinished work
+         * that cannot be tapped to get to that work is only half a message.
+         */
+        @JavascriptInterface
+        public void notify(final String title, final String body,
+                           final String channel, final String tag) {
+            try {
+                if (!NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled()) {
+                    return;
+                }
+                Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse("plotedge://projects"));
+                open.setPackage(getPackageName());
+                open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                PendingIntent pi = PendingIntent.getActivity(
+                    MainActivity.this, 90, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+                NotificationCompat.Builder b =
+                    new NotificationCompat.Builder(MainActivity.this,
+                        channel == null ? ALERT_CHANNEL_ID : channel)
+                        .setSmallIcon(android.R.drawable.stat_sys_warning)
+                        .setContentTitle(title)
+                        .setContentText(body)
+                        // Without this a body longer than one line is truncated
+                        // with no way to read the rest, and these bodies carry
+                        // the counts that make them actionable.
+                        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                        .setContentIntent(pi)
+                        .setAutoCancel(true)
+                        .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+
+                NotificationManagerCompat.from(MainActivity.this)
+                    .notify(tag == null ? 0 : tag.hashCode(), b.build());
+            } catch (Exception ignored) {
+                // Includes the SecurityException thrown when POST_NOTIFICATIONS
+                // was declined on API 33+.
+            }
+        }
+
+        /**
+         * Manual widget push. The SharedPreferences listener above already covers
+         * every ordinary save, so this exists for the cases that are not a save -
+         * a theme change, or a screen that wants the tile correct before the user
+         * leaves the app.
+         */
+        @JavascriptInterface
+        public void refreshWidgets() {
+            try {
+                PlotEdgeWidget.refreshAll(getApplicationContext());
+            } catch (Exception ignored) {
+            }
         }
     }
 }

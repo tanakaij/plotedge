@@ -108,6 +108,9 @@
 <link rel="stylesheet" href="css/09-capture-form.css">
 <link rel="stylesheet" href="css/10-quick-actions.css">
 <link rel="stylesheet" href="css/11-plotarchive.css">
+<!-- Loaded last: everything in it is a standardisation pass over components defined in the
+     files above, so it has to win the cascade on load order rather than on !important. -->
+<link rel="stylesheet" href="css/12-polish.css">
 </head>
 <body>
 
@@ -945,7 +948,9 @@ try {
              chevron that says the strip opens. The marks are hidden once the drawer is open,
              because the rows themselves are then on screen saying the same thing in words. -->
         <span class="dash-shade-marks" id="dashShadeMarks" aria-hidden="true"></span>
-        <span class="dash-shade-verdict" id="dashShadeVerdict" role="img" aria-label="Status">✅</span>
+        <!-- Seeded with the same drawn tick renderDashShade() will paint, so the strip never
+             flashes a different glyph set between first paint and first render. -->
+        <span class="dash-shade-verdict" id="dashShadeVerdict" role="img" aria-label="Status"><svg class="dash-shade-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="8.2 12.4 10.9 15 15.8 9.4"/></svg></span>
         <svg class="dash-shade-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="dash-shade-body" id="dashShadeBody">
@@ -2340,14 +2345,25 @@ try {
      See js/03b-plotarchive.js. -->
 <div class="modal-overlay" id="plotarchiveModal">
   <div class="modal-box pa-box">
-    <div class="modal-msg" style="margin-bottom:10px;">PlotArchive</div>
-    <div class="pa-sub" id="plotarchiveSubtitle">Pick one or more to add to this project. Tap a row to see its fields first. Everything is fully editable once added.</div>
-    <div class="pa-search">
-      <svg class="pa-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" id="plotarchiveSearch" placeholder="Search names, fields or choices…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="plotarchiveOnSearch(this.value)" aria-label="Search PlotArchive">
+    <div class="modal-msg">PlotArchive</div>
+    <!-- ══ ONE PINNED CONTROL BLOCK ══
+         The subtitle, search field, category chips and result count used to be four separately
+         margined rows stacked above the list, each tuned in isolation. Their combined height left
+         the list — the entire point of the sheet — opening about 90px tall on a short phone.
+         They are one group now: the search and the chips sit together under a single divider that
+         stays pinned while the results scroll beneath it, and the count has moved onto the chip
+         row's own baseline instead of claiming a line to itself. See css/12-polish.css §2. -->
+    <div class="pa-controls">
+      <div class="pa-sub" id="plotarchiveSubtitle">Pick one or more to add to this project. Tap a row to see its fields first. Everything is fully editable once added.</div>
+      <div class="pa-search">
+        <svg class="pa-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="plotarchiveSearch" placeholder="Search names, fields or choices…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="plotarchiveOnSearch(this.value)" aria-label="Search PlotArchive">
+      </div>
+      <div class="pa-filterline">
+        <div class="pa-chips" id="plotarchiveChips"></div>
+        <div class="pa-count" id="plotarchiveCount"></div>
+      </div>
     </div>
-    <div class="pa-chips" id="plotarchiveChips"></div>
-    <div class="pa-count" id="plotarchiveCount"></div>
     <div class="pa-list" id="plotarchiveList"></div>
     <div class="modal-actions" style="margin-top:14px;">
       <button class="btn" style="flex:1;margin:0;" onclick="closePlotArchive()">Cancel</button>
@@ -2894,6 +2910,22 @@ try {
         <span class="toggle-slider"></span>
       </label>
     </div>
+    <!-- ══ MAJOR ALERTS ══
+         Filed here rather than in a Notifications group of its own: there is exactly one control,
+         and every condition it reports on — an open capture, unexported work, a full device — is
+         about getting data safely off the phone, which is what this group is for. See
+         js/21b-plotalert.js for the four events and for the list of things deliberately NOT
+         notified about. -->
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Major alerts</div>
+        <div class="settings-row-sub">Notify this phone about an unfinished capture, work that has never been exported, or a nearly full device. Nothing routine.</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="settingsAlertsToggle" onchange="setPlotalertEnabled(this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
     <div class="settings-row" onclick="clearValueBank()" role="button" tabindex="0"
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();clearValueBank();}">
       <div>
@@ -2949,6 +2981,8 @@ try {
 <script src="js/20-ui-feedback.js"></script>
 <script src="js/21-webmap.js"></script>
 <script src="js/21a-plotwords.js"></script>
+<script src="js/21b-plotalert.js"></script>
+<script src="js/21c-sheet-chrome.js"></script>
 <script src="js/22-boot.js"></script>
 </body>
 </html>

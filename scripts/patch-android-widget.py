@@ -389,6 +389,43 @@ public class PlotEdgeWidget extends AppWidgetProvider {
     private static int flags() {
         return PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
     }
+
+    /**
+     * Redraw every PlotEdge tile on the home screen, both sizes, right now.
+     *
+     * ══ WHY THIS EXISTS ══
+     * Android clamps updatePeriodMillis to 30 minutes, so a widget's own tick is
+     * far too slow to reflect "I just switched project". The app writes fresh
+     * numbers into SharedPreferences on every single save (publishWidgetSummary()
+     * in js/04-store.js), so the DATA was never the stale part - only the drawn
+     * tile was. Until now nothing told the tile to look again.
+     *
+     * MainActivity calls this from a SharedPreferences listener, which means the
+     * home screen updates the moment the app saves anything: switch project,
+     * capture a feature, run an export, and the tile behind the app is already
+     * correct when you go back to it.
+     *
+     * Static and public so there is ONE redraw path. A caller that redrew only
+     * the size it happened to know about is how the two tiles end up disagreeing.
+     */
+    public static void refreshAll(Context ctx) {
+        try {
+            AppWidgetManager mgr = AppWidgetManager.getInstance(ctx);
+            if (mgr == null) return;
+
+            int[] large = mgr.getAppWidgetIds(new ComponentName(ctx, PlotEdgeWidget.class));
+            if (large != null && large.length > 0) {
+                ctx.sendBroadcast(new Intent(ctx, PlotEdgeWidget.class).setAction(ACTION_REFRESH));
+            }
+            int[] small = mgr.getAppWidgetIds(new ComponentName(ctx, PlotEdgeWidgetSmall.class));
+            if (small != null && small.length > 0) {
+                ctx.sendBroadcast(new Intent(ctx, PlotEdgeWidgetSmall.class)
+                        .setAction(PlotEdgeWidgetSmall.ACTION_REFRESH));
+            }
+        } catch (Exception ignored) {
+            // A widget refresh is never worth taking the app down for.
+        }
+    }
 }
 """
 
@@ -508,8 +545,27 @@ WIDGET_LAYOUT = """<?xml version="1.0" encoding="utf-8"?>
 # ══ SMALL WIDGET (2x1) ══
 # The 4x2 card is a lot of home screen to give up if all you want is the
 # unsynced count. This is the same data at a glance: project name, one stats
-# line, and the whole tile is a single tap into the app. No buttons, because at
-# 2x1 a tap target inside a tap target is a mis-tap generator.
+# line, and the tile is a single tap into the app.
+#
+# ══ WHY IT NOW HAS A REFRESH CONTROL ══
+# It shipped without one on the reasoning that at 2x1 "a tap target inside a tap
+# target is a mis-tap generator". That reasoning was sound about a BUTTON and
+# wrong about the outcome: the tile had no way at all to be brought up to date
+# between Android's 30-minute ticks, so switching project in the app left the
+# small tile showing the previous project's name until the next tick - which is
+# the "widgets are not changing" report.
+#
+# The compromise is a refresh AFFORDANCE rather than a button: the eyebrow row
+# ("PLOTEDGE" plus a small refresh mark on the right) is the tap target, and the
+# rest of the tile keeps the whole-surface deep link. So the two targets are
+# split along a line the eye can already see, and the small one sits in the
+# corner furthest from where a thumb lands to open the app.
+#
+# The SharedPreferences listener in MainActivity (scripts/patch-android-ui.py)
+# means this is now a backstop rather than the primary path - the tile updates
+# on its own the moment the app saves. It stays because that listener only runs
+# while the app process is alive, and a widget read hours later still wants a
+# way to be told to look again.
 WIDGET_SMALL_LAYOUT = """<?xml version="1.0" encoding="utf-8"?>
 <!-- Same launcher-process constraints as the large layout: plain views only. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -521,15 +577,38 @@ WIDGET_SMALL_LAYOUT = """<?xml version="1.0" encoding="utf-8"?>
     android:padding="12dp"
     android:background="@drawable/plotedge_widget_bg">
 
-    <TextView
-        android:id="@+id/widget_small_eyebrow"
+    <LinearLayout
+        android:id="@+id/widget_small_refresh"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="PLOTEDGE"
-        android:textColor="@color/pe_widget_eyebrow"
-        android:textSize="9sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.12" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widget_small_eyebrow"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="PLOTEDGE"
+            android:textColor="@color/pe_widget_eyebrow"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12" />
+
+        <!-- A mark, not a labelled button: "Refresh" in words does not fit a 2x1
+             tile beside the brand without crowding both. The row around it is
+             the tap target, so the glyph itself never has to be hit precisely. -->
+        <TextView
+            android:id="@+id/widget_small_refresh_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="\\u21bb"
+            android:textColor="@color/pe_widget_accent"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp"
+            android:paddingEnd="2dp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/widget_small_project"
@@ -575,6 +654,7 @@ WIDGET_SMALL_INFO = """<?xml version="1.0" encoding="utf-8"?>
 
 WIDGET_SMALL_JAVA = """package com.plotedge.app;
 
+import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
@@ -633,6 +713,15 @@ public class PlotEdgeWidgetSmall extends AppWidgetProvider {
                 new int[]{ R.id.widget_small_project },
                 new int[]{ R.id.widget_small_stats },
                 new int[]{ R.id.widget_small_eyebrow }, new int[]{});
+
+        // ORDER MATTERS. The eyebrow row is registered FIRST and the root SECOND.
+        // A RemoteViews click on a child only wins over one on its parent when
+        // the child actually carries its own handler, so both have to be set and
+        // the refresh row - the more specific view - has to be one of them.
+        Intent refresh = new Intent(ctx, PlotEdgeWidgetSmall.class).setAction(ACTION_REFRESH);
+        v.setOnClickPendingIntent(R.id.widget_small_refresh,
+                PendingIntent.getBroadcast(ctx, 12, refresh,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
 
         v.setOnClickPendingIntent(R.id.widget_small_root,
                 PlotEdgeWidget.deepLinkFor(ctx, "projects", 11));

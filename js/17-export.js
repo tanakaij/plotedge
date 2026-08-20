@@ -173,6 +173,14 @@ function noteExportSaved(res, name){
   const msg = 'Saved "' + name + '" to ' + res.where;
   if (status) status.textContent = '✓ ' + msg;
   showToast(msg);
+  // A long export is the one case where the person has usually put the phone down. The toast
+  // above is only seen by somebody still watching the screen; this reaches whoever walked off.
+  // PlotAlert decides whether it was long enough and whether the app is actually backgrounded —
+  // that judgement lives with the rest of the alert policy rather than being duplicated here.
+  if (typeof plotalertExportFinished === 'function' && _exportStartedAt){
+    plotalertExportFinished(name, (Date.now() - _exportStartedAt) / 1000);
+  }
+  _exportStartedAt = 0;
   _lastExportUri = res.uri || null;
   _lastExportName = name;
   updateShareLastExportBtn();
@@ -180,6 +188,10 @@ function noteExportSaved(res, name){
 }
 
 let _lastExportUri = null, _lastExportName = '';
+// Stamped by every path that begins an export and cleared by noteExportSaved(). Zero means "no
+// export is in flight", which is what stops a stale figure being reported if a write completes
+// through some route that never set it.
+let _exportStartedAt = 0;
 
 function updateShareLastExportBtn(){
   const btn = document.getElementById('shareLastExportBtn');
@@ -480,6 +492,10 @@ function q(v){const s=String(v??'');return(s.includes(',')||s.includes('"')||s.i
 // off the "currently open project" globals rather than taking a project id as a parameter.
 async function exportAllProjects(){
   if (!projects.length){ showToast('No projects to export'); return; }
+  // Not routed through runSelectedExport() — this is launched from the Project Manager, not the
+  // Export tab — so it starts its own clock. Bundling every project is the slowest export there
+  // is, which makes it the likeliest to finish after the phone has gone in a pocket.
+  _exportStartedAt = Date.now();
   if (typeof JSZip === 'undefined'){
     showToast('Zip export needs a connection to load once. Try again online, or export projects individually from inside each one.');
     return;
@@ -1286,6 +1302,7 @@ async function exportProjectBackupById(id){
 // only live in the in-memory globals until persist() runs) aren't missed. ──
 async function exportAllProjectsBackup(){
   if (!projects.length){ showToast('No projects to back up'); return; }
+  _exportStartedAt = Date.now();
   if (activeProjectId) persist();
   const _photos = await hydrateExportPhotos(Object.values(projectData), savedFeatures, currentVertices);
   const payload = {
@@ -1605,5 +1622,9 @@ function updateExportFormatUI(){
 
 function runSelectedExport(){
   const key=document.getElementById('exportFormatSelect').value;
+  // The one place every format on the Export tab is launched from, so it is the honest place to
+  // start the clock. noteExportSaved() reads it to decide whether the export ran long enough to be
+  // worth a notification.
+  _exportStartedAt = Date.now();
   EXPORT_FORMATS[key].run();
 }

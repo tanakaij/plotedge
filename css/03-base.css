@@ -985,45 +985,73 @@
 
   /* ── THE TONE TINT ──
      data-tone is written on .dash-shade by renderDashShade() and is the worst tone across every
-     status row. It drives the whole strip rather than a single badge: a red left rail and a warm
-     border is legible from further away than any glyph, and the two together mean the bar still
-     reads when only one of colour or shape survives — bright sun kills the tint, a cracked screen
-     protector kills the glyph.
+     status row. It drives the whole strip rather than a single badge: a coloured left rail and a
+     matching border is legible from further away than any glyph, and the two together mean the
+     bar still reads when only one of colour or shape survives — bright sun kills the tint, a
+     cracked screen protector kills the glyph.
      Tinted on the SHADE, not the peek, so an open drawer keeps the border it was opened by.
-     `ok` and `info` deliberately get no tint at all: a status surface that is always coloured is
-     a status surface nobody looks at, so green is the ABSENCE of a mark here and the tick badge
-     carries the positive confirmation on its own. */
+
+     ══ WHY `ok` IS NOW COLOURED TOO ══
+     It was not. The rule used to be that green is the ABSENCE of a mark — no rail, no border
+     tint, on the theory that a status surface which is always coloured is one nobody looks at.
+     The cost of that was a bar which, in the state it is in almost all of the time, was visually
+     identical to an inert container: nothing about it said it was reporting anything, so there
+     was no reason to believe it had noticed a problem either. A signal that only exists when
+     things are wrong cannot be distinguished from a signal that is broken.
+     So all three verdict tones now paint the rail, and the SEPARATION is carried by intensity
+     rather than by presence: `ok` gets a quiet 38%-alpha rail and leaves the border alone, while
+     warn and bad get a full-strength rail, a tinted border and coloured summary text. The bar
+     always reads as live; only a problem is loud.
+
+     Every colour resolves through a single pair of custom properties so a tone is defined once
+     and the rail, the border, the marks and the badge cannot drift apart. */
+  .dash-shade { --shade-tint:var(--success); --shade-tint-rgb:var(--success-rgb); }
+  .dash-shade[data-tone="info"] { --shade-tint:var(--accent-primary); --shade-tint-rgb:var(--accent-rgb); }
+  .dash-shade[data-tone="warn"] { --shade-tint:var(--warn); --shade-tint-rgb:245,158,11; }
+  .dash-shade[data-tone="bad"]  { --shade-tint:var(--danger); --shade-tint-rgb:239,68,68; }
+
   .dash-shade::after {
     content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
-    background:transparent; transition:background var(--dur-base) ease; pointer-events:none;
+    background:var(--shade-tint); opacity:0.38;
+    transition:background var(--dur-base) ease, opacity var(--dur-base) ease; pointer-events:none;
   }
+  .dash-shade[data-tone="warn"]::after,
+  .dash-shade[data-tone="bad"]::after { opacity:1; }
   .dash-shade[data-tone="warn"] { border-color:rgba(245,158,11,0.42); }
-  .dash-shade[data-tone="warn"]::after { background:var(--warn); }
   .dash-shade[data-tone="bad"] { border-color:rgba(239,68,68,0.48); }
-  .dash-shade[data-tone="bad"]::after { background:var(--danger); }
   .dash-shade[data-tone="bad"] .dash-shade-line { color:var(--danger); }
   .dash-shade[data-tone="warn"] .dash-shade-line { color:var(--warn); }
+
+  /* Shared by every glyph on this surface — the peek marks, the verdict badge and both glyphs on
+     each open row. currentColor is the whole point: these are stroked SVGs on the app's own icon
+     grid, so the tone colour flows straight into them. The emoji this replaced could not be
+     tinted at all, which is why the marks used to be muted with `filter:grayscale(1)`. */
+  .dash-shade-glyph { width:100%; height:100%; display:block; }
 
   /* One subject glyph per status row, tinted by that row's own tone. Hidden once the drawer is
      open — the rows below then say the same thing in words, and repeating it here would just be
      noise above the answer. */
-  .dash-shade-marks { display:flex; align-items:center; gap:3px; flex-shrink:0; font-size:11px; line-height:1; }
+  .dash-shade-marks { display:flex; align-items:center; gap:5px; flex-shrink:0; }
   .dash-shade.open .dash-shade-marks { display:none; }
-  .dash-shade-mark { opacity:0.34; filter:grayscale(1); transition:opacity var(--dur-base) ease, filter var(--dur-base) ease; }
-  /* A row that needs attention gets its glyph back in full colour; everything fine stays greyed.
+  .dash-shade-mark {
+    width:13px; height:13px; flex-shrink:0; color:var(--text-tertiary); opacity:0.5;
+    transition:opacity var(--dur-base) ease, color var(--dur-base) ease;
+  }
+  /* A row that needs attention gets its glyph in full tone colour; everything fine stays quiet.
      That inversion is the point — the eye is drawn to what is wrong, not to a row of confetti. */
-  .dash-shade-mark[data-tone="warn"], .dash-shade-mark[data-tone="bad"] { opacity:1; filter:none; }
+  .dash-shade-mark[data-tone="ok"] { color:var(--success); opacity:0.62; }
+  .dash-shade-mark[data-tone="warn"] { color:var(--warn); opacity:1; }
+  .dash-shade-mark[data-tone="bad"] { color:var(--danger); opacity:1; }
 
-  /* The verdict. Green tick when every row is fine, red warning when one is not. Sized well above
+  /* The verdict. Green tick when every row is fine, red octagon when one is not. Sized well above
      the marks beside it because this is the single glyph the bar exists to show. */
   .dash-shade-verdict {
-    flex-shrink:0; font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center;
-    width:26px; height:26px; border-radius:50%; background:var(--surface-sunken); border:1px solid var(--card-border);
-    transition:background var(--dur-base) ease, border-color var(--dur-base) ease;
+    flex-shrink:0; display:flex; align-items:center; justify-content:center; padding:5px;
+    width:26px; height:26px; box-sizing:border-box; border-radius:50%;
+    color:var(--shade-tint);
+    background:rgba(var(--shade-tint-rgb),0.14); border:1px solid rgba(var(--shade-tint-rgb),0.42);
+    transition:background var(--dur-base) ease, border-color var(--dur-base) ease, color var(--dur-base) ease;
   }
-  .dash-shade[data-tone="ok"] .dash-shade-verdict { background:rgba(16,185,129,0.14); border-color:rgba(16,185,129,0.40); }
-  .dash-shade[data-tone="warn"] .dash-shade-verdict { background:rgba(245,158,11,0.16); border-color:rgba(245,158,11,0.45); }
-  .dash-shade[data-tone="bad"] .dash-shade-verdict { background:rgba(239,68,68,0.16); border-color:rgba(239,68,68,0.50); }
 
   .dash-shade-chevron { flex-shrink:0; color:var(--text-tertiary); transition:transform var(--dur-base) ease; }
   .dash-shade.open .dash-shade-chevron { transform:rotate(180deg); }
@@ -1044,10 +1072,20 @@
      row is ABOUT (storage, export, the grid), the verdict on the right says how it is DOING. They
      are kept apart so a row can change state without changing identity — the storage row is
      always 💾, and only the mark beside it moves between ✅ and ⛔. */
-  .dash-shade-row-icon { font-size:15px; line-height:1; flex-shrink:0; width:20px; text-align:center; }
-  .dash-shade-row-verdict { font-size:13px; line-height:1; flex-shrink:0; }
-  .dash-shade-row[data-tone="ok"] .dash-shade-row-verdict,
-  .dash-shade-row[data-tone="info"] .dash-shade-row-verdict { opacity:0.55; }
+  .dash-shade-row-icon {
+    flex-shrink:0; width:19px; height:19px; display:flex; align-items:center; justify-content:center;
+    color:var(--text-tertiary);
+  }
+  .dash-shade-row-verdict { flex-shrink:0; width:16px; height:16px; display:flex; }
+  /* The verdict glyph takes the row's tone; the subject glyph stays neutral so the row keeps one
+     identity across every state. ok and info are dimmed rather than hidden — a row that is fine
+     should confirm it quietly, not shout it. */
+  .dash-shade-row[data-tone="ok"] .dash-shade-row-verdict { color:var(--success); opacity:0.6; }
+  .dash-shade-row[data-tone="info"] .dash-shade-row-verdict { color:var(--text-tertiary); opacity:0.75; }
+  .dash-shade-row[data-tone="warn"] .dash-shade-row-verdict { color:var(--warn); }
+  .dash-shade-row[data-tone="bad"] .dash-shade-row-verdict { color:var(--danger); }
+  .dash-shade-row[data-tone="warn"] .dash-shade-row-icon { color:var(--warn); }
+  .dash-shade-row[data-tone="bad"] .dash-shade-row-icon { color:var(--danger); }
   .dash-shade-row[data-tone="bad"] .dash-shade-row-val { color:var(--danger); }
   .dash-shade-row[data-tone="warn"] .dash-shade-row-val { color:var(--warn); }
   .dash-shade-row-body { flex:1; min-width:0; }

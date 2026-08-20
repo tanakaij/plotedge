@@ -26,6 +26,13 @@ PERMISSIONS = [
     # getUserMedia({audio}) for voice notes
     "android.permission.RECORD_AUDIO",
     "android.permission.MODIFY_AUDIO_SETTINGS",
+    # Major alerts (js/21b-plotalert.js -> MainActivity's PlotEdgeNative bridge):
+    # an unfinished capture, work never exported, a nearly full device. Runtime-
+    # granted from API 33; below that the declaration alone is enough. Declaring
+    # it is what makes the toggle appear in Settings -> Apps -> PlotEdge, and
+    # without the declaration requestPermissions() is auto-denied with no prompt --
+    # the same failure mode documented for GPS and camera above.
+    "android.permission.POST_NOTIFICATIONS",
     # Exports are written to Documents/PlotEdge via @capacitor/filesystem so the crew can
     # actually find them in a file manager. On API 28 and below that needs an explicit write
     # permission -- without it the write fails and the export silently produces nothing, which

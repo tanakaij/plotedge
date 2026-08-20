@@ -12,6 +12,18 @@ projectData = loadStore();
 
 persistStore();
 
+// ══ SHEET CHROME ══
+// Retrofits the standard header bar and right-hand close button onto every .modal-overlay in the
+// document (js/21c-sheet-chrome.js). Runs here rather than on DOMContentLoaded because this file
+// is the last script tag on the page — the markup is fully parsed by the time it executes — and
+// because it must land BEFORE any sheet can be opened, or the first sheet of the session would
+// paint with its old header and gain the new one on the next render.
+normalizeSheetChrome();
+
+// Notification listeners. Registering them is free and silent; nothing is ever sent unless one of
+// the four catalogued conditions is true AND the user has left the alerts preference on.
+plotalertInit();
+
 renderProjectsList();
 
 populateAssignedToSuggestions();

@@ -134,6 +134,45 @@ check('the generated Java is bracket-balanced', () => {
   });
 });
 
+check('the home screen tiles are pushed an update rather than waiting for their tick', () => {
+  // ══ THE "WIDGETS ARE NOT CHANGING" BUG ══
+  // The tiles read their numbers from SharedPreferences, which publishWidgetSummary() rewrites on
+  // every save — so the DATA was never stale. What was stale was the drawn tile: a widget only
+  // redraws on its own tick, and Android clamps that to a 30-minute floor. Switch project and the
+  // tile kept the old project's name for up to half an hour.
+  const ui = fs.readFileSync(path.join(ROOT, 'scripts/patch-android-ui.py'), 'utf8');
+  assert(/registerOnSharedPreferenceChangeListener/.test(ui),
+    'nothing listens for the widget mirror being written, so the tiles still wait for their tick');
+  assert(/CapacitorStorage/.test(ui),
+    'the listener is not attached to the file Capacitor Preferences actually writes');
+  assert(/PlotEdgeWidget\.refreshAll/.test(ui),
+    'the listener does not push a redraw to the tiles');
+  // SharedPreferences holds only a WEAK reference to its listeners. Registered without a strong
+  // reference held somewhere, it is collected at the next GC and the widget silently goes stale
+  // again — a failure that looks exactly like the bug being fixed.
+  assert(/widgetMirrorListener\s*=\s*null|private SharedPreferences\.OnSharedPreferenceChangeListener/.test(ui),
+    'the listener is not held in a field, so it will be garbage collected');
+
+  assert(/public static void refreshAll/.test(widgetSrc),
+    'there is no single redraw path, so the two tile sizes can drift apart');
+  // The 2x1 tile shipped with no way to be refreshed at all.
+  assert(/R\.id\.widget_small_refresh\b/.test(widgetSrc),
+    'the small tile still has no refresh affordance');
+});
+
+check('the native bridge degrades to nothing rather than to an error', () => {
+  // js/21b-plotalert.js runs in three shells: the APK, an installed PWA and a plain browser tab.
+  // Only the first has PlotEdgeNative, so every reach for it has to be a feature detection.
+  const alerts = fs.readFileSync(path.join(ROOT, 'js/21b-plotalert.js'), 'utf8');
+  assert(/window\.PlotEdgeNative/.test(alerts), 'the native bridge is never looked for');
+  assert(/typeof Notification === 'undefined'/.test(alerts),
+    'the web path assumes the Notification API exists');
+  // Policy must not be entangled with delivery — see plotalertPending().
+  assert(/function plotalertPending/.test(alerts),
+    'the decision about what to report is fused to the code that sends it');
+});
+
+
 check('the theme applier is wired into both widget sizes', () => {
   // The large and small widgets are rendered by separate methods. Theming one
   // and forgetting the other gives a home screen where the two tiles disagree.

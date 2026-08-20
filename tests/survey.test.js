@@ -1600,7 +1600,16 @@ check('the collapsed bar carries a verdict and per-row marks, on the right', () 
   // No feature types means capture is off, which is the worst state this screen can report.
   assert(w.document.getElementById('dashShade').dataset.tone === 'bad',
     'a project that cannot be collected into did not read as bad');
-  assert(verdict.textContent.trim() === '⛔', `verdict showed ${verdict.textContent} for a blocked project`);
+  // The glyphs are drawn SVG rather than emoji, so the assertion is on the tone the badge
+  // resolves to rather than on a character. It reads the accessible label — not the path data:
+  // innerHTML re-serialises `<circle … />` as `<circle …></circle>`, so comparing against the
+  // raw path string in SHADE_TONES would be comparing against markup that never reaches the DOM.
+  // The label is also the thing a screen reader actually receives, which makes it the contract
+  // worth pinning.
+  const badge = () => w.document.getElementById('dashShadeVerdict');
+  assert(badge().querySelector('svg'), 'the verdict badge is not drawing an svg');
+  assert(badge().getAttribute('aria-label') === w.eval('SHADE_TONES.bad.verdict'),
+    `a blocked project announced "${badge().getAttribute('aria-label')}"`);
 
   // ...and the good case actually turns green with a tick, rather than merely not being red.
   w.eval(`
@@ -1610,8 +1619,18 @@ check('the collapsed bar carries a verdict and per-row marks, on the right', () 
   `);
   assert(['ok','info'].includes(w.document.getElementById('dashShade').dataset.tone),
     'a healthy project still reported a problem');
-  assert(w.document.getElementById('dashShadeVerdict').textContent.trim() === '✅',
-    'a healthy project did not show the tick');
+  assert(badge().getAttribute('aria-label') === w.eval('SHADE_TONES.ok.verdict'),
+    `a healthy project announced "${badge().getAttribute('aria-label')}"`);
+  // The tick is a polyline; the bad-tone octagon is not. Cheap shape check so a table wired to
+  // the wrong glyph cannot pass on the label alone.
+  assert(badge().querySelector('polyline'), 'the healthy verdict is not the tick shape');
+
+  // No emoji anywhere on this surface. The shade was the one place in the app using platform
+  // artwork instead of its own icons, and an untinted emoji is exactly what stopped the marks
+  // from being able to carry a tone colour.
+  const shadeHtml = w.document.getElementById('dashShade').innerHTML;
+  assert(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u.test(shadeHtml),
+    'an emoji is still being rendered into the status shade');
 
   // The verdict must come AFTER the headline in the DOM — it is the last thing read, not the first.
   const peek = w.document.getElementById('dashShadePeek');
@@ -1792,6 +1811,102 @@ check('every card on the dashboard leads somewhere', () => {
     assert(/onclick=/.test(block), `#${id} is a dead end`);
     assert(/onkeydown=/.test(block), `#${id} cannot be reached from a keyboard`);
   });
+});
+
+check('every sheet gets the same header bar, and the close button is always on the right', () => {
+  // Before js/21c-sheet-chrome.js there were four competing heading conventions across thirty
+  // sheets (.modal-msg, .ft-picker-title, .modal-title, .sheet-head-title) and exactly ONE sheet
+  // in thirty carried a close button. This is the assertion that the retrofit reached all of them
+  // and that it cannot drift back.
+  const boxes = [...w.document.querySelectorAll('.modal-overlay')]
+    .map(o => ({ id: o.id, box: o.querySelector(':scope > .modal-box') }))
+    .filter(x => x.box);
+  assert(boxes.length >= 25, `only ${boxes.length} sheets found — has the markup been restructured?`);
+
+  const noBar = [], noClose = [], notRight = [], doubled = [], strayX = [];
+  boxes.forEach(({ id, box }) => {
+    // #confirmModal is deliberately exempt: its .modal-msg is the confirm QUESTION, not a title.
+    if (id === 'confirmModal') return;
+    const bars = box.querySelectorAll(':scope > .sheet-head-bar');
+    if (!bars.length) { noBar.push(id); return; }
+    if (bars.length > 1) doubled.push(id);
+    const bar = bars[0];
+    const close = bar.querySelector('.sheet-close');
+    if (!close) { noClose.push(id); return; }
+    // "Same side" is enforced structurally rather than by reading CSS: the close button being the
+    // LAST child of a flex row is what puts it on the right, and it is the thing a future edit
+    // would break by appending something after it.
+    if (bar.lastElementChild !== close) notRight.push(id);
+    if (box.querySelector(':scope > .modal-x')) strayX.push(id);
+  });
+  assert(!noBar.length, `sheets with no standard header: ${noBar.join(', ')}`);
+  assert(!doubled.length, `sheets that grew a second header bar: ${doubled.join(', ')}`);
+  assert(!noClose.length, `sheets with no close button: ${noClose.join(', ')}`);
+  assert(!notRight.length, `close button is not the right-most control on: ${notRight.join(', ')}`);
+  assert(!strayX.length, `old .modal-x left stacked beside the new close on: ${strayX.join(', ')}`);
+});
+
+check('the chrome pass moves heading nodes rather than rebuilding them', () => {
+  // The whole approach rests on this. Sheet titles are written by id from all over the app; if the
+  // pass replaced the heading instead of moving it, those ids would resolve to nothing and the
+  // sheets would open with stale titles WITHOUT throwing — a silent failure.
+  ['attrStatsTitle', 'ftFieldSheetTitle', 'attrSheetTitle', 'plotarchiveSubtitle', 'confirmModalMsg']
+    .forEach(id => assert(w.document.getElementById(id), `#${id} did not survive the chrome pass`));
+
+  // And the heading that was moved is the one now labelling the sheet.
+  const paTitle = w.document.querySelector('#plotarchiveModal .sheet-head-name');
+  assert(paTitle && /PlotArchive/.test(paTitle.textContent), 'PlotArchive lost its title');
+  // #inspectModal never had a heading at all, so it is the one sheet given a supplied title.
+  const insp = w.document.querySelector('#inspectModal .sheet-head-name');
+  assert(insp && insp.textContent.trim(), 'the headingless sheet was left unlabelled');
+});
+
+check('the sheet close button and the hardware Back button are the same call', () => {
+  // A close X that only stripped .show would skip each sheet's own cleanup — a keyboard left up, a
+  // half-edited field neither committed nor discarded. Routing through closeTopOverlay() is what
+  // makes X and Back incapable of disagreeing, so this asserts the sheet actually goes away AND
+  // that the named close ran.
+  w.eval("openPlotArchive('project')");
+  assert(w.document.getElementById('plotarchiveModal').classList.contains('show'),
+    'PlotArchive did not open');
+  w.document.querySelector('#plotarchiveModal .sheet-close').click();
+  assert(!w.document.getElementById('plotarchiveModal').classList.contains('show'),
+    'tapping the close button did not dismiss the sheet');
+});
+
+check('the alert catalogue only fires for things worth interrupting somebody for', () => {
+  // The value of a notification channel is entirely in what it does NOT send. Four events, each
+  // gated on a condition the user cannot see because the app is in the background.
+  const keys = Object.keys(w.eval('PLOTALERT_EVENTS'));
+  assert(keys.length <= 4, `${keys.length} alert types — the channel is drifting toward noise`);
+  assert(keys.includes('captureOpen') && keys.includes('unexported'),
+    'the two data-loss alerts are not in the catalogue');
+
+  // Policy is asserted through plotalertPending(), which decides WHAT should be reported and
+  // touches nothing platform-specific. Asserting through the delivery path instead would make this
+  // a test of whether jsdom implements the Notification API.
+  w.eval("setPlotalertEnabled(true); currentVertices = [{lat:1,lon:1}]; suspendedCaptures = [];");
+  assert(w.eval("(plotalertPending()||{}).key") === 'captureOpen',
+    'an unfinished capture was not the reported condition');
+
+  // Severity order: an open capture outranks unexported work, because one is losing data right now
+  // and the other is losing it eventually. Only ever ONE result — three alerts at once is three
+  // swipes and no signal about which mattered.
+  assert(w.eval('typeof plotalertPending()') === 'object', 'the policy layer returns more than one alert');
+
+  // The cooldown is persisted to localStorage rather than held in memory precisely because these
+  // fire as the WebView is being reclaimed, so an in-memory stamp would reset on every relaunch.
+  w.eval("localStorage.removeItem('plotedge_alert_captureOpen');");
+  assert(w.eval('plotalertOnBackground()') === true, 'an unfinished capture went unreported');
+  assert(w.eval('plotalertOnBackground()') === false, 'the same alert fired twice inside its cooldown');
+
+  // Nothing is raised while the preference is off, whatever the state of the device.
+  w.eval("setPlotalertEnabled(false); localStorage.removeItem('plotedge_alert_captureOpen');");
+  assert(w.eval('plotalertOnBackground()') === false, 'an alert fired with the preference off');
+
+  // A clean, fully exported project has nothing to say at all.
+  w.eval("setPlotalertEnabled(true); currentVertices = []; suspendedCaptures = []; savedFeatures = []; projects = [];");
+  assert(w.eval('plotalertPending()') === null, 'an alert was raised with nothing wrong');
 });
 
 check('nothing threw while any of that ran', () => {

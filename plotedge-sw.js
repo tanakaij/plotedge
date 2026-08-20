@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v18';   // bumped: js/03b-plotarchive.js + css/11-plotarchive.css added
+const SW_VERSION = 'v19';   // bumped: css/12-polish.css, js/21b-plotalert.js, js/21c-sheet-chrome.js added
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -42,6 +42,7 @@ const APP_ASSETS = [
   'css/09-capture-form.css',
   'css/10-quick-actions.css',
   'css/11-plotarchive.css',
+  'css/12-polish.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
@@ -82,6 +83,8 @@ const APP_ASSETS = [
   'js/20-ui-feedback.js',
   'js/21-webmap.js',
   'js/21a-plotwords.js',
+  'js/21b-plotalert.js',
+  'js/21c-sheet-chrome.js',
   'js/22-boot.js',
   // ══ IMAGES ══
   // These were base64 data URLs inline in index.html and the manifest until

@@ -1,0 +1,245 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotEdge — Polish: the shared chrome every sheet and screen agrees on
+   ═══════════════════════════════════════════════════════════════════════════
+   Part of an ordered set: css/*.css are loaded in filename order by index.html.
+   Loaded LAST, deliberately. Everything here is a standardisation pass over
+   components defined earlier, so it has to win the cascade against the file
+   that first defined them — .modal-box in 05-components.css, .pa-box in
+   11-plotarchive.css, and so on. Putting it earlier would mean fighting with
+   !important instead of with load order.
+
+   ══ WHAT THIS FILE IS FOR ══
+   The app had grown four different ways to write a sheet heading:
+
+       .modal-msg          11 sheets   (also used for confirm BODY text)
+       .ft-picker-title     7 sheets
+       .modal-title         4 sheets
+       .sheet-head-title    3 sheets
+       (nothing at all)     1 sheet    — #inspectModal
+
+   ...and exactly ONE sheet in thirty had a close button (#plotvaultModal's
+   .modal-x). So the heading size, weight, colour and spacing changed depending
+   on which sheet you happened to open, and whether you could dismiss a sheet
+   without hunting for its Cancel button was a coin flip.
+
+   This file defines ONE sheet header — .sheet-head-bar — and
+   js/21c-sheet-chrome.js retrofits it onto every sheet at boot by MOVING each
+   sheet's existing heading node into it. Moving rather than replacing is the
+   whole trick: ids like #attrStatsTitle and #ftFieldSheetTitle stay attached to
+   the same node, so every bit of JS that writes a sheet title by id keeps
+   working untouched and no per-sheet markup had to be hand-edited.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   1 · THE SHEET HEADER
+   ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── THE THEMED BAR ──
+     Full-bleed to the sheet's edges via negative margins that cancel .modal-box's
+     own padding, so the tint runs corner to corner rather than floating in a
+     padded box. The accent wash is the same family as .pa-open-btn and the KPI
+     tiles — it is the app's theme colour, so it re-tints with the palette and
+     with light/dark for free.
+
+     sticky, not static: .modal-box is the scroll container, so a long sheet used
+     to scroll its own title off the top and leave you in an unlabelled wall of
+     controls. Pinned, the sheet always says what it is. z-index clears
+     .modal-actions (2) and the old .modal-x (3). */
+  .sheet-head-bar {
+    position:sticky; top:0; z-index:5;
+    display:flex; align-items:center; gap:10px;
+    margin:-22px -20px 18px; padding:13px 14px 13px 16px;
+    box-sizing:border-box;
+    border-radius:24px 24px 0 0;
+    background:
+      linear-gradient(180deg, rgba(var(--accent-rgb),0.20) 0%, rgba(var(--accent-rgb),0.10) 100%),
+      var(--card-bg);
+    border-bottom:1px solid rgba(var(--accent-rgb),0.28);
+  }
+  /* The bar has to carry exactly the radius the sheet it caps is using, or a
+     tinted square corner pokes out past the rounded card edge. .modal-box takes
+     three different radii depending on viewport and keyboard state; all three
+     are mirrored here. */
+  @media (min-width:480px){
+    .sheet-head-bar { border-radius:var(--radius-xl) var(--radius-xl) 0 0; }
+  }
+  html.kb-open .sheet-head-bar { border-radius:20px 20px 0 0; }
+
+  /* The light-catch gradient .modal-box paints across its own top edge sits
+     UNDER the bar and muddies the tint. A sheet with a header does not need it —
+     the header is the light catch now. */
+  .modal-box:has(> .sheet-head-bar)::before { display:none; }
+
+  /* ── THE TITLE ──
+     One ramp for every sheet in the app, on the display face, at the weight the
+     PlotAtlas brand mark uses. The moved-in node keeps whatever class it arrived
+     with (.modal-msg, .ft-picker-title, .modal-title, .sheet-head-title), so
+     each of those is neutralised here rather than at each of its ~30 call sites:
+     they carry their own margins and sizes and would otherwise knock the bar's
+     vertical rhythm out one sheet at a time. */
+  .sheet-head-bar > .sheet-head-name {
+    flex:1; min-width:0; margin:0; padding:0;
+    font-family:var(--font-display);
+    font-size:16.5px; font-weight:800; letter-spacing:-0.012em; line-height:1.25;
+    color:var(--white);
+    text-align:left;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+
+  /* ── THE CLOSE BUTTON ──
+     Right-hand side, every sheet, no exceptions. It was the LEFT-hand button on
+     the three .sheet-head sheets and absent everywhere else, so "where do I tap
+     to get out of this" had a different answer per screen.
+     Circular and tinted rather than a bare glyph so it reads as a control at a
+     glance on a bright screen, and 32px square keeps it on the comfortable touch
+     floor without competing with the title beside it. */
+  .sheet-close {
+    flex-shrink:0; margin-left:auto;
+    width:32px; height:32px; padding:0; border-radius:999px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-family:var(--font);
+    color:var(--text-secondary);
+    background:rgba(var(--accent-rgb),0.10);
+    border:1px solid rgba(var(--accent-rgb),0.26);
+    transition:background var(--dur-fast) ease, color var(--dur-fast) ease;
+  }
+  .sheet-close:active { background:rgba(var(--accent-rgb),0.22); color:var(--white); }
+  .sheet-close svg { display:block; }
+
+  /* An inline action promoted into the bar — the "Done" from the three sheets
+     that used to carry a Cancel/Title/Done row. It sits before the close button
+     so the destructive-free confirm stays under the thumb and the dismiss stays
+     in the corner where every other sheet now puts it. */
+  .sheet-head-action {
+    flex-shrink:0; margin-left:auto;
+    padding:7px 14px; border-radius:999px; border:none; cursor:pointer;
+    font-family:var(--font); font-size:12.5px; font-weight:800; letter-spacing:-0.01em;
+    background:var(--accent-primary); color:var(--on-accent);
+  }
+  .sheet-head-action:active { filter:brightness(0.92); }
+  .sheet-head-action + .sheet-close { margin-left:0; }
+
+  /* A subtitle directly under a header bar was written against the old spacing,
+     where the heading carried its own 20px margin. The bar owns that gap now, so
+     the paragraph only needs to close the distance to the body. */
+  .sheet-head-bar + .modal-sub,
+  .sheet-head-bar + .pa-sub { margin-top:-4px; }
+
+  /* .modal-x is the close button ONE sheet had before this file existed. The
+     chrome pass removes it and substitutes .sheet-close, but the rule stays
+     defined in 05-components.css; this keeps a stray one from ever double-
+     stacking with the standard button if a sheet is added with it by hand. */
+  .modal-box:has(> .sheet-head-bar) > .modal-x { display:none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sheet-close { transition:none; }
+  }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   2 · PLOTARCHIVE — UNCRAMPING THE PICKER
+   ══════════════════════════════════════════════════════════════════════════
+   The sheet stacks title, subtitle, search field, category chips, a count line
+   and a scrolling list above a two-button action row. Every one of those had
+   its own margin and none of them were tuned against each other, so on a short
+   phone the list — the thing the sheet exists to show — opened about 90px tall
+   with the six controls above it eating the rest.
+
+   Three changes, in order of how much room each buys back:
+     · The search field and chips become ONE pinned control block with a single
+       divider, instead of three separately-margined rows.
+     · The count line moves onto the chip row's baseline rather than claiming a
+       line of its own.
+     · The list gets the space that frees up, and a min-height so it can never
+       collapse to a couple of rows again.                                     */
+
+  /* 88vh was leaving a strip of backdrop that served no purpose on a picker
+     this dense — nothing is gained by seeing 12% of the screen behind it, and
+     the sheet already has a Cancel button and a close X. */
+  .pa-box { max-height:92vh; }
+
+  /* The controls that must stay put while the list scrolls. Pinned as a group
+     so the divider under them is one line, not three stacked margins. */
+  .pa-controls {
+    position:sticky; top:0; z-index:3;
+    background:var(--card-bg);
+    padding-bottom:9px; margin-bottom:2px;
+    border-bottom:1px solid var(--card-border);
+  }
+  .pa-box .pa-sub {
+    font-size:12.5px; line-height:1.5; margin-bottom:12px; color:var(--text-secondary);
+  }
+  .pa-box .pa-search { margin-bottom:9px; }
+  .pa-box .pa-search input {
+    padding:11px 12px 11px 36px; font-size:14px; border-radius:12px;
+  }
+  /* The chip row and the result count share a line. The count is a small right-
+     aligned figure, which is where the eye already goes after reading a filter. */
+  .pa-filterline { display:flex; align-items:center; gap:10px; }
+  .pa-box .pa-chips { flex:1; min-width:0; padding-bottom:0; margin-bottom:0; }
+  .pa-box .pa-chip { padding:7px 12px; font-size:12px; }
+  .pa-box .pa-count { flex-shrink:0; margin:0; font-size:10.5px; white-space:nowrap; }
+
+  /* The list finally gets the room. min-height is the guard that matters: it
+     stops a tall header or a wrapped subtitle from squeezing the results back
+     down to the two-row sliver this was reported for. */
+  .pa-box .pa-list { min-height:180px; padding-top:9px; }
+
+  /* Rows: more vertical padding and a real gap between them, so a list of
+     presets reads as a list of cards rather than a stack of hairlines. */
+  .pa-box .pa-row { margin-bottom:9px; border-radius:var(--radius-md); }
+  .pa-box .pa-row-head { padding:13px 13px 13px 12px; gap:11px; }
+  .pa-box .pa-check { width:24px; height:24px; }
+  .pa-box .pa-row-name { font-size:14px; }
+  .pa-box .pa-row-blurb { margin-top:5px; }
+  /* Was indented to 44px to clear the checkbox above it. That left the field
+     list in a narrow gutter on a phone — the fields are the reason to expand a
+     row, so they get the width back and a tinted well to sit in instead. */
+  .pa-box .pa-fields {
+    padding:2px 13px 11px; margin:0 12px 12px;
+    background:var(--surface-sunken); border-radius:12px;
+  }
+  .pa-box .pa-field-row { padding:8px 0; }
+  .pa-box .pa-field-row:first-child { border-top:none; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   3 · SHARED SURFACE STANDARDISATION
+   ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── FOCUS ──
+     Keyboard focus was whatever each control's own rule left behind, which on
+     several was the browser default outline and on a few was nothing at all.
+     One visible ring, on the accent, for every interactive element in the app.
+     :focus-visible rather than :focus so it never appears on a touch tap. */
+  .btn:focus-visible,
+  .sheet-close:focus-visible,
+  .sheet-head-action:focus-visible,
+  .pa-chip:focus-visible,
+  .pa-check:focus-visible,
+  .pa-row-body:focus-visible,
+  .settings-row:focus-visible,
+  .settings-group:focus-visible,
+  .dash-shade-peek:focus-visible,
+  .dash-shade-row:focus-visible,
+  .kpi-card:focus-visible {
+    outline:2px solid rgba(var(--accent-rgb),0.75);
+    outline-offset:2px;
+    border-radius:var(--radius-sm);
+  }
+
+  /* ── SCROLLBARS ──
+     The sheets that overflow showed a default scrollbar on desktop, in the
+     system's colours, against the app's own dark card. */
+  .modal-box, .pa-list {
+    scrollbar-width:thin;
+    scrollbar-color:var(--card-border) transparent;
+  }
+  .modal-box::-webkit-scrollbar, .pa-list::-webkit-scrollbar { width:7px; }
+  .modal-box::-webkit-scrollbar-track, .pa-list::-webkit-scrollbar-track { background:transparent; }
+  .modal-box::-webkit-scrollbar-thumb, .pa-list::-webkit-scrollbar-thumb {
+    background:var(--card-border); border-radius:999px;
+  }
+
+  /* ── SHEET BODY RHYTHM ──
+     Sheets set their own bottom padding inconsistently, so the last control sat
+     anywhere between flush against the action row and 20px clear of it. */
+  .modal-box:has(> .sheet-head-bar) > :last-child { margin-bottom:0; }
