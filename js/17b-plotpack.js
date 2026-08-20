@@ -822,6 +822,62 @@ function describeBackupEntry(f){
   return bits.join(' · ');
 }
 
+// ══ SETTINGS PACKS SORT THEMSELVES OUT OF THE SCAN, SILENTLY ══
+// A device-settings pack (.plotpack, PLOTPACK_KIND_SETTINGS) carries no survey data at all —
+// theme, units, basemap, quick actions and similar, and explicitly nothing destructive (see
+// exportDeviceSettings()'s own README.txt above). findAllDeviceBackupFiles() only tells .plotpack
+// apart from .plotedge.json by extension, so a settings pack looks identical to a project pack
+// until its manifest is actually opened. peekPlotpackKind() opens it and tags entry.packKind;
+// the zip is cached on the entry so a settings pack that gets applied doesn't get read twice.
+async function peekPlotpackKind(entry){
+  if (!/\.plotpack$/i.test(entry.name)) return entry;
+  if (typeof JSZip === 'undefined') return entry; // library not loaded — falls back to the normal manual-restore row
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readFile) return entry;
+  try {
+    const res = await Filesystem.readFile({ path: entry.path, directory: entry.dir });
+    if (!res || !res.data) return entry;
+    const zip = await JSZip.loadAsync(res.data, { base64: true });
+    const manifestFile = zip.file('manifest.json');
+    if (!manifestFile) return entry;
+    const manifest = JSON.parse(await manifestFile.async('string'));
+    entry.packKind = manifest.format;
+    entry._zipCache = zip;
+  } catch(e) { /* unreadable — treated as an ordinary project-pack row, same as before this existed */ }
+  return entry;
+}
+
+// Reads settings.json out of an already-identified settings pack and writes every allowlisted
+// key straight into localStorage — the same allowlist importDeviceSettings() enforces for a
+// manually-picked pack, just without the wizard tap. No reload is forced here (unlike the manual
+// path): this only ever runs before a single project exists, so there is nothing on screen yet
+// that a live theme/units change could visibly disrupt — the very next render simply picks up
+// the restored values.
+async function autoApplyDetectedSettingsPack(entry){
+  try {
+    let zip = entry._zipCache;
+    if (!zip){
+      const Filesystem = capPlugin('Filesystem');
+      if (!Filesystem || !Filesystem.readFile) return false;
+      const res = await Filesystem.readFile({ path: entry.path, directory: entry.dir });
+      if (!res || !res.data) return false;
+      zip = await JSZip.loadAsync(res.data, { base64: true });
+    }
+    const raw = zip.file('settings.json') ? await zip.file('settings.json').async('string') : null;
+    if (raw == null) return false;
+    const settings = JSON.parse(raw);
+    let applied = 0;
+    Object.keys(settings).forEach(k => {
+      if (DEVICE_SETTING_KEYS.indexOf(k) === -1) return; // allowlist enforced on the way in, same as manual import
+      try { localStorage.setItem(k, settings[k]); applied++; } catch(e) {}
+    });
+    return applied > 0;
+  } catch(e){
+    console.warn('PlotEdge: auto-apply settings pack failed', e);
+    return false;
+  }
+}
+
 // Called once at boot (js/22-boot.js), only on the "genuine first run" path. No-op in the
 // browser/PWA build — there is no device folder to scan without the Filesystem plugin, so
 // nothing is offered there and the Welcome screen behaves exactly as it always has.
@@ -832,7 +888,26 @@ async function checkForDetectedBackup(){
     const all = await findAllDeviceBackupFiles();
     if (!all.length) return;
     const dismissed = readDismissedBackupKeys();
-    const pending = all.filter(f => !dismissed.has(backupFileKey(f)));
+    let pending = all.filter(f => !dismissed.has(backupFileKey(f)));
+    if (!pending.length) return;
+
+    // Sort settings packs out of the pending list before anything is shown: on a fresh install
+    // (this is the one call site, and it only runs while projects.length === 0) they apply
+    // themselves automatically rather than waiting for a tap. Project packs are untouched here —
+    // those add real survey data and still go through the normal Restore confirm below.
+    await Promise.all(pending.filter(f => /\.plotpack$/i.test(f.name)).map(peekPlotpackKind));
+    const settingsPacks = pending.filter(f => f.packKind === PLOTPACK_KIND_SETTINGS);
+    pending = pending.filter(f => f.packKind !== PLOTPACK_KIND_SETTINGS);
+
+    if (settingsPacks.length){
+      // If more than one settings pack is sitting on the device, the newest (the list is already
+      // sorted newest-first) is the one that gets applied; all of them are marked seen either way
+      // so a stale one doesn't keep resurfacing on a later scan.
+      const applied = await autoApplyDetectedSettingsPack(settingsPacks[0]);
+      addDismissedBackupKeys(settingsPacks);
+      if (applied) showToast('✓ Restored your device settings from ' + settingsPacks[0].name);
+    }
+
     if (!pending.length) return;
     _detectedBackups = pending;
     showDetectedBackupBanner(pending);

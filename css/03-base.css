@@ -79,7 +79,12 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 24px 0 calc(32px + var(--sab));
+    /* Top padding must include the safe-area inset, not just a flat 24px. While the shell is
+       centred (no projects) that inset is folded into the extra centring space and barely
+       shows, but once .has-projects flips justify-content to flex-start the logo lockup
+       becomes the very first thing painted from the top of the padding box — with no --sat
+       term it landed under the status bar / camera-cutout on Android and iOS alike. */
+    padding: calc(24px + var(--sat)) 0 calc(32px + var(--sab));
   }
   /* ══ CENTRED ONLY WHILE THERE IS NOTHING TO SCROLL ══
      justify-content:center is right for a true first run — a short column floating in the middle
