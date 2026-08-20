@@ -179,18 +179,59 @@ function applySheetChrome(overlay){
 
   box.insertBefore(bar, box.firstChild);
 
-  // ══ FIX: SECOND STICKY BLOCK COLLIDING WITH THE HEADER ══
-  // Some sheets (PlotArchive's search+chips row, .pa-controls) pin their own control block with
-  // `position:sticky; top:0` INSIDE this same scroll container. Before this bar existed that was
-  // fine — there was nothing else at top:0 to collide with. Now there is: two independent
-  // top:0 sticky elements in one scrollport both try to occupy the same pixel, and the header
-  // (higher z-index) wins, so the second block gets pinned right underneath it and its top ~50px
-  // renders hidden/clipped behind the header the moment the sheet scrolls. That is the "header is
-  // cutting off the modal" bug.
-  // Measuring the real, just-inserted bar height (rather than hardcoding a number) means this
-  // keeps working if the header ever grows a subtitle line, wraps a long title, or its padding
-  // changes — any of which would silently reopen the same collision if the offset were a fixed
-  // guess in CSS. Consumed by css/12-polish.css as `top: var(--sheet-head-h, 52px)`.
+  // ══ THE HEADER IS A ROW, NOT A LAYER ══
+  // Everything below this line is the fix for "the header sits too close to the content, stacks,
+  // or cuts it off". The bar used to be `position:sticky` INSIDE .modal-box, and .modal-box is
+  // simultaneously the rounded card, the scroll container, the element carrying
+  // will-change:transform, and (in 05-components.css) a mask-image clip hack. Every reported
+  // symptom came out of that one arrangement:
+  //
+  //   · A sticky element promotes itself to its own compositing layer. Inside a rounded,
+  //     transformed, masked scroll container, WebView stops reliably clipping the layers moving
+  //     BEHIND it to the card's rounded top corner — so scrolled content paints above the sheet's
+  //     own top edge, over the backdrop. (Help & About.)
+  //   · A sticky bar overlaps whatever scrolls under it. Combined with scrollFocusedIntoView()'s
+  //     `block:'center'` and a sheet whose max-height collapses when the keyboard opens, the first
+  //     label or row of the sheet lands half-under the bar and reads as a rendering fault rather
+  //     than as scrolling. (Go to, Settings.)
+  //   · Any sheet with its own pinned control block (PlotArchive's .pa-controls) then had TWO
+  //     sticky elements competing for top:0 in one scrollport, which needed a JS-measured offset
+  //     to referee — a number that goes stale the moment a title wraps.
+  //
+  // So the sheet stops being one scroller with things stuck to it and becomes what it always
+  // described itself as: a header row, a scrolling body, and a pinned action row. .modal-box turns
+  // into a flex column that does not scroll at all (see .has-sheet-chrome in css/12-polish.css) and
+  // the corner clip goes back to being a plain overflow:hidden on a rounded box, which is the one
+  // form of clipping every engine gets right.
+  //
+  // The class is set here rather than left to `.modal-box:has(> .sheet-head-bar)` because the
+  // layout must not silently fall apart on a WebView without :has() support — a real risk on field
+  // devices, and a failure that would look exactly like the bug this replaces.
+  box.classList.add('has-sheet-chrome');
+
+  // The action row keeps its identity and its handlers; it just stops being sticky and becomes the
+  // last flex row. Its inline margin-top (`style="margin-top:16px"`, written into ~10 sheets back
+  // when it was an ordinary block in the flow) would otherwise open a gap above the divider that no
+  // stylesheet can override, inline styles outranking the cascade.
+  const footer = box.querySelector(':scope > .modal-actions');
+  if (footer) footer.style.marginTop = '';
+
+  // Everything between the header and the action row moves into one scrolling body. Collected by
+  // walking the live child list with the NEXT sibling captured before each move, because appending
+  // a node to the body detaches it from box and would otherwise cut the walk short.
+  const body = document.createElement('div');
+  body.className = 'sheet-body';
+  let node = bar.nextSibling;
+  while (node){
+    const next = node.nextSibling;
+    if (node !== footer) body.appendChild(node);
+    node = next;
+  }
+  box.insertBefore(body, footer || null);
+
+  // Still published, and still measured rather than guessed, for anything that needs to clear the
+  // header — but nothing depends on it for correctness any more, which is the point. A stale value
+  // now costs a few pixels of padding somewhere instead of hiding the top of a sheet.
   box.style.setProperty('--sheet-head-h', bar.offsetHeight + 'px');
 }
 

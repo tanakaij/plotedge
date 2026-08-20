@@ -34,41 +34,124 @@
    1 · THE SHEET HEADER
    ══════════════════════════════════════════════════════════════════════════ */
 
-  /* ── THE BAR ──
-     Full-bleed to the sheet's edges via negative margins that cancel .modal-box's
-     own padding, so it runs corner to corner rather than floating in a padded
-     box. Flat — same card background as the sheet body, no accent tint — so the
-     header reads as part of the sheet's own surface rather than a separate
-     coloured panel sitting on top of it. A hairline border is the only thing
-     that separates it from the content below.
+  /* Declared here rather than in 01-tokens.css because it is derived, not chosen:
+     it has no per-theme value of its own and adds nothing to the two blocks a
+     retint edits. Every pillar and both modes already redefine --accent-rgb on
+     <html>, which is the same element this resolves against, so the header follows
+     a theme change without this file knowing any theme exists.
+     A gradient rather than a flat tint so the bar has the same top-lit falloff as
+     the sheet's own light-catch, which it replaces. */
+  :root {
+    --sheet-head-tint: linear-gradient(180deg,
+      rgba(var(--accent-rgb), 0.14), rgba(var(--accent-rgb), 0.05));
+  }
 
-     sticky, not static: .modal-box is the scroll container, so a long sheet used
-     to scroll its own title off the top and leave you in an unlabelled wall of
-     controls. Pinned, the sheet always says what it is. z-index clears
-     .modal-actions (2) and the old .modal-x (3). */
+  /* ══ THE SHEET IS THREE ROWS, NOT ONE SCROLLER WITH THINGS STUCK TO IT ══
+     .modal-box used to be all of these at once: the rounded card, the scroll
+     container, a transformed/will-change'd compositing layer, a masked element
+     (the corner-clip hack in 05-components.css), AND the parent of a
+     position:sticky header. That pile is where every reported header fault came
+     from — content painting above the sheet's own top edge, the first row of a
+     sheet arriving half-under the bar, and a second pinned block (PlotArchive's
+     .pa-controls) fighting the header for top:0.
+
+     None of those are separate bugs, so none of them get separate patches. The
+     box stops scrolling and becomes a flex column of header / body / actions;
+     the body is the only scroller; the corner clip goes back to plain
+     overflow:hidden on a rounded box, which every engine gets right.
+
+     .has-sheet-chrome is set by js/21c-sheet-chrome.js rather than matched with
+     `:has(> .sheet-head-bar)` on purpose — an older WebView without :has()
+     support would otherwise silently fall back to the exact broken layout this
+     replaces, on the devices least likely to be tested. */
+  .modal-box.has-sheet-chrome {
+    display:flex; flex-direction:column;
+    padding:0;
+    /* Both axes. The body scrolls; the card clips. */
+    overflow:hidden;
+    /* The mask in 05-components.css exists only to force the rounded-corner clip
+       on a scroller with a sticky descendant. There is no sticky descendant here
+       and the box no longer scrolls, so the mask is pure per-frame compositing
+       cost — and masking a transformed layer is itself part of why WebView was
+       dropping the corner clip in the first place. */
+    -webkit-mask-image:none; mask-image:none;
+  }
+  /* The light-catch gradient is anchored to the top of the box's content, which is
+     now the header's own surface — it would paint a second, unrelated highlight
+     across it. The header carries its own. */
+  .modal-box.has-sheet-chrome::before { display:none; }
+
+  /* ── THE BAR ──
+     A real row now: static, first in the flex column, no negative margins
+     cancelling padding it can no longer see. It cannot overlap the body because
+     it is not over the body, and it needs no border-radius of its own because
+     the box's overflow:hidden clips it to whichever of the three radii
+     .modal-box is currently using.
+
+     ── WHY IT IS TINTED ──
+     It used to be flat var(--card-bg): the same colour as the sheet under it, in
+     every one of the six pillars and both light and dark. That is the "header
+     background doesn't follow the theme" report, and it is structural rather
+     than a wrong value — the pillar themes override --grad-1, --accent-* and the
+     glows, but never --card-bg, so a surface painted in --card-bg is the one
+     surface in the app that cannot respond to a theme change at all. The accent
+     tint rides on top of an opaque --card-bg base, so the header tracks the
+     chosen pillar and mode exactly the way `header` and `.subpage-header` do,
+     while staying fully opaque — which a translucent surface like --nav-bg could
+     not, with a body scrolling directly beneath it. */
   .sheet-head-bar {
-    position:sticky; top:0; z-index:5;
+    position:relative; z-index:2;
+    flex:0 0 auto;
     display:flex; align-items:center; gap:10px;
-    margin:-22px -20px 18px; padding:13px 14px 13px 16px;
+    margin:0; padding:14px 14px 14px 20px;
     box-sizing:border-box;
-    border-radius:24px 24px 0 0;
-    background:var(--card-bg);
+    background-color:var(--card-bg);
+    background-image:var(--sheet-head-tint);
     border-bottom:1px solid var(--card-border);
   }
-  /* The bar has to carry exactly the radius the sheet it caps is using, or a
-     tinted square corner pokes out past the rounded card edge. .modal-box takes
-     three different radii depending on viewport and keyboard state; all three
-     are mirrored here. */
-  @media (min-width:480px){
-    .sheet-head-bar { border-radius:var(--radius-xl) var(--radius-xl) 0 0; }
-  }
-  html.kb-open .sheet-head-bar { border-radius:20px 20px 0 0; }
 
-  /* A plain, opaque header already covers the area .modal-box's own light-catch gradient would
-     paint across, so there's nothing to suppress or restore here — it simply doesn't show either
-     way. Left switched off to match every other sheet with a header, so toggling a sheet in or out
-     of having one doesn't also toggle a second, unrelated visual on the box beneath it. */
-  .modal-box:has(> .sheet-head-bar)::before { display:none; }
+  /* ── THE BODY ──
+     The only scroller in the sheet. min-height:0 is load-bearing: a flex item's
+     default min-height is auto, which refuses to shrink below its content, so
+     without it a long sheet pushes the action row off the bottom instead of
+     scrolling — the failure being fixed here, in a new place.
+     padding-top is what buys the breathing room under the title that PlotArchive
+     and the settings groups were missing; scroll-padding-top keeps
+     scrollFocusedIntoView() from parking a focused field flush against the
+     divider. */
+  .modal-box.has-sheet-chrome > .sheet-body {
+    flex:1 1 auto; min-height:0;
+    overflow-y:auto; overflow-x:hidden;
+    overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+    padding:18px 20px 20px;
+    scroll-padding-top:10px; scroll-padding-bottom:10px;
+  }
+  /* Whichever row is last owns the gesture-bar inset, since the box's own padding
+     is gone. --sab-sheet collapses to 0 while the keyboard is up (05-components). */
+  .modal-box.has-sheet-chrome > .sheet-body:last-child {
+    padding-bottom:calc(20px + var(--sab-sheet, var(--sab)));
+  }
+  .modal-box.has-sheet-chrome > .sheet-body:not(:last-child) { padding-bottom:14px; }
+
+  /* ── THE ACTION ROW ──
+     Was sticky, with negative margins reaching back out through .modal-box's
+     padding to reach the card edges. It is simply the last row now, so it is
+     always visible for the same reason the header always is, with no positioning
+     involved. */
+  .modal-box.has-sheet-chrome > .modal-actions {
+    position:static; flex:0 0 auto;
+    margin:0;
+    padding:12px 20px calc(12px + var(--sab-sheet, var(--sab)));
+    background:var(--card-bg);
+    border-top:1px solid var(--card-border);
+  }
+  /* Unchanged intent from 05-components.css: a sheet short enough not to scroll
+     has nothing above the row to divide it from, so the divider would just be a
+     line drawn under the content for no reason. Only the mechanism moves — the
+     flag is now measured on .sheet-body (js/07-navigation.js). */
+  .modal-box.has-sheet-chrome:not(.is-scrollable) > .modal-actions {
+    border-top-color:transparent; background:transparent; padding-top:0;
+  }
 
   /* ── THE TITLE (+ SUBTITLE) ──
      One ramp for every sheet in the app, on the display face, at the weight the
@@ -135,18 +218,24 @@
   .sheet-head-action + .sheet-close { margin-left:0; }
 
   /* A subtitle is normally folded INTO .sheet-head-bar by js/21c-sheet-chrome.js (see
-     .sheet-head-desc above), so it never reaches .modal-box as a bare sibling of the bar. This is
-     the fallback for the one case that skips the chrome pass — a subtitle following a heading that
-     itself lives inside the old three-button .sheet-head row, which findSheetSubtitle() leaves
-     alone. Kept unpinned and simply spaced, matching how it read before either header change. */
-  .sheet-head-bar + .modal-sub,
-  .sheet-head-bar + .pa-sub { margin-top:-4px; }
+     .sheet-head-desc above). This is the fallback for the case findSheetSubtitle() leaves alone —
+     a subtitle following a heading that itself lived inside the old three-button .sheet-head row —
+     which now arrives as the first row of the body rather than as a sibling of the bar, since the
+     bar's only sibling is .sheet-body. It stays an ordinary line of copy; the body already supplies
+     the gap under the header, so it only needs its own margin trimmed. */
+  .sheet-body > .modal-sub:first-child,
+  .sheet-body > .pa-sub:first-child { margin-top:0; }
 
   /* .modal-x is the close button ONE sheet had before this file existed. The
      chrome pass removes it and substitutes .sheet-close, but the rule stays
      defined in 05-components.css; this keeps a stray one from ever double-
-     stacking with the standard button if a sheet is added with it by hand. */
-  .modal-box:has(> .sheet-head-bar) > .modal-x { display:none; }
+     stacking with the standard button if a sheet is added with it by hand.
+     This was the ONLY thing suppressing the .modal-x that installModalCloseButtons()
+     re-injected into every sheet in the browser (see the note in js/07-navigation.js) —
+     so on a WebView without :has() support, all thirty sheets carried two close
+     buttons. Both halves are fixed: the injector no longer runs on a chromed sheet,
+     and this backstop no longer depends on :has(). */
+  .modal-box.has-sheet-chrome > .modal-x { display:none; }
 
   @media (prefers-reduced-motion: reduce) {
     .sheet-close { transition:none; }
@@ -174,22 +263,36 @@
      the sheet already has a Cancel button and a close X. */
   .pa-box { max-height:92vh; }
 
-  /* The controls that must stay put while the list scrolls. Pinned as a group
-     so the divider under them is one line, not three stacked margins. */
-  /* top is the shared sheet header's own height (js/21c-sheet-chrome.js sets --sheet-head-h right
-     after building that header), NOT 0. This block used to sticky at top:0 same as .sheet-head-bar
-     — two top:0 sticky siblings in the same scroll container collide, and since the header carries
-     the higher z-index, this row got pinned directly underneath it and rendered clipped/hidden the
-     moment the sheet scrolled. The 52px fallback only matters before JS has run (e.g. this file
-     read outside the app), and should match the header's typical single-line height. */
+  /* ── THE CONTROL BLOCK ──
+     The subtitle, search field and chips stay above the results as one group with
+     one divider. They used to do that with `position:sticky`, offset by the header's
+     JS-measured height to keep the two pinned blocks from landing on the same pixel —
+     an arrangement that only worked while that measurement stayed accurate, and that
+     put the whole search row under the header the moment it did not.
+     Nothing is pinned now because nothing needs to be: .sheet-body is a flex column
+     and .pa-list is the only part of it that scrolls, so these controls hold their
+     position for the same reason the header does — they are simply not in the
+     scrolling part of the sheet.
+
+     Selector weight is deliberate, not incidental: the generic
+     `.modal-box.has-sheet-chrome > .sheet-body:not(:last-child)` above is four
+     classes, so a plain `.pa-box .sheet-body` would lose to it on padding and this
+     body would keep a bottom gap it must not have. */
+  .modal-box.has-sheet-chrome.pa-box > .sheet-body {
+    display:flex; flex-direction:column; min-height:0;
+    overflow:hidden;                 /* the list inside owns the scrolling */
+    padding-bottom:0;
+  }
   .pa-controls {
-    position:sticky; top:var(--sheet-head-h, 52px); z-index:3;
+    position:static; flex:0 0 auto;
     background:var(--card-bg);
     padding-bottom:9px; margin-bottom:2px;
     border-bottom:1px solid var(--card-border);
   }
+  /* The line the report called out as sitting too close under the title. It reads as
+     the sheet's opening sentence, so it gets the leading and the gap of one. */
   .pa-box .pa-sub {
-    font-size:12.5px; line-height:1.5; margin-bottom:12px; color:var(--text-secondary);
+    font-size:12.5px; line-height:1.5; margin:0 0 12px; color:var(--text-secondary);
   }
   .pa-box .pa-search { margin-bottom:9px; }
   .pa-box .pa-search input {
@@ -202,10 +305,17 @@
   .pa-box .pa-chip { padding:7px 12px; font-size:12px; }
   .pa-box .pa-count { flex-shrink:0; margin:0; font-size:10.5px; white-space:nowrap; }
 
-  /* The list finally gets the room. min-height is the guard that matters: it
-     stops a tall header or a wrapped subtitle from squeezing the results back
-     down to the two-row sliver this was reported for. */
-  .pa-box .pa-list { min-height:180px; padding-top:9px; }
+  /* The list finally gets the room: it takes every pixel the controls above it do
+     not. min-height is the guard that stops a wrapped subtitle or a two-line title
+     squeezing the results back down to the two-row sliver this was reported for —
+     lower than the old 180px because it is now a floor inside a fixed-height column
+     rather than a hint inside a scroller, so a value the short-phone case cannot
+     actually afford would push the action row out of the sheet instead of scrolling. */
+  .pa-box .pa-list {
+    flex:1 1 auto; min-height:120px;
+    overflow-y:auto; overscroll-behavior:contain;
+    padding-top:9px; padding-bottom:12px;
+  }
 
   /* Rows: more vertical padding and a real gap between them, so a list of
      presets reads as a list of cards rather than a stack of hairlines. */
@@ -252,17 +362,17 @@
   /* ── SCROLLBARS ──
      The sheets that overflow showed a default scrollbar on desktop, in the
      system's colours, against the app's own dark card. */
-  .modal-box, .pa-list {
+  .modal-box, .sheet-body, .pa-list {
     scrollbar-width:thin;
     scrollbar-color:var(--card-border) transparent;
   }
-  .modal-box::-webkit-scrollbar, .pa-list::-webkit-scrollbar { width:7px; }
-  .modal-box::-webkit-scrollbar-track, .pa-list::-webkit-scrollbar-track { background:transparent; }
-  .modal-box::-webkit-scrollbar-thumb, .pa-list::-webkit-scrollbar-thumb {
+  .modal-box::-webkit-scrollbar, .sheet-body::-webkit-scrollbar, .pa-list::-webkit-scrollbar { width:7px; }
+  .modal-box::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .pa-list::-webkit-scrollbar-track { background:transparent; }
+  .modal-box::-webkit-scrollbar-thumb, .sheet-body::-webkit-scrollbar-thumb, .pa-list::-webkit-scrollbar-thumb {
     background:var(--card-border); border-radius:999px;
   }
 
   /* ── SHEET BODY RHYTHM ──
      Sheets set their own bottom padding inconsistently, so the last control sat
      anywhere between flush against the action row and 20px clear of it. */
-  .modal-box:has(> .sheet-head-bar) > :last-child { margin-bottom:0; }
+  .modal-box.has-sheet-chrome > .sheet-body > :last-child { margin-bottom:0; }

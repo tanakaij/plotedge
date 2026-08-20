@@ -1847,6 +1847,53 @@ check('every sheet gets the same header bar, and the close button is always on t
   assert(!strayX.length, `old .modal-x left stacked beside the new close on: ${strayX.join(', ')}`);
 });
 
+check('a sheet is a header row, a scrolling body and an action row — nothing pinned over anything', () => {
+  // The header used to be position:sticky INSIDE .modal-box, which was at the same time the rounded
+  // card, the scroll container, a will-change:transform layer and a masked element. Everything
+  // reported about the header came out of that: content painting above the sheet's top edge, the
+  // first row of a sheet arriving half-under the bar, and PlotArchive's own pinned control block
+  // fighting the bar for top:0. The sheet is three flex rows now, and this asserts the shape,
+  // because the shape IS the fix — reintroducing a scrolling .modal-box brings all of it back.
+  const wrong = [];
+  [...w.document.querySelectorAll('.modal-overlay')].forEach(ov => {
+    const box = ov.querySelector(':scope > .modal-box');
+    if (!box || ov.id === 'confirmModal') return;
+    if (!box.classList.contains('has-sheet-chrome')) return wrong.push(`${ov.id}: not chromed`);
+    const rows = [...box.children];
+    if (!rows[0] || !rows[0].classList.contains('sheet-head-bar')) wrong.push(`${ov.id}: header is not the first row`);
+    if (!rows[1] || !rows[1].classList.contains('sheet-body')) wrong.push(`${ov.id}: no scrolling body`);
+    if (rows.length > 3) wrong.push(`${ov.id}: ${rows.length} rows, expected header/body/actions`);
+    const last = rows[rows.length - 1];
+    if (rows.length === 3 && !last.classList.contains('modal-actions')) wrong.push(`${ov.id}: third row is not the action row`);
+    // An inline margin-top on the action row outranks any stylesheet, so it would open a gap above
+    // the divider that could never be styled away.
+    if (last.classList.contains('modal-actions') && last.style.marginTop) wrong.push(`${ov.id}: inline margin-top left on the action row`);
+    // .has-sheet-chrome is set in JS rather than matched with :has(> .sheet-head-bar) so the layout
+    // cannot silently collapse back to the broken one on a WebView without :has() support.
+    if (rows[1] && rows[1].querySelector(':scope > .modal-actions')) wrong.push(`${ov.id}: action row swallowed by the body`);
+  });
+  assert(!wrong.length, wrong.join('; '));
+});
+
+check('the two close-button passes agree whichever order they run in', () => {
+  // installModalCloseButtons() (js/07-navigation.js) is the OLD injector and defers to
+  // DOMContentLoaded when readyState is 'loading'. In the app — parser-inserted <script src> tags —
+  // that is true, so it ran AFTER js/22-boot.js's normalizeSheetChrome() and put a floated, sticky
+  // .modal-x on top of the standard header of all thirty sheets. In this harness the scripts are
+  // appended after parse, readyState is 'complete', and the order flips, which is exactly why the
+  // check above passed for a bug that shipped. Running both passes again here, in both orders,
+  // reproduces the app's ordering explicitly instead of inheriting the harness's.
+  const shape = () => [...w.document.querySelectorAll('.modal-overlay > .modal-box')]
+    .map(b => [...b.children].map(c => c.className).join(',')).join('|');
+  const before = shape();
+  w.eval('installModalCloseButtons(); normalizeSheetChrome(); installModalCloseButtons();');
+  assert(shape() === before, 'rerunning the chrome passes changed the sheets');
+  const doubled = [...w.document.querySelectorAll('.modal-box.has-sheet-chrome')]
+    .filter(b => b.querySelector(':scope > .modal-x'))
+    .map(b => b.parentElement.id);
+  assert(!doubled.length, `a second close button was injected on: ${doubled.join(', ')}`);
+});
+
 check('the chrome pass moves heading nodes rather than rebuilding them', () => {
   // The whole approach rests on this. Sheet titles are written by id from all over the app; if the
   // pass replaced the heading instead of moving it, those ids would resolve to nothing and the

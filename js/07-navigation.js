@@ -244,6 +244,22 @@ function installModalCloseButtons(){
     if (ov.id === 'confirmModal') return;
     const box = ov.querySelector('.modal-box');
     if (!box || box.querySelector('.modal-x')) return;
+    // ══ ORDER-DEPENDENT, AND ONLY IN A REAL BROWSER ══
+    // This function is the OLD close-button injector; js/21c-sheet-chrome.js supersedes it with
+    // .sheet-close. Which of the two runs first depends on document.readyState, and that differs
+    // between the app and the test harness:
+    //   · In the app, js/*.js are parser-inserted <script src> tags, so readyState is 'loading'
+    //     here and this call is deferred to DOMContentLoaded — i.e. it runs AFTER js/22-boot.js has
+    //     already called normalizeSheetChrome(). Every sheet therefore gained a floated, sticky
+    //     .modal-x as the first child of its .modal-box, on top of the standard header.
+    //   · In tests/*.test.js the scripts are appended to <head> after the document is parsed, so
+    //     readyState is 'complete', this runs FIRST, and the chrome pass strips the button again.
+    // Which is why the suite's "old .modal-x left stacked beside the new close" assertion passed
+    // for a bug that was present on every sheet in the shipped app. It was covered only by
+    // `.modal-box:has(> .sheet-head-bar) > .modal-x { display:none }` — a rule that does nothing on
+    // a WebView without :has(). Checking for the header directly makes the two passes agree
+    // regardless of which order they run in.
+    if (box.querySelector('.sheet-head-bar')) return;
     // Sheets carrying a .sheet-head already expose Cancel and Done. Adding a floated X on top of
     // that header overlaps the Done button and offers a third, ambiguous way out of a sheet whose
     // whole point is an explicit commit-or-discard choice.
@@ -270,7 +286,12 @@ else installModalCloseButtons();
 function markSheetScrollable(overlay){
   const box = overlay && overlay.querySelector('.modal-box');
   if (!box) return;
-  const measure = () => box.classList.toggle('is-scrollable', box.scrollHeight > box.clientHeight + 1);
+  // The flag stays on .modal-box (the CSS keys off it there), but what is measured is whichever
+  // element actually scrolls. On a sheet carrying the standard chrome that is .sheet-body: the box
+  // itself is a non-scrolling flex column, so measuring it would report "never scrollable" and the
+  // action row would permanently lose the divider that tells you there is more content above it.
+  const scroller = box.querySelector(':scope > .sheet-body') || box;
+  const measure = () => box.classList.toggle('is-scrollable', scroller.scrollHeight > scroller.clientHeight + 1);
   // ── WHY THIS MEASURES TWICE ──
   // The rAF pass alone was the visible "glitch on open". A sheet starts WITHOUT .is-scrollable,
   // and .modal-box:not(.is-scrollable) .modal-actions strips the action row's border-top,
