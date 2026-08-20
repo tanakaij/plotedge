@@ -332,7 +332,11 @@ try {
     <div id="projectsList" class="projects-list"></div>
   </div>
   </div><!-- /.welcome-shell -->
-  <input type="file" id="backupImportInput" accept=".plotpack,.json,.plotedge.json" style="display:none" onchange="handleWelcomeRestoreFile(event)">
+  <!-- accept lists both the dotted extensions (harmless hints most pickers use for the visible
+       label/icon) and real MIME types, ending in */* — see the note above plotpackFileInput
+       further down for why: .plotpack has no OS-registered MIME type, so several Android
+       pickers grey out a real, matching file rather than let it be tapped. -->
+  <input type="file" id="backupImportInput" accept=".plotpack,.json,.plotedge.json,application/zip,application/octet-stream,application/json,*/*" style="display:none" onchange="handleWelcomeRestoreFile(event)">
 </div>
 
 <!-- ══════════════════ PROJECT MANAGER ══════════════════
@@ -1659,7 +1663,17 @@ try {
     <div class="card">
       <div class="export-heading">Open a PlotPack</div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">PlotEdge's own file. A <strong>project pack</strong> restores an entire project (every feature, photo, per-vertex reading, feature type, note and sketch) exactly as it left the other device, landing as a <strong>new project</strong> so nothing here is touched. A <strong>settings pack</strong> restores your preferences instead (theme, units, basemap, quick actions) and touches no survey data at all. Both are <code>.plotpack</code> files; PlotEdge tells them apart and shows you which one you picked before anything is applied.</p>
-      <input type="file" id="plotpackFileInput" accept=".plotpack" style="display:none" onchange="handlePlotpackFileChosen(event)">
+      <!-- ══ FIX: file picker greying out a real .plotpack ══
+           .plotpack is an extension this app invented — Android's MimeTypeMap has no entry for
+           it, so on several Android/WebView versions the accept="" filter this input's picker
+           builds from that alone resolves to nothing matchable, and a file that is genuinely
+           there shows up in the system picker but cannot be tapped/selected. The dotted
+           extensions stay (harmless — most pickers still use them for the label/icon), but real
+           MIME types plus a */* fallback are added so the picker actually lets the file through;
+           app-side validation (isPlotpackFile(), handlePlotpackFileChosen() below) has always
+           gone by the filename extension, never by what the OS reports as the MIME type, so
+           broadening this cannot let through anything the app wouldn't already reject. -->
+      <input type="file" id="plotpackFileInput" accept=".plotpack,application/zip,application/octet-stream,*/*" style="display:none" onchange="handlePlotpackFileChosen(event)">
       <button class="btn btn-outline" id="plotpackChooseBtn" style="margin-bottom:0;" onclick="document.getElementById('plotpackFileInput').click()">Choose a .plotpack file…</button>
       <div id="plotpackImportWizard" style="display:none;margin-top:14px;"></div>
     </div>
@@ -1675,7 +1689,7 @@ try {
     <div class="card">
       <div class="export-heading">Import data from other software</div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.55;">Bring in a <code>.gpkg</code> or <code>.csv</code> file captured in QGIS, ArcGIS, or another field app. You choose whether it merges into the open project or arrives as a new one.</p>
-      <input type="file" id="importFileInput" accept=".plotpack,.csv,.gpkg" style="display:none" onchange="handleImportFileChosen(event)">
+      <input type="file" id="importFileInput" accept=".plotpack,.csv,.gpkg,application/zip,application/octet-stream,text/csv,*/*" style="display:none" onchange="handleImportFileChosen(event)">
       <button class="btn btn-outline" id="importChooseBtn" style="margin-bottom:0;" onclick="document.getElementById('importFileInput').click()">Choose file…</button>
       <div id="importWizard" style="display:none;margin-top:14px;"></div>
     </div>
