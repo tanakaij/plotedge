@@ -1569,7 +1569,8 @@
      --kbh instantly, so the sheet rides the keyboard frame-for-frame; when it clears, CSS easing
      resumes for orientation changes and any other geometry shift.
      Scoped to the keyboard properties only — the sheet's own transform and the backdrop fade are
-     untouched, so open/close animations still run normally if a sheet is opened while typing. */
+     untouched, so open/close animations still run normally if a sheet is opened while typing.
+
      Split across the two states on purpose: `visibility` keeps its per-state delay (--sheet-t on
      the way out, 0s on the way in). Collapsing both into one rule would zero that delay and cut
      the last frames off a sheet that is dismissed while the keyboard is still collapsing — the

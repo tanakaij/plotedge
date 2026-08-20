@@ -178,6 +178,20 @@ function applySheetChrome(overlay){
   if (strayX) strayX.remove();
 
   box.insertBefore(bar, box.firstChild);
+
+  // ══ FIX: SECOND STICKY BLOCK COLLIDING WITH THE HEADER ══
+  // Some sheets (PlotArchive's search+chips row, .pa-controls) pin their own control block with
+  // `position:sticky; top:0` INSIDE this same scroll container. Before this bar existed that was
+  // fine — there was nothing else at top:0 to collide with. Now there is: two independent
+  // top:0 sticky elements in one scrollport both try to occupy the same pixel, and the header
+  // (higher z-index) wins, so the second block gets pinned right underneath it and its top ~50px
+  // renders hidden/clipped behind the header the moment the sheet scrolls. That is the "header is
+  // cutting off the modal" bug.
+  // Measuring the real, just-inserted bar height (rather than hardcoding a number) means this
+  // keeps working if the header ever grows a subtitle line, wraps a long title, or its padding
+  // changes — any of which would silently reopen the same collision if the offset were a fixed
+  // guess in CSS. Consumed by css/12-polish.css as `top: var(--sheet-head-h, 52px)`.
+  box.style.setProperty('--sheet-head-h', bar.offsetHeight + 'px');
 }
 
 function normalizeSheetChrome(){

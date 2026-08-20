@@ -176,8 +176,14 @@
 
   /* The controls that must stay put while the list scrolls. Pinned as a group
      so the divider under them is one line, not three stacked margins. */
+  /* top is the shared sheet header's own height (js/21c-sheet-chrome.js sets --sheet-head-h right
+     after building that header), NOT 0. This block used to sticky at top:0 same as .sheet-head-bar
+     — two top:0 sticky siblings in the same scroll container collide, and since the header carries
+     the higher z-index, this row got pinned directly underneath it and rendered clipped/hidden the
+     moment the sheet scrolled. The 52px fallback only matters before JS has run (e.g. this file
+     read outside the app), and should match the header's typical single-line height. */
   .pa-controls {
-    position:sticky; top:0; z-index:3;
+    position:sticky; top:var(--sheet-head-h, 52px); z-index:3;
     background:var(--card-bg);
     padding-bottom:9px; margin-bottom:2px;
     border-bottom:1px solid var(--card-border);

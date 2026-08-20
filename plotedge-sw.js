@@ -15,7 +15,8 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v19';   // bumped: css/12-polish.css, js/21b-plotalert.js, js/21c-sheet-chrome.js added
+const SW_VERSION = 'v20';   // bumped: css/12-polish.css, css/05-components.css, js/21c-sheet-chrome.js —
+                             // fixed sheet header/.pa-controls sticky collision + orphaned CSS comment
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
