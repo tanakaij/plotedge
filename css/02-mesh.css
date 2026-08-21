@@ -200,9 +200,23 @@
     --mesh-i: 0.80;
     transition: --mesh-i 0.22s cubic-bezier(0.32, 0.72, 0, 1);
   }
+  /* ══ WHY THESE WENT UP ══
+     The bands were set so low that on most of the app the ambient layer was, in practice, not
+     there: form (every capture screen, and the New/Edit Project form) ran at 0.28, which over a
+     near-white light canvas under a multiply blend is a change of a few units of luminance —
+     invisible on a phone, and completely gone outdoors. The reported symptom was "I cannot see the
+     ambient gradient of the themes", and it was accurate: the theme's whole identity lives in
+     these blobs, and outside the home screen they were being dialled past the point of visibility.
+     The legibility argument that set them is still respected, and this does not weaken it: the
+     7:1 sunlight floor in tests/theme.test.js is measured against the HOME band (0.80 dark /
+     0.86 light, see meshLayerOpacity in tests/lib.js), which is the loudest the mesh is ever
+     allowed to be. Every value below is at or under that, so the worst composited point on a form
+     or settings screen cannot be worse than the one already tested and passing.
+     Map stays at exactly 0. That one is not a cosmetic band — a tint over satellite tiles is a
+     data-accuracy problem, and it is the reason the intensity control exists at all. */
   html[data-screen="home"]     { --mesh-i: 0.80; }
-  html[data-screen="form"]     { --mesh-i: 0.28; }
-  html[data-screen="settings"] { --mesh-i: 0.40; }
+  html[data-screen="form"]     { --mesh-i: 0.50; }
+  html[data-screen="settings"] { --mesh-i: 0.62; }
   html[data-screen="map"]      { --mesh-i: 0; }
   /* Slowing the loop rather than only fading it: on the form screen a fast-moving blob is caught
      by peripheral vision even at low opacity, which is exactly the distraction to avoid while
@@ -217,10 +231,12 @@
      as present as it is on dark. Text legibility is unaffected: cards and inputs are opaque in
      light mode, so nothing being read sits on this layer. */
   html[data-theme="light"][data-screen="home"]     { --mesh-i: 0.86; }
-  html[data-theme="light"][data-screen="settings"] { --mesh-i: 0.50; }
-  /* Collect keeps the same restraint it has on dark — an input under direct sun must not sit on
-     a moving wash, regardless of theme. */
-  html[data-theme="light"][data-screen="form"]     { --mesh-i: 0.30; }
+  html[data-theme="light"][data-screen="settings"] { --mesh-i: 0.68; }
+  /* Collect keeps a little more restraint than the rest — an input under direct sun should not sit
+     on a moving wash — but the old 0.30 was restraint to the point of erasure, and the blobs on
+     this screen are already slowed to a 78s loop below so there is very little movement left to
+     be distracted by. */
+  html[data-theme="light"][data-screen="form"]     { --mesh-i: 0.55; }
 
   /* ══ LANDING TEXTURE: CONTOURS ══
      A survey texture, and only here. The landing screen is the one place in the app with no data

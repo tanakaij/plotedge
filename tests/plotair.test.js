@@ -293,6 +293,164 @@ check('PlotAir is reachable and explains itself', () => {
   assert(run(`!!(typeof PLOTWORDS !== 'undefined' && PLOTWORDS.plotair)`), 'PlotAir has no glossary entry');
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// REGRESSIONS — the four failures the 577 tests above all sailed past
+// ═══════════════════════════════════════════════════════════════════════════
+// Every one of these was live in a build where the whole suite was green, which is the reason
+// they are written against BEHAVIOUR at the call site rather than against the helpers underneath.
+// The arithmetic in haversineM was never wrong; it was being called with the wrong shape of
+// argument, and a unit test of haversineM itself would have passed forever.
+
+// Puts a project on the device shaped exactly like one the user has: a PlotBounds working area,
+// one captured polygon, and the features flushed to projectData rather than sitting in the live
+// array — which is the state the Data hub leaves behind.
+function seedProject() {
+  run(`
+    projects.length = 0;
+    projects.push({ id:'rp', name:'Frog Lake', crs:'wgs84',
+      bounds:{ north:-17.80, south:-17.86, east:31.10, west:31.02 } });
+    projectData['rp'] = { savedFeatures: [{ id:'rf', name:'Yard boundary', geometryType:'polygon',
+      featureTypeId:'x', vertices:[
+        {lat:-17.81,lon:31.03},{lat:-17.81,lon:31.09},{lat:-17.85,lon:31.09},{lat:-17.85,lon:31.03}] }] };
+    savedFeatures.length = 0;
+    activeProjectId = 'rp'; activeProjectRef = 'rp';
+  `);
+}
+
+check('a project area reports its size instead of "NaN x NaN km"', () => {
+  seedProject();
+  const label = run(`syncProjectBoundsUI(); document.getElementById('projBoundsLabel').textContent`);
+  assert(!/NaN/.test(label), `the size readout printed NaN: "${label}"`);
+  // ~8.5 x 6.7 km for the box above. The point is not the exact figure, it is that a real
+  // measurement came back at all.
+  assert(/\d/.test(label) && /km|m\b/.test(label), `no measurement in the readout: "${label}"`);
+});
+
+check('the outlier check returns a real distance, so the warning can grade it', () => {
+  seedProject();
+  const d = run(`outsideProjectBounds(-10, 20)`);
+  assert(Number.isFinite(d), `outsideProjectBounds returned ${d} — the confirm would say "NaN m outside"`);
+  assert(d > 1000, 'a point ~1500 km away should read as far outside, which is what picks the km wording');
+  assert(run(`outsideProjectBounds(-17.83, 31.06)`) === null, 'a point inside the area was reported as outside');
+});
+
+check('a malformed boundary is treated as unset rather than printed', () => {
+  assert(run(`boundsSizeLabel({north:NaN, south:1, east:2, west:1})`) === null, 'NaN boundary produced a label');
+  assert(run(`boundsSizeLabel({north:1, south:1, east:2, west:1})`) === null, 'a zero-height boundary produced a label');
+  assert(run(`boundsSizeLabel(null)`) === null, 'a missing boundary produced a label');
+});
+
+check('PlotAir opens from the Data hub, which clears activeProjectId on the way in', () => {
+  seedProject();
+  // Exactly what renderDataHubScreen() leaves behind: the ref is written, the active id is not.
+  run(`activeProjectId = null;`);
+  assert(run(`plotairProjectId()`) === 'rp', 'the hub could not work out which project it was on');
+  run(`openPlotAirFromHub()`);
+  assert(run(`document.getElementById('plotairModal').classList.contains('show')`),
+    'the sheet refused to open from the one screen it is reachable from');
+});
+
+check('PlotAir finds the polygons even when the project is closed', () => {
+  seedProject();
+  run(`activeProjectId = null;`);
+  const labels = JSON.parse(run(`JSON.stringify(plotairSources().map(s => s.label))`));
+  assert(labels.length >= 2, `expected the working area and the captured polygon, got ${labels.length}`);
+  assert(labels.some(l => /Yard boundary/.test(l)), 'the captured polygon was not offered');
+});
+
+check('a PlotBounds working area is flyable without capturing anything', () => {
+  seedProject();
+  // The old code looked for proj.boundary (an array nothing ever writes) instead of proj.bounds
+  // (the rectangle PlotBounds actually stores), so this source silently never existed.
+  run(`projectData['rp'].savedFeatures = []; activeProjectId = null;`);
+  const src = JSON.parse(run(`JSON.stringify(plotairSources())`));
+  assert(src.length === 1 && src[0].id === '__bounds',
+    'the project working area was not offered as something to fly');
+  assert(src[0].verts.length === 4, 'the working area did not become a closed ring');
+});
+
+check('a project with nothing in it still refuses politely rather than opening empty', () => {
+  run(`projects.length = 0; activeProjectId = null; activeProjectRef = null;`);
+  assert(run(`plotairProjectId()`) === null, 'a project id was invented from nothing');
+});
+
+check('the flight-photo section finds the point types of a closed project', () => {
+  // featureTypes is per-project and only populated by openProject(). Reaching PlotAir from the Data
+  // hub — the only way to reach it — leaves the global empty, so the section reported "No point
+  // feature type in this project" for a project full of them.
+  run(`
+    projects.length = 0;
+    projects.push({ id:'rp', name:'Frog Lake', crs:'wgs84' });
+    projectData['rp'] = { savedFeatures: [], featureTypes: [
+      { id:'ftP', name:'Utility pole', geometryType:'point', fields:[] },
+      { id:'ftG', name:'Parcel', geometryType:'polygon', fields:[] }] };
+    featureTypes.length = 0; savedFeatures.length = 0;
+    activeProjectId = null; activeProjectRef = 'rp';
+  `);
+  run(`renderPlotairPhotoTypes()`);
+  const html = run(`document.getElementById('plotairPhotoFt').innerHTML`);
+  assert(/Utility pole/.test(html), `point type not offered: ${html}`);
+  assert(!/Parcel/.test(html), 'a polygon type was offered for single-point photo placement');
+  assert(run(`document.getElementById('plotairPhotoFt').disabled`) === false, 'the picker was left disabled');
+});
+
+check('imported flight photos reach the project rather than a detached array', () => {
+  // savedFeatures and persist() both work on the OPEN project. From the hub there isn't one, so
+  // the points were pushed to a stale global that persistStore() never writes — reported as
+  // imported, gone on the next render.
+  run(`
+    projects.length = 0;
+    projects.push({ id:'rp', name:'Frog Lake', crs:'wgs84' });
+    projectData['rp'] = { savedFeatures: [], featureTypes: [{ id:'ftP', name:'Pole', geometryType:'point', fields:[] }] };
+    savedFeatures.length = 0; activeProjectId = null; activeProjectRef = 'rp';
+  `);
+  const ok = run(`plotairCommitFeatures('rp', [{ id:'x1', name:'DJI_0001', geometryType:'point',
+    featureTypeId:'ftP', vertices:[{lat:-17.82, lon:31.05}] }])`);
+  assert(ok === true, 'the commit reported failure');
+  assert(run(`projectData['rp'].savedFeatures.length`) === 1, 'the point never reached the project record');
+  assert(run(`!!projects.find(p=>p.id==='rp').updatedAt`), 'the project was not stamped as modified');
+});
+
+check('a closed project still resolves its own polygons and types together', () => {
+  // plotairSources() looked feature types up through getFeatureType(), which reads the same empty
+  // global — so a polygon whose type says "polygon" could be dropped for the wrong reason.
+  run(`
+    projects.length = 0;
+    projects.push({ id:'rp', name:'Frog Lake', crs:'wgs84' });
+    projectData['rp'] = { featureTypes: [{ id:'ftG', name:'Parcel', geometryType:'polygon', fields:[] }],
+      savedFeatures: [{ id:'f1', name:'Parcel 12', featureTypeId:'ftG', vertices:[
+        {lat:-17.81,lon:31.03},{lat:-17.81,lon:31.09},{lat:-17.85,lon:31.09}] }] };
+    featureTypes.length = 0; savedFeatures.length = 0;
+    activeProjectId = null; activeProjectRef = 'rp';
+  `);
+  const labels = JSON.parse(run(`JSON.stringify(plotairSources().map(s=>s.label))`));
+  assert(labels.some(l => /Parcel 12/.test(l)),
+    `a polygon typed only on its feature type was dropped: ${JSON.stringify(labels)}`);
+});
+
+check('notifications ask for permission instead of defaulting to silently off', () => {
+  // The preference defaulted to ON while the OS permission was never requested anywhere except
+  // the Settings toggle, so a normal install could never deliver a single alert.
+  assert(run(`typeof plotalertPrimePermission`) === 'function', 'no permission priming exists');
+  assert(run(`/pointerdown/.test(plotalertPrimePermission.toString())`),
+    'permission is not primed on a user gesture, which is the only time it can be granted');
+  assert(run(`/plotalertRequestPermission\(\)/.test(plotalertRaise.toString())`),
+    'raising an alert never asks for the permission it needs');
+});
+
+check('the service worker delivery path cannot hang forever', () => {
+  // navigator.serviceWorker.ready is a promise and therefore always truthy. Where no worker is
+  // registered it never settles, so the old code reported success having delivered nothing.
+  assert(run(`/Promise.race/.test(plotalertDeliver.toString())`),
+    'the worker path has no deadline, so an unregistered worker swallows the notification');
+});
+
+check('the backup scan asks for storage permission before reading folders', () => {
+  assert(run(`typeof ensureBackupScanPermission`) === 'function', 'no permission step for the scan');
+  assert(run(`/ensureBackupScanPermission/.test(findAllDeviceBackupFiles.toString())`),
+    'readdir runs without requesting storage access, so every location is denied and the scan reports nothing');
+});
+
 check('nothing threw while any of that ran', () => {
   assert(bootErrors.length === 0, 'errors during boot: ' + bootErrors.join(' | '));
 });

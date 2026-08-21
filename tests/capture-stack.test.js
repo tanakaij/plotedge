@@ -967,6 +967,59 @@ check('the runtime kill switch actually switches it off', () => {
   assert(map._renderer.transformed, 'the sync did not come back when re-enabled');
 });
 
+// ══ THE OFFER AFTER A SAVE ══
+// This used to raise a blocking confirm after EVERY save while anything sat on the stack, and
+// declining did not stop it — pause a fence line, collect thirty poles, get thirty identical
+// dialogs. A prompt that cannot be dismissed for good stops being read, which is how the paused
+// capture then gets forgotten: the exact failure the stack exists to prevent.
+const confirmShowing = () => doc.getElementById('confirmModal').classList.contains('show');
+const dismissConfirm = ok => run(`closeConfirmModal(${ok ? 'true' : 'false'})`);
+
+check('the resume offer appears once after a save', () => {
+  run(`
+    suspendedCaptures = [{ id:'s1', ftId:'ftL', ftName:'Fence line', name:'Fence A', vertices:[{lat:1,lon:1}] }];
+    clearResumeOfferMemory();
+  `);
+  dismissConfirm(false);
+  run(`offerResumeAfterSave()`);
+  assert(confirmShowing(), 'the first save after pausing did not offer to resume');
+  assert(/Fence A/.test(doc.getElementById('confirmModalMsg').textContent), 'the offer did not name the paused capture');
+});
+
+check('declining it stops it coming back on every later save', () => {
+  dismissConfirm(false);              // "no thanks"
+  run(`offerResumeAfterSave()`);
+  assert(!confirmShowing(), 'the same question was asked again on the next save');
+  run(`offerResumeAfterSave()`);
+  run(`offerResumeAfterSave()`);
+  assert(!confirmShowing(), 'the offer kept returning after being declined');
+});
+
+check('pausing something new asks again', () => {
+  run(`
+    suspendedCaptures.push({ id:'s2', ftId:'ftP', ftName:'Pole', name:'Pole 9', vertices:[{lat:2,lon:2}] });
+    clearResumeOfferMemory();
+  `);
+  run(`offerResumeAfterSave()`);
+  assert(confirmShowing(), 'a newly paused capture inherited the earlier refusal');
+  assert(/Pole 9/.test(doc.getElementById('confirmModalMsg').textContent), 'the offer named the wrong capture');
+  dismissConfirm(false);
+});
+
+check('opening another project does not inherit a refusal', () => {
+  run(`loadCaptureStack([{ id:'s9', ftId:'ftL', ftName:'Drain', name:'Drain 1', vertices:[{lat:3,lon:3}] }])`);
+  run(`offerResumeAfterSave()`);
+  assert(confirmShowing(), 'a refusal from the previous project silenced the new one');
+  dismissConfirm(false);
+});
+
+check('an empty stack never offers anything', () => {
+  run(`suspendedCaptures = []; clearResumeOfferMemory();`);
+  dismissConfirm(false);
+  run(`offerResumeAfterSave()`);
+  assert(!confirmShowing(), 'offered to resume with nothing paused');
+});
+
 check('nothing threw across the whole run', () => {
   assert(!errors.length, errors.join(' | '));
 });

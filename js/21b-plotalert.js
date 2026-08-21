@@ -123,6 +123,11 @@ function plotalertRaise(key, body, opts){
   if (!ev) return false;
   if (!plotalertEnabled()) return false;
   if (!(opts && opts.force) && plotalertInCooldown(key)) return false;
+  // Asked for here as a last resort as well as at first touch (plotalertInit), so a session that
+  // somehow never saw a tap still ends up holding permission for NEXT time. It cannot help this
+  // call — requestPermission() is async and these fire as the app backgrounds — which is exactly
+  // why the gesture-primed request in plotalertInit() is the one that matters.
+  plotalertRequestPermission();
 
   plotalertStampFired(key);
   plotalertDeliver((opts && opts.title) || ev.title, body, key);
@@ -146,14 +151,24 @@ function plotalertDeliver(title, body, tag){
 
   // 2 · Installed PWA. Preferred over `new Notification()` because a service worker notification is
   //     still delivered when the page is not in the foreground, which is exactly when these fire.
-  if (navigator.serviceWorker && navigator.serviceWorker.ready){
-    navigator.serviceWorker.ready
-      .then(reg => reg.showNotification(title, payload))
-      .catch(() => { try { new Notification(title, payload); } catch(e) {} });   // 3 · plain fallback
+  // ══ WHY THIS WAS A DEAD END ══
+  // The test used to be `if (navigator.serviceWorker && navigator.serviceWorker.ready)`. But
+  // .ready is a PROMISE, so it is truthy in every browser that supports service workers at all —
+  // registered or not. On a build where no worker is controlling the page the promise simply
+  // never settles: neither .then nor .catch ever runs, the function returns true having delivered
+  // nothing, and path 3 below is never reached. The notification vanishes with no error anywhere.
+  // Now the worker path has to prove itself within a deadline, and losing the race falls through
+  // to the plain constructor rather than waiting forever.
+  const plain = () => { try { new Notification(title, payload); return true; } catch(e) { return false; } };
+  if (navigator.serviceWorker && typeof navigator.serviceWorker.ready === 'object'){
+    let settled = false;
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('sw timeout')), 1200));
+    Promise.race([navigator.serviceWorker.ready, timeout])
+      .then(reg => { settled = true; return reg.showNotification(title, payload); })
+      .catch(() => { if (!settled) plain(); });   // 3 · plain fallback
     return true;
   }
-  try { new Notification(title, payload); return true; } catch(e) {}
-  return false;
+  return plain();
 }
 
 // ══ POLICY, SEPARATE FROM DELIVERY ══
@@ -232,7 +247,32 @@ function plotalertExportFinished(label, seconds){
 // Two listeners, because the two shells report backgrounding differently and neither covers the
 // other: Capacitor's appStateChange is the reliable one in the APK, and visibilitychange is the
 // only one a browser or installed PWA gets.
+// ══ WHY NO NOTIFICATION EVER ARRIVED ══
+// plotalertEnabled() defaults to TRUE, but plotalertRequestPermission() was only ever called from
+// setPlotalertEnabled(true) — i.e. only if somebody went to Settings and toggled the switch off
+// and back on again. On a normal install Notification.permission stayed at its initial 'default',
+// so plotalertDeliver() bailed at the permission check every single time and the whole feature was
+// silently inert. The preference said on, the catalogue fired, nothing was ever shown.
+//
+// The permission is still not requested at launch, for the reason the file header already gives:
+// a prompt before the user has done anything is the prompt everybody denies, and on Android a
+// denial is sticky. It is requested on the FIRST user gesture instead. That satisfies the
+// user-activation requirement browsers place on requestPermission(), and it happens long before
+// the app is backgrounded — which is the one moment these alerts fire and the one moment a
+// permission dialog can neither be shown nor answered.
+// once:true, and capture so it still sees the gesture if something calls stopPropagation().
+function plotalertPrimePermission(){
+  if (!plotalertEnabled()) return;
+  if (plotalertNativeBridge()) return;                       // MainActivity already asked
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'default') return;         // already granted or already refused
+  const ask = () => { try { plotalertRequestPermission(); } catch(e) {} };
+  document.addEventListener('pointerdown', ask, { once: true, capture: true });
+  document.addEventListener('keydown', ask, { once: true, capture: true });
+}
+
 function plotalertInit(){
+  plotalertPrimePermission();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') plotalertOnBackground();
   });

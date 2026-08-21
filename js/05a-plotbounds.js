@@ -101,12 +101,9 @@ function updateSitePickerReadout(){
   }
   const size = document.getElementById('sitePickerSize');
   if (size && boundsMode === 'area'){
-    const b = sitePickerFrameBounds();
     // Reported in km across rather than area, because "how far apart are the corners" is the
     // question somebody framing a survey is actually asking.
-    const w = haversineM({lat:b.north, lon:b.west}, {lat:b.north, lon:b.east}) / 1000;
-    const h = haversineM({lat:b.north, lon:b.west}, {lat:b.south, lon:b.west}) / 1000;
-    size.textContent = `${w.toFixed(1)} × ${h.toFixed(1)} km`;
+    size.textContent = boundsSizeLabel(sitePickerFrameBounds()) || '';
   } else if (size){
     size.textContent = '';
   }
@@ -156,6 +153,56 @@ function closeSitePicker(){
 
 
 // ══ THE BOUNDARY ══
+//
+// ══ WHY THE SIZE READOUT SAID "NaN × NaN km" ══
+// haversineM() is declared in js/11-features.js as haversineM(lat1, lon1, lat2, lon2) — four
+// scalars. Every call in this file passed it two {lat, lon} OBJECTS instead. Objects coerce to NaN
+// inside the trigonometry, so the distance came back NaN, and the label rendered the NaN straight
+// through to the user. It failed silently in three separate places for the same reason:
+//   · the live size readout while framing the area on the map,
+//   · the "Project area" row on the New/Edit Project form (the reported symptom),
+//   · outsideProjectBounds(), which is the one that actually mattered — it returned NaN, so the
+//     `d > 1000` test was always false and the outlier confirm offered to capture a point "NaN m
+//     outside the project area". The check was not merely mislabelled, it was inert.
+// The calls are now scalar. These two helpers exist so there is ONE place that formats a boundary
+// and one place that decides whether a boundary is usable, rather than the three hand-rolled
+// copies that all had to be found and fixed together.
+
+// A boundary is only usable if all four edges are real numbers AND the box is non-degenerate.
+// Number.isFinite rather than the global isFinite for the reason set out at the top of
+// js/17e-plotair.js: the global coerces first, so isFinite(null) tests isFinite(0) and passes.
+function boundsIsValid(b){
+  if (!b) return false;
+  const n = [b.north, b.south, b.east, b.west];
+  if (!n.every(v => typeof v === 'number' && Number.isFinite(v))) return false;
+  return b.north > b.south && b.east > b.west;
+}
+
+// Returns null rather than a string when there is nothing sane to show, so each caller can pick
+// its own empty state instead of every one of them printing a broken measurement.
+function boundsSizeLabel(b){
+  if (!boundsIsValid(b)) return null;
+  const w = haversineM(b.north, b.west, b.north, b.east) / 1000;
+  const h = haversineM(b.north, b.west, b.south, b.west) / 1000;
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  // Under a kilometre "0.1 × 0.4 km" is a worse answer than metres, and a single building survey
+  // lands there routinely.
+  if (w < 1 && h < 1) return `${Math.round(w * 1000)} × ${Math.round(h * 1000)} m`;
+  return `${w.toFixed(1)} × ${h.toFixed(1)} km`;
+}
+
+// The four corners of a boundary as a closed ring, so anything that consumes a polygon (PlotAir,
+// above all) can take a PlotBounds rectangle without knowing it was stored as a box.
+function boundsToRing(b){
+  if (!boundsIsValid(b)) return null;
+  return [
+    { lat: b.north, lon: b.west },
+    { lat: b.north, lon: b.east },
+    { lat: b.south, lon: b.east },
+    { lat: b.south, lon: b.west }
+  ];
+}
+
 // Held on the form until the project is saved, for the same reason the CRS choice is: on a new
 // project there is nothing to persist to yet.
 function pendingProjectBounds(){
@@ -207,11 +254,9 @@ function boundsFromFeatures(){
 function syncProjectBoundsUI(){
   const label = document.getElementById('projBoundsLabel');
   if (!label) return;
-  const b = pendingProjectBounds();
-  if (!b){ label.textContent = 'Not set. Captures are never queried'; return; }
-  const w = haversineM({lat:b.north, lon:b.west}, {lat:b.north, lon:b.east}) / 1000;
-  const h = haversineM({lat:b.north, lon:b.west}, {lat:b.south, lon:b.west}) / 1000;
-  label.textContent = `${w.toFixed(1)} × ${h.toFixed(1)} km`;
+  // One expression, one empty state. A boundary that exists but is malformed (the old NaN case,
+  // or one hand-edited into a backup) is treated as "not set" rather than printed as nonsense.
+  label.textContent = boundsSizeLabel(pendingProjectBounds()) || 'Not set. Captures are never queried';
 }
 
 
@@ -223,12 +268,16 @@ function syncProjectBoundsUI(){
 function outsideProjectBounds(lat, lon){
   const p = projects.find(x => x.id === activeProjectId);
   const b = p && p.bounds;
-  if (!b || lat == null || lon == null) return null;
+  // boundsIsValid rather than a bare truthiness test: a half-written boundary used to sail through
+  // here and poison every distance downstream with NaN.
+  if (!boundsIsValid(b)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   if (lat <= b.north && lat >= b.south && lon <= b.east && lon >= b.west) return null;
   // How far outside, so the message can distinguish "just past the fence" from "wrong district".
   const nearLat = Math.min(Math.max(lat, b.south), b.north);
   const nearLon = Math.min(Math.max(lon, b.west), b.east);
-  return haversineM({lat, lon}, {lat:nearLat, lon:nearLon});
+  const d = haversineM(lat, lon, nearLat, nearLon);
+  return Number.isFinite(d) ? d : null;
 }
 
 // Called before a vertex is committed. Returns true to proceed. The confirm carries the distance

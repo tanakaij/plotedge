@@ -148,7 +148,14 @@ function renderDataHub(){
     : (t.lastExport ? 'Last export ' + timeAgo(t.lastExport) : 'Nothing exported yet');
   // States the precondition rather than offering a row that opens onto an apology. PlotAir plans
   // over a polygon this project already holds; with no project open there is nothing to fly.
-  const airSub = activeProjectId
+  // ── Asked of plotairProjectId(), NOT activeProjectId ──
+  // This function runs from renderDataHubScreen(), which clears activeProjectId as part of leaving
+  // the project — so the old test was always false and this row permanently read "Open a project
+  // first" no matter what was on the device. plotairProjectId() (js/17e-plotair.js) resolves the
+  // same question against the persisted last-opened ref, so the row now says what PlotAir will
+  // actually do when tapped. typeof-guarded because 17e loads after this file.
+  const airProjectId = (typeof plotairProjectId === 'function') ? plotairProjectId() : activeProjectId;
+  const airSub = airProjectId
     ? 'Plan a mapping flight over a surveyed boundary'
     : 'Open a project first \u2014 a flight is planned over its boundary';
   const projectsSub = t.inProgress

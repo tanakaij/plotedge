@@ -774,9 +774,42 @@ function isBackupFileName(name){ return !!name && /\.(plotpack|plotedge\.json)$/
 // not just the most recent. A device can genuinely hold several distinct project backups worth
 // offering separately. Deduplicated on dir+path+name, since the same file is reachable through
 // more than one of the locations above (Documents/PlotEdge is inside Documents).
+// ══ WHY THE SCAN FOUND NOTHING ON A DEVICE THAT HAD BACKUPS ══
+// Reading Download/ or the root of external storage needs READ_EXTERNAL_STORAGE at RUNTIME on
+// Android 12 and below. scripts/patch-android-manifest.py declares it — which is necessary, since
+// an undeclared permission is auto-denied with no prompt — but declaring is not granting, and
+// nothing in the app ever asked for it. MainActivity requests CAMERA and POST_NOTIFICATIONS at
+// launch and stops there.
+// So every readdir() below threw a permission error, the per-location `catch { continue }` ate it
+// exactly as designed for a folder that does not exist, and the scan returned an empty list. The
+// user saw "no backups found" on a phone with the file sitting in Downloads.
+// Asked once per session, immediately before the first scan: a storage prompt arriving at the
+// moment somebody tapped "Scan for backups" (or landed on Welcome after a reinstall) has its
+// reason visible behind it. A refusal is not fatal — DOCUMENTS is scoped storage and needs no
+// permission at all, so the scan still reaches the app's own export folder.
+let _fsPermissionAsked = false;
+
+async function ensureBackupScanPermission(Filesystem){
+  if (_fsPermissionAsked) return;
+  _fsPermissionAsked = true;
+  if (!Filesystem || typeof Filesystem.requestPermissions !== 'function') return;
+  try {
+    if (typeof Filesystem.checkPermissions === 'function'){
+      const cur = await Filesystem.checkPermissions();
+      if (cur && cur.publicStorage === 'granted') return;
+    }
+    await Filesystem.requestPermissions();
+  } catch(e){
+    // Denied, or a platform with no such permission (web, iOS, Android 13+). Neither is a reason
+    // to skip the scan — the folders that ARE readable still get read.
+    console.warn('PlotEdge: storage permission unavailable for backup scan', e);
+  }
+}
+
 async function findAllDeviceBackupFiles(){
   const Filesystem = capPlugin('Filesystem');
   if (!Filesystem || !Filesystem.readdir) return [];
+  await ensureBackupScanPermission(Filesystem);
   const results = [];
   const seen = new Set();
   let stats = 0;
@@ -1121,12 +1154,14 @@ async function welcomeRestore(){
   try {
     const all = await findAllDeviceBackupFiles();
     if (!all.length){
-      // Not a dead end and not a sheet full of apology: the picker can reach Downloads, Drive, the
-      // SD card and everywhere else the scan cannot, so the sheet steps aside and hands over.
-      // (tests/backup-scan.test.js pins this: an empty scan must open the picker.)
-      closeRestoreModal();
-      showToast('Nothing in ' + backupScanLocationSummary() + ' \u2014 pick a file instead');
-      triggerBackupImport();
+      // ══ WHY THIS NO LONGER GRABS THE SCREEN ══
+      // This used to close the sheet, fire a toast, and then force the OS file picker open. One
+      // tap produced three separate things happening to the screen in under a second, the last of
+      // them a system dialog nobody asked for — and it fired on the COMMON path, since a scan that
+      // finds nothing is the normal outcome on any device where the backup arrived by chat or
+      // Drive. The picker is still one tap away and still the right answer; it is now offered
+      // rather than launched. Nothing is lost except the ambush.
+      restoreShowEmpty();
       return;
     }
     // Labelling a row with what is actually inside it is worth a short wait; peekBackupContents()
@@ -1138,9 +1173,11 @@ async function welcomeRestore(){
     restoreShowChoose(all);
   } catch(e){
     console.warn('PlotEdge: welcome-screen backup scan failed', e);
-    closeRestoreModal();
-    showToast('Could not read device storage \u2014 pick a file instead');
-    triggerBackupImport();
+    // Same reasoning as the empty case above: the sheet stays put and offers the picker instead of
+    // vanishing and summoning it. A failure here is usually a refused storage permission, and
+    // throwing a file picker at somebody who has just denied a permission prompt is the worst
+    // possible moment to do it.
+    restoreShowEmpty('Could not read device storage.');
   } finally {
     if (sub) sub.textContent = subOriginal;
     if (btn) btn.classList.remove('is-scanning');
@@ -1838,6 +1875,27 @@ function restoreShowDone(title, sub){
   const more = _restoreList.length > 1;
   restoreSetActions({ label: 'Done', fn: closeRestoreModal },
     more ? { label: 'Restore another', fn: () => restoreShowChoose(_restoreList) } : null);
+}
+
+
+// ══ STEP: NOTHING FOUND ══
+// A real step rather than a dead end or an ambush. It says where it looked — "no backups found" on
+// a device that visibly has one reads as "your data is gone", which is the failure this whole flow
+// was built to stop — and it puts the picker behind a button the person presses themselves.
+function restoreShowEmpty(reason){
+  restoreSetHead('No backups on this device',
+    reason || 'Nothing was found in the folders PlotEdge can read.');
+  restoreSetStage('find');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-state-title">' + escapeHtml(reason || 'Looked in ' + backupScanLocationSummary()) + '</div>' +
+      '<div class="restore-state-sub">A backup sent by email, chat or Drive will not appear here ' +
+      'until it has been saved to this device. Picking the file directly reaches everywhere the ' +
+      'scan cannot.</div>' +
+    '</div>');
+  restoreSetActions(
+    { label: 'Pick a file', fn: () => { closeRestoreModal(); triggerBackupImport(); } },
+    { label: 'Cancel', fn: closeRestoreModal });
 }
 
 

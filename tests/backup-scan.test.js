@@ -117,16 +117,30 @@ w.eval('capPlugin = window.capPlugin;');
   w.eval(`projects = [];`);
   ok(!w.eval('backupLooksAlreadyRestored')(jsonEntry), 'and stays quiet when it is not');
 
-  // ── empty scan falls through to the picker instead of dead-ending ──
-  let pickerOpened = false;
+  // ── empty scan OFFERS the picker instead of launching it ──
+  // This assertion was inverted deliberately. It used to require that an empty scan open the OS
+  // file picker on its own, which is what made the Restore button feel like an ambush: one tap
+  // closed the sheet, fired a toast and threw up a system dialog, all on the COMMON path — a scan
+  // finding nothing is the normal outcome whenever the backup arrived by chat or Drive. The sheet
+  // now stays put on a "nothing found" step whose primary button is the picker. Same destination,
+  // one deliberate tap instead of a hijack, and no dead end either — which is what the original
+  // test was really protecting.
   w.eval('triggerBackupImport = () => { window.__picked = true; };');
   w.__picked = false;
   const emptyFs = { readdir: async () => { throw new Error('ENOENT'); } };
   w.capPlugin = n => (n === 'Filesystem' ? emptyFs : null);
   w.eval('capPlugin = window.capPlugin;');
   await w.eval('welcomeRestore()');
-  pickerOpened = w.__picked;
-  ok(pickerOpened, 'an empty scan opens the file picker rather than showing a toast and stopping');
+  ok(!w.__picked, 'an empty scan does not force the file picker open by itself');
+  ok(d.getElementById('restoreModal').classList.contains('show'),
+    'the sheet stays open on the nothing-found step rather than vanishing');
+  ok(/Pick a file/.test(d.getElementById('restorePrimary').textContent),
+    'the picker is offered as the primary action');
+  ok(!/^\s*$/.test(d.getElementById('restoreBody').textContent),
+    'the nothing-found step explains where it looked');
+  // And the offer still works when taken.
+  w.eval('restorePrimaryAction()');
+  ok(w.__picked, 'pressing Pick a file opens the picker');
 
   // ── no Filesystem at all (web build) goes straight to the picker ──
   w.__picked = false;

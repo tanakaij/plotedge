@@ -349,20 +349,43 @@ function closePlotAir(){
 // area. Nothing new is captured here — a boundary walked or traced once should not have to be
 // walked again to plan a flight over it, and re-entering it by hand is how the plan ends up
 // covering somewhere slightly different from the survey.
+// ══ WHERE THE FEATURES ACTUALLY ARE ══
+// savedFeatures is the OPEN project's working array, and the Data hub has just closed the project
+// (see plotairProjectId above), so by the time this sheet renders that array is empty. The
+// features are on disk in projectData[id], which is where persistStore() puts them. Read the live
+// array when the project is genuinely open — it may hold edits not yet flushed — and fall back to
+// the stored copy when it is not.
+function plotairFeaturesFor(id){
+  if (id && id === activeProjectId && (savedFeatures || []).length) return savedFeatures;
+  const d = (typeof projectData === 'object' && projectData) ? projectData[id] : null;
+  return (d && d.savedFeatures) || [];
+}
+
 function plotairSources(){
   const out = [];
-  (savedFeatures || []).forEach(f => {
+  const pid = plotairProjectId();
+  const types = plotairFeatureTypesFor(pid);
+  plotairFeaturesFor(pid).forEach(f => {
     const vs = (f.vertices || []).filter(v => v && plotairNum(v.lat) && plotairNum(v.lon));
     if (vs.length < 3) return;
-    const ft = getFeatureType(f.featureTypeId);
+    const ft = types.find(t => t.id === f.featureTypeId);
     // Polygon rings only. A line with three points is not an area, and planning a raster over one
     // would silently invent a boundary nobody drew.
     const geom = f.geometryType || (ft && ft.geometryType);
     if (geom && geom !== 'polygon') return;
     out.push({ id: f.id, label: (f.name || '(unnamed)') + ' · ' + vs.length + ' pts', verts: vs });
   });
-  const proj = (projects || []).find(p => p.id === activeProjectId);
-  const fence = proj && proj.boundary && Array.isArray(proj.boundary) ? proj.boundary : null;
+  const proj = (projects || []).find(p => p.id === pid);
+  // ══ THE PROJECT AREA WAS NEVER OFFERED ══
+  // This looked for proj.boundary as an array of vertices. Nothing in the app has ever written
+  // that key: PlotBounds stores the working area on proj.BOUNDS, as a {north,south,east,west}
+  // rectangle (js/05a-plotbounds.js). So the one source that needs no capture at all — the area
+  // the crew framed when they created the project — silently never appeared in the list, which is
+  // half of why this sheet looked broken even when it did open. boundsToRing() turns the box into
+  // the closed ring the planner wants.
+  const fence = proj && (Array.isArray(proj.boundary) && proj.boundary.length >= 3
+    ? proj.boundary
+    : boundsToRing(proj.bounds));
   if (fence && fence.length >= 3){
     out.unshift({ id: '__bounds', label: 'Project working area · ' + fence.length + ' pts', verts: fence });
   }
@@ -512,10 +535,31 @@ async function plotairExport(kind){
 }
 
 
+// ══ WHY THIS COULD NEVER OPEN ══
+// PlotAir lives on the Data hub, and renderDataHubScreen() (js/05-projects.js) sets
+// activeProjectId = null on the way in — leaving a project is exactly what "go to Data" means.
+// This guard then read that null and refused. The row was therefore unreachable by construction:
+// no polygon anybody captured could ever satisfy it, because the act of navigating to the button
+// cleared the very thing the button checked for. It always toasted "Open a project first", and
+// the hub row's own subtitle was stuck saying so for the same reason.
+//
+// The fix is to ask the question the guard was always trying to ask — "which project are we
+// talking about?" — of activeProjectRef, the persisted last-opened id (js/02-state.js) that
+// renderDataHubScreen() deliberately writes BEFORE it clears activeProjectId, precisely so
+// screens like this one can still answer it.
+function plotairProjectId(){
+  if (activeProjectId) return activeProjectId;
+  // Verified against the live list: a ref can outlive the project it names (deleted, or restored
+  // from a backup that renumbered ids), and planning a flight over a project that is gone is a
+  // worse failure than declining to.
+  if (activeProjectRef && (projects || []).some(p => p.id === activeProjectRef)) return activeProjectRef;
+  return null;
+}
+
 // Called from the Data hub. Refuses politely rather than opening an empty sheet: PlotAir plans over
 // a boundary the project already holds, so with nothing open there is nothing to plan against.
 function openPlotAirFromHub(){
-  if (!activeProjectId){
+  if (!plotairProjectId()){
     showToast('Open a project first \u2014 PlotAir plans over its boundary');
     return;
   }
@@ -792,11 +836,38 @@ function plotairSetImportEnabled(on){
 // this does not read at all. Horizontal position is dependable across manufacturers; vertical is
 // not, and labelling an unknown datum as elevation is how a survey acquires a number nobody can
 // defend later.
+// ══ WRITING INTO A PROJECT THAT IS NOT OPEN ══
+// savedFeatures / featureTypes / persist() all operate on the OPEN project, and PlotAir is reached
+// from the Data hub, which closes it. Pushing to the global array and calling persistStore() from
+// here therefore wrote the imported points into a detached array that is not part of projectData —
+// persist() itself bails on a null activeProjectId, so nothing ever reached disk. The photos were
+// reported as imported and were gone on the next render.
+// This commits to the project record directly when that project is not the open one, and takes the
+// ordinary in-memory path when it is.
+function plotairCommitFeatures(pid, made){
+  if (!pid || !made.length) return false;
+  if (pid === activeProjectId){
+    made.forEach(f => savedFeatures.push(f));
+    persist({ destructive: false });
+    return true;
+  }
+  const rec = projectData[pid];
+  if (!rec) return false;
+  rec.savedFeatures = (rec.savedFeatures || []).concat(made);
+  const p = (projects || []).find(x => x.id === pid);
+  if (p) p.updatedAt = new Date().toISOString();
+  persistStore({ destructive: false });
+  return true;
+}
+
 async function plotairImportPhotos(){
   if (!plotairScan || !plotairScan.shots.length) return;
+  const pid = plotairProjectId();
+  if (!pid){ showToast('No project to add these to'); return; }
   const ftId = (document.getElementById('plotairPhotoFt') || {}).value || '';
-  const ft = getFeatureType(ftId);
+  const ft = plotairFeatureTypesFor(pid).find(t => t.id === ftId);
   if (!ft){ showToast('Pick a feature type for the photo points'); return; }
+  const made = [];
 
   const kept = plotairThinByDistance(plotairScan.shots, plotairVal('plotairThin', 20));
   const stamp = Date.now();
@@ -812,7 +883,7 @@ async function plotairImportPhotos(){
       try { await photoStoreSave({ id: pid, dataUrl: s.thumb, thumbUrl: s.thumb }); } catch(e){}
       photos.push({ id: pid, note: s.name });
     }
-    savedFeatures.push({
+    made.push({
       id,
       name: s.name.replace(/\.[^.]+$/, ''),
       ref: '',
@@ -835,7 +906,10 @@ async function plotairImportPhotos(){
     });
   }
 
-  persistStore({ destructive: false });
+  if (!plotairCommitFeatures(pid, made)){
+    showToast('Could not add those to the project');
+    return;
+  }
   if (typeof renderFeatures === 'function') renderFeatures();
   if (typeof refreshProjectsScreen === 'function') refreshProjectsScreen();
   plotairScan = null;
@@ -844,12 +918,24 @@ async function plotairImportPhotos(){
   showToast(kept.length + ' flight photo' + (kept.length === 1 ? '' : 's') + ' added as points');
 }
 
+// Feature types are per-project and loaded into the global by openProject() (js/05-projects.js),
+// so the global is only populated while a project is actually open. Launch straight into the
+// Project Manager, walk to Data, open PlotAir, and it still holds the empty array it was
+// initialised with — the sheet then reported "No point feature type in this project" for a project
+// that has plenty. Same shape of bug, and the same fix, as plotairFeaturesFor() above.
+function plotairFeatureTypesFor(id){
+  if (id && id === activeProjectId && (featureTypes || []).length) return featureTypes;
+  const d = (typeof projectData === 'object' && projectData) ? projectData[id] : null;
+  return (d && d.featureTypes) || [];
+}
+
 function renderPlotairPhotoTypes(){
   const sel = document.getElementById('plotairPhotoFt');
   if (!sel) return;
   // Point-capable types only: a flight photo is a position, and offering a polygon type would
   // produce a one-vertex ring that no export knows what to do with.
-  const list = (featureTypes || []).filter(t => !t.geometryType || t.geometryType === 'point');
+  const list = plotairFeatureTypesFor(plotairProjectId())
+    .filter(t => !t.geometryType || t.geometryType === 'point');
   sel.innerHTML = list.length
     ? list.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name || t.id)}</option>`).join('')
     : '<option value="">No point feature type in this project</option>';

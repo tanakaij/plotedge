@@ -119,6 +119,7 @@ function suspendCurrentCapture(){
   const snap = captureSnapshot();
   if (!snap){ showToast('Choose a feature type first'); return false; }
   suspendedCaptures.push(snap);
+  clearResumeOfferMemory();   // a newly paused capture is a new question
   blankCollectForm();
   persist();
   renderCaptureStack();
@@ -159,6 +160,7 @@ function resumeCapture(id){
   // Re-find after the possible push: the array changed underneath the index.
   const at = suspendedCaptures.findIndex(s => s.id === id);
   const snap = suspendedCaptures.splice(at, 1)[0];
+  clearResumeOfferMemory();   // the stack changed shape; whatever is on top now is a new question
   restoreCaptureSnapshot(snap);
   persist();
   renderCaptureStack();
@@ -212,6 +214,7 @@ function discardSuspendedCapture(id){
     `Discard the paused capture "${label}"? Its ${detail} have never been saved and cannot be recovered.`,
     () => {
       suspendedCaptures = suspendedCaptures.filter(s => s.id !== id);
+      clearResumeOfferMemory();
       persist();
       renderCaptureStack();
       showToast('Paused capture discarded');
@@ -359,14 +362,42 @@ function blankCollectForm(){
 // than resuming it silently: the crew may well have a third feature in front of
 // them, and a form that refills itself without being asked is a form that gets
 // saved with the wrong thing in it.
+//
+// ══ WHY IT NOW ASKS ONCE INSTEAD OF EVERY TIME ══
+// This raised a BLOCKING confirm after every single save for as long as anything
+// sat on the stack, and declining did not remove it — so the same dialog came
+// back on the next save, and the one after that, with no way to stop it short of
+// finishing or discarding the paused capture. Pause a fence line, then collect a
+// run of thirty poles, and that is thirty modal dialogs asking the same question
+// that has already been answered "no" twenty-nine times. A prompt that cannot be
+// dismissed for good is not an offer, it is a nag, and the usual response is to
+// stop reading it — which is exactly how the paused capture then gets forgotten,
+// the failure this whole feature exists to prevent.
+// So: asked once per paused capture. Decline it and it stays declined until the
+// stack itself changes. Nothing is lost by that, because the resume bar
+// (renderCaptureStack, below) is already on screen naming what is paused and
+// offering Resume in one tap — the bar is the persistent affordance, and this
+// dialog only ever needed to be the introduction to it.
+let _resumeOfferDeclined = null;   // id of the snapshot whose offer was turned down
+
+// Cleared whenever the stack changes shape, so a NEW pause always gets its own
+// offer. Keyed on the id rather than a bare boolean for the same reason: pausing
+// a second feature is a different question from the one already answered.
+function clearResumeOfferMemory(){ _resumeOfferDeclined = null; }
+
 function offerResumeAfterSave(){
   if (!suspendedCaptures.length) return;
   const next = suspendedCaptures[suspendedCaptures.length - 1];
+  // Already asked about this one and told no. The bar still shows it; say nothing.
+  if (_resumeOfferDeclined === next.id) return;
   const label = next.name || next.ftName;
   showConfirm(
     `Saved. Resume "${label}" where you left off?`,
-    () => resumeCapture(next.id),
-    'Resume', 'default'
+    () => { _resumeOfferDeclined = null; resumeCapture(next.id); },
+    'Resume', 'default',
+    // Remembering the refusal is the whole fix. Without an onCancel the decline is
+    // invisible to this module and the question simply returns.
+    () => { _resumeOfferDeclined = next.id; }
   );
 }
 
@@ -488,6 +519,9 @@ function captureStackForStore(){
 }
 
 function loadCaptureStack(list){
+  // Opening a different project (or reloading into one) is emphatically a new question — the
+  // refusal remembered above belonged to the project that was open before.
+  clearResumeOfferMemory();
   suspendedCaptures = Array.isArray(list)
     ? list.filter(s => s && s.id && s.ftId).slice(0, CAPTURE_STACK_MAX)
     : [];
