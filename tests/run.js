@@ -49,7 +49,7 @@ if (!fs.existsSync(path.join(root, '.github/workflows/build-apk.yml'))) {
 // last: both boot the real app in a DOM rather than reading it, so both are slow
 // and both are backstops. It is the only suite that DRIVES the screens — a
 // full-screen map that opens blank is invisible to every static check.
-const suites = ['split.test.js', 'integrity.test.js', 'store.test.js', 'plotmate.test.js', 'collect.test.js', 'photo.test.js', 'nav-build.test.js', 'theme.test.js', 'capture-stack.test.js', 'plotpack.test.js', 'backup-scan.test.js', 'plotarchive.test.js', 'android-patch.test.js', 'features.test.js', 'multigeom.test.js', 'survey.test.js', 'keyboard.test.js', 'smoke.js'];
+const suites = ['split.test.js', 'integrity.test.js', 'store.test.js', 'plotmate.test.js', 'collect.test.js', 'photo.test.js', 'nav-build.test.js', 'theme.test.js', 'capture-stack.test.js', 'plotpack.test.js', 'backup-scan.test.js', 'restore-sheet.test.js', 'plotarchive.test.js', 'android-patch.test.js', 'features.test.js', 'multigeom.test.js', 'survey.test.js', 'keyboard.test.js', 'smoke.js'];
 let total = 0, failed = 0;
 
 for (const s of suites) {

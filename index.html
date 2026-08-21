@@ -266,12 +266,13 @@ try {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <!-- Two things render in here, never at once: the plain multi-file picker list
-         (renderDetectedBackupList()) when several backups were found, or — while restoring one
-         .plotpack off that list — the standard "N features, N photos — Restore as a new
-         project / Cancel" confirm step (renderPlotpackImportWizard() in js/17b-plotpack.js),
-         reused as-is from the manual Import screen. -->
-    <div id="foundBackupWizard" style="display:none;margin-top:14px;"></div>
+    <!-- The inline #foundBackupWizard host that used to sit here is gone. It was where the
+         restore confirm step ("N features, N photos — Restore as a new project / Cancel") and the
+         multi-file picker list were both written, in the page flow, between this banner and the
+         New project button — so choosing a file made a block of plain text and two buttons appear
+         out of nowhere and shove the three real actions down the screen. All of that now happens
+         in #restoreModal, above the page, one step at a time. The banner below still does exactly
+         what it did: it announces that something was found and hands off to that sheet. -->
     <button class="btn-pill" onclick="showNewProject()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       New project
@@ -2676,6 +2677,56 @@ try {
     </div>
   </div>
 </div>
+
+<!-- ══ RESTORE SHEET ══
+     The whole restore journey, in one sheet, one step at a time.
+
+     WHAT THIS REPLACES. Restoring used to happen in the middle of the Welcome page: the confirm
+     step ("N features · N photos · Exported <date>", the "this restores everything into a NEW
+     project" note and its two buttons) was written straight into #foundBackupWizard, a hidden div
+     sitting between the banner and the New project button. So picking a file made a block of
+     unstyled body text and two full-width buttons appear inline, shoving New project / Template /
+     Restore down the page — which reads as the screen breaking, not as a question being asked. And
+     because three different entry points (the scan, the picker, the boot-time banner) each wrote
+     into that same div and then re-wired its buttons by hand afterwards, the three routes did not
+     even look the same as each other.
+
+     Everything now happens above the page instead of inside it. The steps —
+     scanning → choose → confirm → restoring → done — swap inside this one box, so the page behind
+     never moves and there is exactly one thing to read at a time.
+
+     The header, the close button and the scrolling body are NOT written here: applySheetChrome()
+     (js/21c-sheet-chrome.js) hoists .modal-title + .modal-sub into the standard sheet header bar,
+     adds the X, and wraps everything between the header and .modal-actions into a .sheet-body.
+     That is why this markup is so short, and it is also what makes the X, the Android hardware
+     Back button and a tap on the backdrop all resolve to the same closeRestoreModal(). -->
+<div class="modal-overlay" id="restoreModal" role="dialog" aria-modal="true" aria-label="Restore from backup">
+  <div class="modal-box restore-box">
+    <div class="modal-title" id="restoreTitle">Restore from backup</div>
+    <p class="modal-sub" id="restoreSub">Looking for backups on this device.</p>
+    <!-- Progress rail. aria-hidden because it is a picture of where you are, not a control, and
+         #restoreSub already says the same thing in words for a screen reader. -->
+    <div class="restore-rail" id="restoreRail" aria-hidden="true">
+      <div class="restore-rail-step" data-stage="find"><span class="restore-rail-dot"></span>Find</div>
+      <div class="restore-rail-step" data-stage="check"><span class="restore-rail-dot"></span>Check</div>
+      <div class="restore-rail-step" data-stage="apply"><span class="restore-rail-dot"></span>Restore</div>
+    </div>
+    <div class="restore-body" id="restoreBody"></div>
+    <!-- One action row for the whole flow, relabelled per step by restoreSetActions(). A single
+         pinned pair of buttons that changes its words is far steadier than each step rendering its
+         own buttons wherever its content happens to end. -->
+    <div class="modal-actions" id="restoreActions">
+      <button class="btn btn-outline" id="restoreSecondary" style="flex:1;" onclick="restoreSecondaryAction()">Cancel</button>
+      <button class="btn btn-primary" id="restorePrimary" style="flex:1;" onclick="restorePrimaryAction()">Restore</button>
+    </div>
+  </div>
+</div>
+
+<!-- preparePlotpackImport() always renders its own legacy confirm markup into a host element. The
+     sheet above builds its own summary from pendingPlotpackImport instead, so it points that
+     render at this sink and throws it away — cheaper and far less fragile than rendering the old
+     buttons and then re-wiring them, which is what the three old restore paths did. -->
+<div id="restoreWizardSink" style="display:none;"></div>
 
 <div class="modal-overlay" id="confirmModal">
   <div class="modal-box">

@@ -539,7 +539,12 @@ function renderPlotpackImportWizard(){
          schemas, and getting that wrong silently corrupts a live survey. A
          duplicate project is a nuisance; a corrupted one is lost work. -->
     <p class="import-note">This restores everything (schema, photos, per-vertex data and notes) into a <strong>new project</strong>. Nothing already on this device is touched.</p>
-    <button class="btn btn-primary" onclick="importPlotpackBundle()">Restore as a new project</button>
+    <!-- The dispatcher, not the project importer. preparePlotpackImport() only ever renders THIS
+         wizard for a project pack (a settings pack gets renderSettingsImportWizard instead), so
+         going straight to the project importer here would in fact work today — but "works because
+         of a branch three functions away" is the exact shape of the bug that made settings packs
+         silently no-op, and there is one dispatcher for a reason. -->
+    <button class="btn btn-primary" onclick="runPendingPlotpackImport()">Restore as a new project</button>
     <button class="btn btn-outline" onclick="cancelPlotpackImport()">Cancel</button>`;
 }
 
@@ -567,17 +572,39 @@ async function importPlotpackBundle(){
     // a broken thumbnail for as long as it took the rest to finish, and would
     // stay broken if the restore failed halfway.
     let restored = 0, missing = 0;
+    // ══ PROGRESS IS COUNTED, NOT MIMED ══
+    // The photo count is knowable before the loop starts, so the restore sheet shows a real
+    // determinate bar instead of an indeterminate sweep that says only "something is happening".
+    // This is the slow part of a restore by a wide margin — a bundle can carry hundreds of photos,
+    // each one a zip entry inflated to a blob and then to a data URL — and it is the part someone
+    // is most afraid of being interrupted, so it is the part that has to report honestly.
+    // plotpackProgressHook is null on every path except the sheet (see restoreShowWorking()), so
+    // the Import screen's behaviour is completely unchanged.
+    const photoTotal = p.features.reduce((n, f) =>
+      n + (f.photos || []).length +
+      (f.vertices || []).reduce((m, v) => m + (v.photos || []).length, 0), 0);
+    let photoDone = 0;
+    const reportPhoto = () => {
+      if (typeof plotpackProgressHook === 'function' && plotpackProgressHook) {
+        try { plotpackProgressHook(photoDone, photoTotal); } catch(e) {}
+      }
+    };
+    reportPhoto();
     for (const f of p.features){
       const all = [].concat(f.photos || [], ...(f.vertices || []).map(v => v.photos || []));
       for (const ph of all){
-        if (!ph.file){ missing++; continue; }
+        // Every exit from this iteration steps the counter, including the three that skip a photo.
+        // A bar that stalls on a bundle with missing photos is a bar that reports a failure that
+        // did not happen.
+        if (!ph.file){ missing++; photoDone++; reportPhoto(); continue; }
         const entry = p.zip.file(ph.file);
-        if (!entry){ missing++; continue; }
+        if (!entry){ missing++; photoDone++; reportPhoto(); continue; }
         const blob = await entry.async('blob');
         const dataUrl = await photoBlobToDataUrl(blob);
-        if (!dataUrl){ missing++; continue; }
+        if (!dataUrl){ missing++; photoDone++; reportPhoto(); continue; }
         await photoStoreSave({ id: ph.id, dataUrl, thumbUrl: dataUrl });
         restored++;
+        photoDone++; reportPhoto();
         delete ph.file; delete ph.missing;
       }
     }
@@ -619,34 +646,35 @@ async function importPlotpackBundle(){
     }
     renderProjectsList();
     showToast(`"${name}" restored. Open it from Projects`);
+    // Returned so the restore sheet can render a real "what just happened" step from the same
+    // numbers this function already has. Every pre-existing caller ignores the return value, so
+    // nothing else changes.
+    return { ok: true, kind: 'project', projectId: id, name, features: p.features.length, photos: restored, missing };
   } catch (e){
     console.warn('PlotEdge: .plotpack restore failed', e);
     if (status) status.textContent = '';
     showToast('Restore failed, nothing was changed');
+    return { ok: false, kind: 'project' };
   }
 }
 
 
-// ══ FIX: device-settings packs failing to restore from Welcome / device-scan paths ══
+// ══ ONE PLACE THAT DECIDES WHICH KIND OF PACK IS PENDING ══
 // preparePlotpackImport() detects TWO kinds of .plotpack (PLOTPACK_KIND_PROJECT and
-// PLOTPACK_KIND_SETTINGS — see the `kind` branch near its top) and renders a different wizard,
-// with a different confirm action, for each: renderPlotpackImportWizard() bakes in
-// onclick="importPlotpackBundle()", renderSettingsImportWizard() bakes in
-// onclick="importDeviceSettings()". That works as-is on the plain Import screen
-// (handlePlotpackFileChosen), which never touches those buttons after they render.
-// The three restore paths below (Welcome's own file picker, the boot-time/on-demand detected-
-// backup list, and the Settings-screen manual device scan) each have to REWIRE that confirm
-// button anyway, purely to fold the just-restored entry out of their own list once the person
-// actually decides — see the comment on restoreDetectedBackupAt() below. All three were doing
-// that rewiring straight to importPlotpackBundle(), unconditionally, regardless of which kind of
-// pack preparePlotpackImport() had actually detected. For a settings pack that meant tapping
-// "Apply these settings" ran importPlotpackBundle() instead — which reads p.features, undefined
-// on a settings pack — threw, and was swallowed by that function's own try/catch as "Restore
-// failed, nothing was changed", so the settings were silently never applied. This is the one
-// place that decision is made now, so all three call it instead of importPlotpackBundle() directly.
+// PLOTPACK_KIND_SETTINGS — see the `kind` branch near its top), and they need completely different
+// confirm actions: a project pack mints a new project, a settings pack writes allowlisted keys to
+// localStorage. Every restore path has to make that choice, and originally each one made it for
+// itself by wiring its confirm button straight to importPlotpackBundle() — which reads
+// p.features, undefined on a settings pack. So "Apply these settings" threw, the throw was
+// swallowed by importPlotpackBundle()'s own try/catch and reported as "Restore failed, nothing was
+// changed", and the settings were silently never applied.
+// This is the one place that decision is made. Every restore path calls this, never
+// importPlotpackBundle() directly — the restore sheet's confirm step, the Import screen's
+// device-scan rows, and anything added later. tests/plotpack.test.js enforces that statically, so
+// a future path that copies the old pattern fails the suite rather than shipping the bug back.
 async function runPendingPlotpackImport(){
-  if (pendingPlotpackImport && pendingPlotpackImport.settings) importDeviceSettings();
-  else await importPlotpackBundle();
+  if (pendingPlotpackImport && pendingPlotpackImport.settings){ importDeviceSettings(); return { ok: true, kind: 'settings' }; }
+  return await importPlotpackBundle();
 }
 
 
@@ -957,36 +985,16 @@ function showDetectedBackupBanner(list){
   banner.style.display = '';
 }
 
-// The banner's one action button: a single match restores directly, several open the picker
-// list below instead — restoring the wrong one of several by accident is worse than one extra
-// tap.
+// The banner's one action button. It used to branch — a single match restored in place, several
+// rendered a picker list into #foundBackupWizard directly underneath the banner, and either way
+// the confirm step then appeared inline in the middle of the Welcome page. Both routes now open
+// the same sheet (see openRestoreSheet() at the bottom of this file), which handles the
+// one-versus-several distinction itself: one entry goes straight to its confirm step, several show
+// the list first. Restoring the wrong one of several by accident is still worse than one extra
+// tap, so that ordering is unchanged — only where it happens has.
 function handleFoundBackupAction(){
   if (!_detectedBackups.length) return;
-  if (_detectedBackups.length === 1) restoreDetectedBackupAt(0);
-  else renderDetectedBackupList();
-}
-
-function renderDetectedBackupList(){
-  const wizard = document.getElementById('foundBackupWizard');
-  const btn = document.getElementById('foundBackupBtn');
-  if (!wizard) return;
-  if (!_detectedBackups.length){ dismissFoundBackupBanner(); return; }
-  if (btn) btn.style.display = 'none'; // the action now lives per-row, below
-  wizard.style.display = '';
-  wizard.innerHTML = _detectedBackups.map((f, i) => {
-    // A soft note, never a block. Restoring is additive by design, and two projects of the same
-    // name can be perfectly legitimate — but silently minting a second identical "Ward 7" with no
-    // hint of why is a confusing cleanup nobody asked for.
-    const dupe = backupLooksAlreadyRestored(f)
-      ? '<div class="import-summary-meta" style="color:var(--warn-ink);">Looks like a project already on this device</div>' : '';
-    return '<div class="import-summary" style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;">' +
-      '<div style="min-width:0;">' +
-        '<div class="import-summary-title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(f.name) + '</div>' +
-        '<div class="import-summary-meta">' + escapeHtml(describeBackupEntry(f)) + '</div>' + dupe +
-      '</div>' +
-      '<button class="btn btn-primary" style="flex-shrink:0;margin:0;" onclick="restoreDetectedBackupAt(' + i + ')">Restore</button>' +
-    '</div>';
-  }).join('') + '<button class="btn btn-outline" onclick="dismissFoundBackupBanner()" style="width:100%;">Done</button>';
+  openRestoreSheet(_detectedBackups, { source: 'detected' });
 }
 
 // Removes one entry from the pending list (it has either been imported or its own confirm step
@@ -994,18 +1002,20 @@ function renderDetectedBackupList(){
 // that was the last one, closes the whole banner/wizard.
 function removeDetectedBackupEntry(entry){
   _detectedBackups = _detectedBackups.filter(f => backupFileKey(f) !== backupFileKey(entry));
-  if (_detectedBackups.length) renderDetectedBackupList();
-  else { dismissFoundBackupBannerUI(); }
+  // The banner is the only thing left on the page to update — the list itself lives in the restore
+  // sheet now, which re-reads whatever it was handed when it renders its own "restore another"
+  // step. Once nothing is pending the banner has nothing left to offer, so it closes.
+  if (_detectedBackups.length) showDetectedBackupBanner(_detectedBackups);
+  else dismissFoundBackupBannerUI();
 }
 
-// UI-only close: hides the banner/wizard without touching the dismissed-keys store. Used once
-// the list is empty because every entry was already imported (or cancelled/removed), so there is
-// nothing left that would need re-dismissing later.
+// UI-only close: hides the banner without touching the dismissed-keys store. Used once the list is
+// empty because every entry was already imported (or cancelled/removed), so there is nothing left
+// that would need re-dismissing later. The inline wizard host it also used to clear no longer
+// exists — the restore flow lives in #restoreModal, which owns its own teardown.
 function dismissFoundBackupBannerUI(){
   const banner = document.getElementById('foundBackupBanner');
-  const wizard = document.getElementById('foundBackupWizard');
   if (banner) banner.style.display = 'none';
-  if (wizard){ wizard.style.display = 'none'; wizard.innerHTML = ''; }
 }
 
 function dismissFoundBackupBanner(){
@@ -1013,85 +1023,6 @@ function dismissFoundBackupBanner(){
   _detectedBackups = [];
   dismissFoundBackupBannerUI();
 }
-
-async function restoreDetectedBackupAt(i){
-  const entry = _detectedBackups[i];
-  if (!entry) return;
-  const Filesystem = capPlugin('Filesystem');
-  if (!Filesystem || !Filesystem.readFile){ showToast('Could not reach device storage'); return; }
-  const singleMode = _detectedBackups.length === 1;
-  const btn = document.getElementById('foundBackupBtn');
-  if (singleMode && btn){ btn.disabled = true; btn.textContent = 'Reading…'; }
-
-  try {
-    const res = await Filesystem.readFile({ path: entry.path || (EXPORT_DIR + '/' + entry.name), directory: entry.dir });
-    const base64 = res && res.data;
-    if (!base64) throw new Error('empty read');
-
-    if (/\.plotpack$/i.test(entry.name)){
-      // Route through the exact same wizard the manual Import screen uses — JSZip parse,
-      // manifest + format-version check, per-part checksum verification, and the
-      // "Restore as a new project / Cancel" confirm — see preparePlotpackImport() and
-      // renderPlotpackImportWizard() above. Rendered into #foundBackupWizard, right here on
-      // Welcome, instead of the Import screen's own host.
-      const bytes = atob(base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
-      const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
-      await preparePlotpackImport(file, 'foundBackupWizard');
-      // preparePlotpackImport() renders its own confirm/cancel buttons via
-      // renderPlotpackImportWizard() or renderSettingsImportWizard() (see the `kind` branch near
-      // the top of preparePlotpackImport()). Those don't know about this list, so their buttons
-      // are rewired here, right after render, to also fold this entry out of the pending list
-      // once the person actually decides — never before, so a bundle that fails its checksum
-      // stays in the list to try again rather than silently disappearing. The confirm action
-      // itself goes through runPendingPlotpackImport() rather than importPlotpackBundle()
-      // directly, since the pending pack could be either kind — see that function's header.
-      const wizard = document.getElementById('foundBackupWizard');
-      const confirmBtn = wizard && wizard.querySelector('.btn-primary');
-      const cancelBtn = wizard && wizard.querySelector('.btn-outline');
-      if (confirmBtn){
-        confirmBtn.setAttribute('onclick', '');
-        confirmBtn.onclick = async () => { await runPendingPlotpackImport(); removeDetectedBackupEntry(entry); };
-      }
-      if (cancelBtn){
-        cancelBtn.setAttribute('onclick', '');
-        cancelBtn.onclick = () => { cancelPlotpackImport(); if (!singleMode) renderDetectedBackupList(); else dismissFoundBackupBannerUI(); };
-      }
-    } else {
-      // .plotedge.json — identical validation and import to handleBackupImportFile() in
-      // js/17-export.js, just fed from the device filesystem instead of a file picker. No
-      // separate confirm step, same as that existing flow: a JSON backup is always additive
-      // (importOneBackupProject() mints a fresh id), so there is nothing destructive to confirm.
-      const text = decodeURIComponent(escape(atob(base64)));
-      let payload;
-      try { payload = JSON.parse(text); }
-      catch(e){ showToast('That backup file is not valid JSON'); return; }
-      if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
-        showToast('That is not a PlotEdge backup file'); return;
-      }
-      let ids = [];
-      if (payload.kind === 'project'){
-        ids.push(importOneBackupProject(payload.project, payload.data));
-      } else if (payload.kind === 'all'){
-        (payload.projects || []).forEach(meta => ids.push(importOneBackupProject(meta, (payload.data || {})[meta.id])));
-      } else {
-        showToast('Unrecognised backup type'); return;
-      }
-      if (!ids.length){ showToast('That backup contained no projects'); return; }
-      persistStore();
-      refreshProjectsScreen();
-      showToast('✓ Restored ' + ids.length + ' project' + (ids.length === 1 ? '' : 's'));
-      removeDetectedBackupEntry(entry);
-    }
-  } catch(e){
-    console.warn('PlotEdge: auto-restore failed', e);
-    showToast('Could not read that backup file');
-  } finally {
-    if (singleMode && btn){ btn.disabled = false; btn.textContent = 'Restore'; }
-  }
-}
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // WELCOME SCREEN — the same two gaps, on the screen people actually land on
@@ -1104,38 +1035,23 @@ async function restoreDetectedBackupAt(i){
 function handleWelcomeRestoreFile(event){
   const file = event.target.files && event.target.files[0];
   if (!file){ event.target.value = ''; return; }
+  event.target.value = '';
 
   if (/\.plotpack$/i.test(file.name)){
-    event.target.value = '';
-    // Reuses #foundBackupWizard — already on this screen, normally hidden — as the confirm host,
-    // same as the auto-detected-backup path just below uses it. No new markup needed.
-    const wizard = document.getElementById('foundBackupWizard');
-    if (wizard) wizard.style.display = '';
-    preparePlotpackImport(file, 'foundBackupWizard').then(() => {
-      const w = document.getElementById('foundBackupWizard');
-      const confirmBtn = w && w.querySelector('.btn-primary');
-      const cancelBtn = w && w.querySelector('.btn-outline');
-      if (confirmBtn){
-        confirmBtn.setAttribute('onclick', '');
-        confirmBtn.onclick = async () => {
-          await runPendingPlotpackImport();
-          if (w){ w.style.display = 'none'; w.innerHTML = ''; }
-        };
-      }
-      if (cancelBtn){
-        cancelBtn.setAttribute('onclick', '');
-        cancelBtn.onclick = () => {
-          cancelPlotpackImport();
-          if (w){ w.style.display = 'none'; w.innerHTML = ''; }
-        };
-      }
-    });
+    // Straight into the sheet's Check step. This used to render the confirm markup into
+    // #foundBackupWizard — a hidden div in the middle of the Welcome page — and then re-wire its
+    // two buttons by hand, which is what produced the block of unstyled black text and the pair of
+    // buttons appearing out of nowhere between the banner and New project.
+    restoreBeginFile(file);
     return;
   }
-  // .plotedge.json — the existing, already-working path. Not touched: it clears
-  // event.target.value and reports its own toasts/errors.
-  handleBackupImportFile(event);
+  // .plotedge.json picked from the OS picker. Read here rather than handed to
+  // handleBackupImportFile() so it gets the same confirm-then-report treatment as everything else:
+  // that function imports silently and reports with a toast, which on a fresh device is the one
+  // moment someone most needs to be shown what they just got back.
+  restoreBeginJsonFile(file);
 }
+
 
 // ══ ONE RECOVERY INTENT ══
 // The Welcome screen used to carry two rows: "Restore from backup" (OS file picker) and "Scan for
@@ -1151,16 +1067,26 @@ function handleWelcomeRestoreFile(event){
 async function welcomeRestore(){
   const btn = document.getElementById('importBackupBtn');
   const sub = document.getElementById('welcomeRestoreSub');
-  // No device to scan (browser/PWA build) — go straight to the picker rather than render a control
+  // No device to scan (browser/PWA build) — go straight to the picker rather than open a sheet
   // whose only possible outcome is an apology.
   if (!capPlugin('Filesystem')){ triggerBackupImport(); return; }
 
   const subOriginal = sub && sub.textContent;
   if (sub) sub.textContent = 'Looking on this device\u2026';
   if (btn) btn.classList.add('is-scanning');
+  // The sheet opens BEFORE the scan runs, on its own Find step, rather than after it. A readdir()
+  // across five folders on a phone with a full Downloads directory is not instant, and the old
+  // behaviour — a row that quietly changed its subtitle and then, seconds later, made a banner
+  // appear ABOVE the button that had been tapped — is why a scan could look like nothing had
+  // happened at all. A sheet sliding up is unmistakably a response to the tap.
+  openRestoreSheet(null, { source: 'scan' });
   try {
     const all = await findAllDeviceBackupFiles();
     if (!all.length){
+      // Not a dead end and not a sheet full of apology: the picker can reach Downloads, Drive, the
+      // SD card and everywhere else the scan cannot, so the sheet steps aside and hands over.
+      // (tests/backup-scan.test.js pins this: an empty scan must open the picker.)
+      closeRestoreModal();
       showToast('Nothing in ' + backupScanLocationSummary() + ' \u2014 pick a file instead');
       triggerBackupImport();
       return;
@@ -1168,19 +1094,13 @@ async function welcomeRestore(){
     // Labelling a row with what is actually inside it is worth a short wait; peekBackupContents()
     // is size-gated and no-ops on .plotpack, so this can only ever read a handful of small files.
     for (const f of all.slice(0, 8)) await peekBackupContents(f);
-    // Reuses the exact rendering the boot-time scan uses — same banner, same per-file wizard — so a
-    // single match still just says "Restore" and several still open the picker list.
+    // Deliberately bypasses the dismissed-keys filter checkForDetectedBackup() applies: a person
+    // who presses this is asking to see everything again, including something dismissed earlier.
     _detectedBackups = all;
-    showDetectedBackupBanner(all);
-    // The banner renders at the TOP of the Welcome screen; the button that triggered it sits below
-    // New project and Template. Without this, tapping Restore on a short phone could scroll nothing
-    // and look like nothing had happened.
-    const banner = document.getElementById('foundBackupBanner');
-    if (banner && banner.scrollIntoView){
-      try { banner.scrollIntoView({ behavior:'smooth', block:'nearest' }); } catch(e) { banner.scrollIntoView(); }
-    }
+    restoreShowChoose(all);
   } catch(e){
     console.warn('PlotEdge: welcome-screen backup scan failed', e);
+    closeRestoreModal();
     showToast('Could not read device storage \u2014 pick a file instead');
     triggerBackupImport();
   } finally {
@@ -1250,70 +1170,23 @@ function renderManualScanResults(){
   }).join('') + '<div id="manualScanImportWizard"></div>';
 }
 
-// Mirrors restoreDetectedBackupAt() above (same two file kinds, same wizard-based .plotpack
-// confirm step), kept as its own copy rather than a shared helper so this on-demand path can never
-// be affected by a future change scoped to the boot-time banner, or vice versa.
-async function restoreManualScanEntry(i){
+// The Settings-screen scan's per-row action. It used to be a near-copy of the Welcome path —
+// read the file, render the legacy confirm wizard into its own inline host, re-wire the buttons —
+// which is exactly the duplication that let the two routes drift apart and look different from
+// each other. Both now hand the entry to the same sheet, so there is one confirm step, one
+// progress report and one finished state in the whole app.
+function restoreManualScanEntry(i){
   const entry = _manualScanBackups[i];
   if (!entry) return;
-  const Filesystem = capPlugin('Filesystem');
-  if (!Filesystem || !Filesystem.readFile){ showToast('Could not reach device storage'); return; }
-
-  try {
-    const res = await Filesystem.readFile({ path: entry.path || (EXPORT_DIR + '/' + entry.name), directory: entry.dir });
-    const base64 = res && res.data;
-    if (!base64) throw new Error('empty read');
-
-    if (/\.plotpack$/i.test(entry.name)){
-      const bytes = atob(base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
-      const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
-      await preparePlotpackImport(file, 'manualScanImportWizard');
-      const wizard = document.getElementById('manualScanImportWizard');
-      const confirmBtn = wizard && wizard.querySelector('.btn-primary');
-      const cancelBtn = wizard && wizard.querySelector('.btn-outline');
-      if (confirmBtn){
-        confirmBtn.setAttribute('onclick', '');
-        confirmBtn.onclick = async () => {
-          await runPendingPlotpackImport();
-          _manualScanBackups = _manualScanBackups.filter((_, idx) => idx !== i);
-          renderManualScanResults();
-        };
-      }
-      if (cancelBtn){
-        cancelBtn.setAttribute('onclick', '');
-        cancelBtn.onclick = () => { cancelPlotpackImport(); renderManualScanResults(); };
-      }
-    } else {
-      // .plotedge.json — identical validation to handleBackupImportFile() in js/17-export.js,
-      // just fed from the device filesystem instead of a file picker.
-      const text = decodeURIComponent(escape(atob(base64)));
-      let payload;
-      try { payload = JSON.parse(text); }
-      catch(e){ showToast('That backup file is not valid JSON'); return; }
-      if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
-        showToast('That is not a PlotEdge backup file'); return;
-      }
-      let ids = [];
-      if (payload.kind === 'project'){
-        ids.push(importOneBackupProject(payload.project, payload.data));
-      } else if (payload.kind === 'all'){
-        (payload.projects || []).forEach(meta => ids.push(importOneBackupProject(meta, (payload.data || {})[meta.id])));
-      } else {
-        showToast('Unrecognised backup type'); return;
-      }
-      if (!ids.length){ showToast('That backup contained no projects'); return; }
-      persistStore();
-      refreshProjectsScreen();
-      showToast('\u2713 Restored ' + ids.length + ' project' + (ids.length === 1 ? '' : 's'));
+  openRestoreSheet([entry], {
+    source: 'manual',
+    // Folded out of THIS list only once the person has actually committed — a bundle that fails
+    // its checksum, or a confirm step that is cancelled, stays in the list to try again.
+    onRestored: () => {
       _manualScanBackups = _manualScanBackups.filter((_, idx) => idx !== i);
       renderManualScanResults();
     }
-  } catch(e){
-    console.warn('PlotEdge: manual backup restore failed', e);
-    showToast('Could not read that backup file');
-  }
+  });
 }
 
 
@@ -1332,4 +1205,580 @@ async function plotpackSha256(text){
   let h = 5381;
   for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
   return 'len' + text.length + '-' + (h >>> 0).toString(16);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE RESTORE SHEET
+// ═══════════════════════════════════════════════════════════════════════════
+// Everything below replaces the inline restore flow that used to happen in the middle of the
+// Welcome page.
+//
+// ══ WHAT WAS WRONG ══
+// There was no sheet at all. Three entry points — the device scan, the OS file picker, and the
+// boot-time "backup found" banner — each rendered the confirm step straight into
+// #foundBackupWizard, a hidden div sitting between the banner and the New project button. So
+// choosing a file made a block of body text ("Home · 1 features · 3 feature types · 0 photos ·
+// Exported 2026-08-20 · This restores everything into a new project…") plus two full-width
+// buttons appear in the page flow, shoving New project, Start from a template and Restore from
+// backup down the screen. Nothing animated, nothing was dimmed, and the buttons that appeared sat
+// directly above three other buttons that did completely different things. It reads as the page
+// breaking rather than as a question being asked — and with two "Restore" affordances a few
+// hundred pixels apart, it is genuinely ambiguous which one is being answered.
+// Worse, each of the three paths then re-wired those freshly-rendered buttons by hand, so the
+// three routes did not even behave identically to one another.
+//
+// ══ WHAT THIS DOES INSTEAD ══
+// One sheet, five steps, strictly one at a time:
+//
+//     find  →  Looking on this device        (scan running)
+//              Choose a backup               (several found)
+//     check →  Confirm                       (what is in this file, and what restoring will do)
+//     apply →  Restoring                     (determinate progress, no way to cancel mid-write)
+//              Restored                      (what actually came back, and what to do next)
+//
+// The page behind never moves. The header, the close button and the scroll/action layout all come
+// from the shared sheet chrome (applySheetChrome() in js/21c-sheet-chrome.js), so this looks and
+// behaves like every other sheet in the app, and the X, a backdrop tap and the Android hardware
+// Back button all resolve to closeRestoreModal() through closeTopOverlay().
+//
+// ══ THE ONE INVARIANT ══
+// A step that is writing to the store cannot be dismissed. closeRestoreModal() refuses while
+// _restoreBusy is set, and the action row hides both buttons for the duration. Restoring is
+// additive (importPlotpackBundle() mints a fresh project id and touches nothing existing), so an
+// interruption cannot corrupt anything — but it CAN leave a project holding half its photos, with
+// no indication that is what happened. Making the write uninterruptible is cheaper than making a
+// half-written project explicable.
+
+// Set only while the sheet is driving a restore; null everywhere else, so the Import screen's own
+// path through importPlotpackBundle() is completely unaffected. See the progress block in that
+// function.
+let plotpackProgressHook = null;
+
+let _restoreBusy = false;          // a write is in flight — the sheet cannot be dismissed
+let _restoreList = [];             // the entries this sheet was opened with, minus any already done
+let _restoreEntry = null;          // the entry currently being confirmed (null for a picked file)
+let _restoreSource = null;         // 'scan' | 'detected' | 'manual' | 'file' — only used for copy
+let _restoreOnRestored = null;     // caller's bookkeeping, run once a restore actually commits
+let _restorePendingJson = null;    // parsed .plotedge.json awaiting confirm (packs use pendingPlotpackImport)
+let _restorePrimaryFn = null;
+let _restoreSecondaryFn = null;
+
+const RESTORE_ICON_PACK =
+  '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><rect x="2" y="4" width="20" height="4" rx="1"/><path d="M10 12h4"/></svg>';
+const RESTORE_ICON_JSON =
+  '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>';
+const RESTORE_ICON_CHEVRON =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+  '<polyline points="9 6 15 12 9 18"/></svg>';
+const RESTORE_ICON_SHIELD =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+const RESTORE_ICON_TICK =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+  '<polyline points="20 6 9 17 4 12"/></svg>';
+
+
+// ══ SHEET PLUMBING ══
+// Four tiny setters rather than one render-the-whole-sheet function. Each step then says only what
+// it changes, which is what keeps the steps readable — and it means the header does not flicker
+// through a rebuild every time only the body needs to change.
+
+function restoreSetHead(title, sub){
+  const t = document.getElementById('restoreTitle');
+  const s = document.getElementById('restoreSub');
+  if (t) t.textContent = title;
+  if (s) s.textContent = sub;
+}
+
+// stage is 'find' | 'check' | 'apply'. Anything before the current stage is marked done, so the
+// rail reads as a journey with a known length rather than as three lights.
+function restoreSetStage(stage){
+  const rail = document.getElementById('restoreRail');
+  if (!rail) return;
+  const order = ['find', 'check', 'apply'];
+  const at = order.indexOf(stage);
+  rail.querySelectorAll('.restore-rail-step').forEach(el => {
+    const i = order.indexOf(el.dataset.stage);
+    el.classList.toggle('is-done', i < at);
+    el.classList.toggle('is-now', i === at);
+  });
+}
+
+function restoreSetBody(html){
+  const body = document.getElementById('restoreBody');
+  if (body) body.innerHTML = html;
+}
+
+// Either argument may be null to hide that button. Handlers are held in JS rather than written
+// into onclick attributes so a step can close over whatever it needs (an entry, an index, a
+// payload) without stringifying it into markup.
+function restoreSetActions(primary, secondary){
+  const p = document.getElementById('restorePrimary');
+  const s = document.getElementById('restoreSecondary');
+  const row = document.getElementById('restoreActions');
+  _restorePrimaryFn = primary && primary.fn || null;
+  _restoreSecondaryFn = secondary && secondary.fn || null;
+  if (p){
+    p.style.display = primary ? '' : 'none';
+    if (primary){ p.textContent = primary.label; p.disabled = !!primary.disabled; }
+  }
+  if (s){
+    s.style.display = secondary ? '' : 'none';
+    if (secondary) s.textContent = secondary.label;
+  }
+  // A row with nothing in it is 45px of empty card and a divider under the content for no reason.
+  if (row) row.style.display = (primary || secondary) ? '' : 'none';
+}
+
+function restorePrimaryAction(){ if (_restorePrimaryFn) _restorePrimaryFn(); }
+function restoreSecondaryAction(){ if (_restoreSecondaryFn) _restoreSecondaryFn(); }
+
+
+// ══ OPEN / CLOSE ══
+
+// list may be null (the scan opens the sheet before it has anything to show). opts carries
+// `source` for copy and `onRestored` for the caller's own list bookkeeping.
+function openRestoreSheet(list, opts){
+  opts = opts || {};
+  _restoreList = Array.isArray(list) ? list.slice() : [];
+  _restoreSource = opts.source || 'file';
+  _restoreOnRestored = opts.onRestored || null;
+  _restoreEntry = null;
+  _restorePendingJson = null;
+  _restoreBusy = false;
+  const el = document.getElementById('restoreModal');
+  if (el) el.classList.add('show');
+  // One entry is not a choice, it is a confirmation — skip straight to Check. Several is a
+  // genuine decision and gets the list, because restoring the wrong one of six old exports is a
+  // duplicate project and a cleanup nobody asked for.
+  if (_restoreList.length === 1) restoreOpenEntry(_restoreList[0]);
+  else if (_restoreList.length) restoreShowChoose(_restoreList);
+  else restoreShowScanning();
+}
+
+// Asked by closeTopOverlay()'s last-resort sweep, which is the one path that can strip .show off a
+// sheet WITHOUT going through that sheet's own close. Everything else respects the refusal inside
+// closeRestoreModal() below; this is how the sweep learns to as well.
+function restoreIsLocked(){ return !!_restoreBusy; }
+
+function closeRestoreModal(){
+  // The one refusal. A write in flight is not interruptible — see the invariant note at the top of
+  // this section. Nothing is said out loud: both buttons are already hidden during a write, so the
+  // only ways to reach this are the X, a backdrop tap or hardware Back, and silently declining all
+  // three for the two seconds a restore takes is less alarming than a toast telling someone their
+  // dismissal was refused.
+  if (_restoreBusy) return;
+  const el = document.getElementById('restoreModal');
+  if (el) el.classList.remove('show');
+  // A pending pack holds an entire inflated zip. Dropping it here rather than on the next open is
+  // the difference between one bundle in memory and every bundle the person has looked at.
+  if (pendingPlotpackImport) cancelPlotpackImport();
+  _restorePendingJson = null;
+  _restoreEntry = null;
+  plotpackProgressHook = null;
+}
+
+
+// ══ STEP: FIND (scanning) ══
+function restoreShowScanning(){
+  restoreSetHead('Restore from backup', 'Looking for backups on this device.');
+  restoreSetStage('find');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-spinner"></div>' +
+      '<div class="restore-state-title">Searching this device</div>' +
+      '<div class="restore-state-sub">Checking ' + escapeHtml(backupScanLocationSummary()) + '.</div>' +
+    '</div>');
+  restoreSetActions(null, { label: 'Cancel', fn: closeRestoreModal });
+}
+
+
+// ══ STEP: FIND (choose) ══
+function restoreShowChoose(list){
+  _restoreList = list.slice();
+  const n = _restoreList.length;
+  restoreSetHead(n + ' backup' + (n === 1 ? '' : 's') + ' found',
+    'Newest first. Nothing is changed until you confirm the next step.');
+  restoreSetStage('find');
+  restoreSetBody(_restoreList.map((f, i) => {
+    // Soft note, never a block. Restoring always mints a fresh project id, so a second copy is a
+    // nuisance rather than a risk — but silently producing an identical "Ward 7" with no hint of
+    // why is a cleanup nobody asked for.
+    const dupe = backupLooksAlreadyRestored(f)
+      ? '<div class="restore-row-meta restore-row-warn">Looks like a project already on this device</div>' : '';
+    const icon = /\.plotpack$/i.test(f.name) ? RESTORE_ICON_PACK : RESTORE_ICON_JSON;
+    return '<button type="button" class="restore-row" data-i="' + i + '">' +
+      '<span class="restore-row-icon">' + icon + '</span>' +
+      '<span class="restore-row-body">' +
+        '<span class="restore-row-name">' + escapeHtml(f.name) + '</span>' +
+        '<span class="restore-row-meta">' + escapeHtml(describeBackupEntry(f)) + '</span>' + dupe +
+      '</span>' +
+      '<span class="restore-row-chevron">' + RESTORE_ICON_CHEVRON + '</span>' +
+    '</button>';
+  }).join(''));
+  // Delegated rather than an onclick per row: the index is already on the element, and this way the
+  // handler cannot go stale when the list is re-rendered after one entry is restored.
+  const body = document.getElementById('restoreBody');
+  if (body) body.querySelectorAll('.restore-row').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const entry = _restoreList[parseInt(btn.dataset.i, 10)];
+      if (entry) restoreOpenEntry(entry);
+    });
+  });
+  // The scan cannot see a file that arrived by email or Drive and was never saved down, so the
+  // picker stays one tap away rather than being the thing you have to back all the way out to find.
+  restoreSetActions({ label: 'Choose a file\u2026', fn: () => { closeRestoreModal(); triggerBackupImport(); } },
+                    { label: 'Cancel', fn: closeRestoreModal });
+}
+
+
+// ══ READING ONE ENTRY OFF THE DEVICE ══
+// Both file kinds land on the same Check step. The read itself gets its own visible state because
+// a .plotedge.json carrying inline base64 photos can run to hundreds of megabytes, and a sheet
+// that appears to freeze while it is decoded is indistinguishable from one that has crashed.
+async function restoreOpenEntry(entry){
+  _restoreEntry = entry;
+  const Filesystem = capPlugin('Filesystem');
+  if (!Filesystem || !Filesystem.readFile){ restoreShowError('Could not reach device storage.'); return; }
+
+  restoreSetHead('Opening backup', escapeHtml(entry.name));
+  restoreSetStage('check');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-spinner"></div>' +
+      '<div class="restore-state-title">Reading the file</div>' +
+      '<div class="restore-state-sub">Checking it is complete and undamaged before anything is written.</div>' +
+    '</div>');
+  restoreSetActions(null, { label: 'Cancel', fn: restoreBackToList });
+
+  try {
+    const res = await Filesystem.readFile({ path: entry.path || (EXPORT_DIR + '/' + entry.name), directory: entry.dir });
+    const base64 = res && res.data;
+    if (!base64) throw new Error('empty read');
+
+    if (/\.plotpack$/i.test(entry.name)){
+      const bytes = atob(base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
+      const file = new File([arr], entry.name, { type: PLOTPACK_MIME });
+      await restorePreparePack(file);
+    } else {
+      const text = decodeURIComponent(escape(atob(base64)));
+      restorePrepareJson(text, entry.name);
+    }
+  } catch(e){
+    console.warn('PlotEdge: restore read failed', e);
+    restoreShowError('Could not read that backup file.');
+  }
+}
+
+// Cancel from a per-file step goes back to the list where there is one, and closes the sheet where
+// there is not — backing out of a single-file confirm into an empty list would be a dead screen.
+function restoreBackToList(){
+  if (pendingPlotpackImport) cancelPlotpackImport();
+  _restorePendingJson = null;
+  _restoreEntry = null;
+  if (_restoreList.length > 1) restoreShowChoose(_restoreList);
+  else closeRestoreModal();
+}
+
+
+// ══ PREPARING A .plotpack ══
+// preparePlotpackImport() does the real work — JSZip parse, manifest and format-version check,
+// per-part SHA-256 verification — and reports its own failures by toast. It also insists on
+// rendering its legacy confirm markup into a host element, so it is pointed at #restoreWizardSink
+// (display:none) and that render is discarded: the sheet builds its own summary from
+// pendingPlotpackImport instead. Rendering the old buttons and then re-wiring them is exactly what
+// the three old paths did, and it is why they drifted apart.
+async function restorePreparePack(file){
+  await preparePlotpackImport(file, 'restoreWizardSink');
+  const sink = document.getElementById('restoreWizardSink');
+  if (sink) sink.innerHTML = '';
+  if (!pendingPlotpackImport){
+    // preparePlotpackImport() has already said why by toast — damaged bundle, wrong format, needs
+    // a newer PlotEdge. Repeating its reasoning here would mean keeping two copies of the same
+    // list of failure modes in step with each other.
+    restoreShowError('That bundle could not be opened.');
+    return;
+  }
+  if (pendingPlotpackImport.settings) restoreShowSettingsConfirm();
+  else restoreShowPackConfirm(file.name);
+}
+
+// Entry point for a .plotpack chosen from the OS picker rather than found by a scan.
+async function restoreBeginFile(file){
+  openRestoreSheet(null, { source: 'file' });
+  restoreSetHead('Opening backup', file.name);
+  restoreSetStage('check');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-spinner"></div>' +
+      '<div class="restore-state-title">Reading the file</div>' +
+      '<div class="restore-state-sub">Checking it is complete and undamaged before anything is written.</div>' +
+    '</div>');
+  restoreSetActions(null, { label: 'Cancel', fn: closeRestoreModal });
+  try { await restorePreparePack(file); }
+  catch(e){
+    console.warn('PlotEdge: restore file read failed', e);
+    restoreShowError('Could not read that bundle. It may be damaged.');
+  }
+}
+
+// Same, for a .plotedge.json chosen from the picker.
+function restoreBeginJsonFile(file){
+  openRestoreSheet(null, { source: 'file' });
+  restoreSetHead('Opening backup', file.name);
+  restoreSetStage('check');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-spinner"></div>' +
+      '<div class="restore-state-title">Reading the file</div>' +
+      '<div class="restore-state-sub">Checking it is a PlotEdge backup before anything is written.</div>' +
+    '</div>');
+  restoreSetActions(null, { label: 'Cancel', fn: closeRestoreModal });
+  const reader = new FileReader();
+  reader.onload = () => restorePrepareJson(String(reader.result || ''), file.name);
+  reader.onerror = () => restoreShowError('Could not read that file.');
+  reader.readAsText(file);
+}
+
+
+// ══ PREPARING A .plotedge.json ══
+// Identical validation to handleBackupImportFile() in js/17-export.js — same version gate, same
+// two payload kinds. What is different is that it no longer imports on sight: a JSON backup is
+// additive and so has nothing destructive to confirm, but "nothing to confirm" is not the same as
+// "nothing to show". On a fresh device this is the moment someone most needs to be told what they
+// are about to get back, and a toast after the fact is not that.
+function restorePrepareJson(text, label){
+  let payload;
+  try { payload = JSON.parse(text); }
+  catch(e){ restoreShowError('That backup file is not valid JSON.'); return; }
+  if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
+    restoreShowError('That is not a PlotEdge backup file.'); return;
+  }
+  const metas = payload.kind === 'project' ? [payload.project]
+              : payload.kind === 'all' ? (payload.projects || []) : null;
+  if (!metas){ restoreShowError('Unrecognised backup type.'); return; }
+  const list = metas.filter(Boolean);
+  if (!list.length){ restoreShowError('That backup contained no projects.'); return; }
+
+  const features = list.reduce((n, m) => n + (((payload.data || {})[m.id] || {}).savedFeatures || []).length, 0);
+  const photos = list.reduce((n, m) => {
+    const saved = ((payload.data || {})[m.id] || {}).savedFeatures || [];
+    return n + saved.reduce((k, f) =>
+      k + (f.photos || []).length + (f.vertices || []).reduce((j, v) => j + (v.photos || []).length, 0), 0);
+  }, 0);
+
+  _restorePendingJson = { payload, metas: list, label };
+  restoreShowJsonConfirm({ label, list, features, photos });
+}
+
+
+// ══ STEP: CHECK ══
+// The counts are the whole reason this step exists: it is the one moment someone can tell whether
+// the file they picked is the survey they think it is. So they are figures, not a sentence —
+// "148" registers at a glance in a way that "148 features · 3 feature types · 96 photos" does not.
+function restoreStatsHtml(stats){
+  return '<div class="restore-stats">' + stats.map(s =>
+    '<div class="restore-stat">' +
+      '<div class="restore-stat-n">' + escapeHtml(String(s[0])) + '</div>' +
+      '<div class="restore-stat-l">' + escapeHtml(s[1]) + '</div>' +
+    '</div>').join('') + '</div>';
+}
+
+function restoreNoteHtml(html, warn){
+  return '<div class="restore-note' + (warn ? ' is-warn' : '') + '">' +
+    '<span class="restore-note-icon">' + RESTORE_ICON_SHIELD + '</span><span>' + html + '</span></div>';
+}
+
+function restoreShowPackConfirm(fileName){
+  const m = pendingPlotpackImport.manifest;
+  const c = m.counts || {};
+  const name = (m.project && m.project.name) || 'PlotEdge bundle';
+  const when = (m.exportedAt || '').slice(0, 10);
+  restoreSetHead('Check this backup', 'Nothing on this device has been changed yet.');
+  restoreSetStage('check');
+  const stats = [[c.features || 0, 'Features'], [c.featureTypes || 0, 'Types'], [c.photos || 0, 'Photos']];
+  if (c.sketches) stats.push([c.sketches, 'Sketches']);
+  // v1 always creates a NEW project. Merging into an open one means deciding what to do about
+  // colliding feature ids and same-id-different-fields schemas, and getting that wrong silently
+  // corrupts a live survey. A duplicate project is a nuisance; a corrupted one is lost work.
+  restoreSetBody(
+    '<div class="restore-card">' +
+      '<div class="restore-card-name">' + escapeHtml(name) + '</div>' +
+      '<div class="restore-card-file">' + escapeHtml(fileName || (_restoreEntry && _restoreEntry.name) || 'PlotPack') +
+        (when ? ' \u00b7 exported ' + escapeHtml(when) : '') + '</div>' +
+      restoreStatsHtml(stats) +
+    '</div>' +
+    restoreNoteHtml('This restores everything \u2014 schema, photos, per-vertex data and notes \u2014 into a ' +
+      '<strong>new project</strong>. Nothing already on this device is touched.'));
+  restoreSetActions({ label: 'Restore as a new project', fn: restoreCommit },
+                    { label: 'Cancel', fn: restoreBackToList });
+}
+
+function restoreShowSettingsConfirm(){
+  const n = Object.keys(pendingPlotpackImport.settings || {}).length;
+  const when = ((pendingPlotpackImport.manifest || {}).exportedAt || '').slice(0, 10);
+  restoreSetHead('Check these settings', 'Nothing on this device has been changed yet.');
+  restoreSetStage('check');
+  restoreSetBody(
+    '<div class="restore-card">' +
+      '<div class="restore-card-name">Device settings pack</div>' +
+      '<div class="restore-card-file">' + escapeHtml((_restoreEntry && _restoreEntry.name) || 'settings.plotpack') +
+        (when ? ' \u00b7 exported ' + escapeHtml(when) : '') + '</div>' +
+      restoreStatsHtml([[n, 'Settings']]) +
+    '</div>' +
+    // Warn-toned because this one genuinely overwrites something, unlike every other path here.
+    restoreNoteHtml('This <strong>replaces</strong> this device\u2019s preferences: theme, units, basemap, ' +
+      'quick actions and similar. No projects or photos are touched. Publishing access tokens are ' +
+      'never included in a pack, so you will need to re-enter yours.', true));
+  restoreSetActions({ label: 'Apply these settings', fn: restoreCommit },
+                    { label: 'Cancel', fn: restoreBackToList });
+}
+
+function restoreShowJsonConfirm(info){
+  const names = info.list.map(m => m.name).filter(Boolean);
+  restoreSetHead('Check this backup', 'Nothing on this device has been changed yet.');
+  restoreSetStage('check');
+  restoreSetBody(
+    '<div class="restore-card">' +
+      '<div class="restore-card-name">' +
+        escapeHtml(names.length ? names.slice(0, 3).join(', ') + (names.length > 3 ? '\u2026' : '') : 'JSON backup') +
+      '</div>' +
+      '<div class="restore-card-file">' + escapeHtml(info.label || 'backup.plotedge.json') + '</div>' +
+      restoreStatsHtml([[info.list.length, 'Projects'], [info.features, 'Features'], [info.photos, 'Photos']]) +
+    '</div>' +
+    restoreNoteHtml('Each project comes back under a <strong>new project</strong> of its own. ' +
+      'Nothing already on this device is touched.'));
+  restoreSetActions({ label: info.list.length === 1 ? 'Restore as a new project' : 'Restore ' + info.list.length + ' projects', fn: restoreCommit },
+                    { label: 'Cancel', fn: restoreBackToList });
+}
+
+
+// ══ STEP: APPLY ══
+function restoreShowWorking(title, sub){
+  restoreSetHead('Restoring', 'This can take a moment. Please keep the app open.');
+  restoreSetStage('apply');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-spinner"></div>' +
+      '<div class="restore-state-title">' + escapeHtml(title) + '</div>' +
+      '<div class="restore-state-sub" id="restoreWorkingSub">' + escapeHtml(sub || '') + '</div>' +
+      '<div class="restore-bar"><div class="restore-bar-fill" id="restoreBarFill"></div></div>' +
+    '</div>');
+  // Both buttons gone for the duration. There is nothing to decide during a write, and an enabled
+  // Cancel that cannot actually stop a half-finished loop is worse than no Cancel at all.
+  restoreSetActions(null, null);
+}
+
+function restoreSetProgress(done, total){
+  const fill = document.getElementById('restoreBarFill');
+  const sub = document.getElementById('restoreWorkingSub');
+  // A bundle with no photos still completes its bar rather than sitting at zero and looking stuck.
+  const pct = total > 0 ? Math.round((done / total) * 100) : 100;
+  if (fill) fill.style.width = pct + '%';
+  if (sub) sub.textContent = total > 0
+    ? 'Photo ' + Math.min(done + (done < total ? 1 : 0), total) + ' of ' + total
+    : 'Writing features and schema';
+}
+
+// The one place that commits. Everything above it is reading and asking; everything below it is
+// reporting.
+async function restoreCommit(){
+  if (_restoreBusy) return;
+  _restoreBusy = true;
+  const entry = _restoreEntry;
+  try {
+    if (_restorePendingJson){
+      restoreShowWorking('Writing projects', 'Restoring saved features and photos');
+      // Yielded to once so the sheet actually paints its Restoring step before the synchronous
+      // import loop below blocks the main thread. Without it, a large JSON backup jumps straight
+      // from Check to Restored and the progress step is never seen.
+      await new Promise(r => setTimeout(r, 30));
+      const { payload, metas } = _restorePendingJson;
+      const ids = metas.map(meta => importOneBackupProject(meta, (payload.data || {})[meta.id])).filter(Boolean);
+      restoreSetProgress(1, 1);
+      if (!ids.length){ restoreShowError('That backup contained no projects.'); return; }
+      persistStore();
+      refreshProjectsScreen();
+      restoreShowDone('Restored', ids.length + ' project' + (ids.length === 1 ? '' : 's') +
+        ' are back on this device. Open them from Projects.');
+    } else if (pendingPlotpackImport){
+      const isSettings = !!pendingPlotpackImport.settings;
+      restoreShowWorking(isSettings ? 'Applying settings' : 'Writing project',
+        isSettings ? 'Restoring this device\u2019s preferences' : 'Restoring photos, then features');
+      // Only hooked for the duration of this one call, and cleared in the finally below, so the
+      // Import screen's own restores are never reporting into a sheet that is not on screen.
+      plotpackProgressHook = restoreSetProgress;
+      await new Promise(r => setTimeout(r, 30));
+      const res = await runPendingPlotpackImport();
+      if (res && res.ok === false){ restoreShowError('Restore failed. Nothing was changed.'); return; }
+      if (isSettings){
+        // importDeviceSettings() raises its own restart prompt, which is a second sheet on top of
+        // this one — so this one gets out of the way rather than sitting behind it.
+        closeRestoreModal();
+        return;
+      }
+      const missing = (res && res.missing) || 0;
+      restoreShowDone('Restored',
+        ((res && res.features) || 0) + ' feature' + (((res && res.features) || 0) === 1 ? '' : 's') +
+        ' and ' + ((res && res.photos) || 0) + ' photo' + (((res && res.photos) || 0) === 1 ? '' : 's') +
+        ' are back. Open the project from Projects.' +
+        (missing ? ' ' + missing + ' photo' + (missing === 1 ? ' was' : 's were') + ' not in the bundle.' : ''));
+    } else {
+      restoreShowError('Nothing to restore.');
+      return;
+    }
+    // Bookkeeping runs only once something has actually committed — a cancelled confirm or a
+    // damaged bundle leaves the entry in whichever list it came from, to try again.
+    if (entry) removeDetectedBackupEntry(entry);
+    if (_restoreOnRestored){ try { _restoreOnRestored(); } catch(e) {} }
+    if (entry) _restoreList = _restoreList.filter(f => backupFileKey(f) !== backupFileKey(entry));
+  } catch(e){
+    console.warn('PlotEdge: restore commit failed', e);
+    restoreShowError('Restore failed. Nothing was changed.');
+  } finally {
+    _restoreBusy = false;
+    plotpackProgressHook = null;
+    _restorePendingJson = null;
+    _restoreEntry = null;
+  }
+}
+
+
+// ══ STEP: DONE ══
+function restoreShowDone(title, sub){
+  restoreSetHead('Restored', 'Your data is back on this device.');
+  restoreSetStage('apply');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-tick">' + RESTORE_ICON_TICK + '</div>' +
+      '<div class="restore-state-title">' + escapeHtml(title) + '</div>' +
+      '<div class="restore-state-sub">' + escapeHtml(sub) + '</div>' +
+    '</div>');
+  // A device holding several old exports is the normal case for a crew reinstalling, not the odd
+  // one, so finishing one offers the next rather than making them start the whole flow again.
+  const more = _restoreList.length > 1;
+  restoreSetActions({ label: 'Done', fn: closeRestoreModal },
+    more ? { label: 'Restore another', fn: () => restoreShowChoose(_restoreList) } : null);
+}
+
+
+// ══ STEP: ERROR ══
+// Always reachable backwards. A failure that strands someone on a dead sheet is the same dead end
+// the old "no backups found" toast was.
+function restoreShowError(msg){
+  restoreSetHead('Could not restore', 'Nothing on this device was changed.');
+  restoreSetBody(
+    '<div class="restore-state">' +
+      '<div class="restore-state-title">' + escapeHtml(msg) + '</div>' +
+      '<div class="restore-state-sub">The file may be damaged, or it may have been written by a ' +
+        'newer version of PlotEdge. Try another backup, or pick a file directly.</div>' +
+    '</div>');
+  restoreSetActions({ label: 'Choose a file\u2026', fn: () => { closeRestoreModal(); triggerBackupImport(); } },
+    _restoreList.length > 1 ? { label: 'Back', fn: () => restoreShowChoose(_restoreList) }
+                            : { label: 'Close', fn: closeRestoreModal });
 }

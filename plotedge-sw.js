@@ -15,8 +15,12 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v20';   // bumped: css/12-polish.css, css/05-components.css, js/21c-sheet-chrome.js —
-                             // fixed sheet header/.pa-controls sticky collision + orphaned CSS comment
+const SW_VERSION = 'v21';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
+                             // js/07-navigation.js, js/17b-plotpack.js — the restore flow moved out of
+                             // the Welcome page into #restoreModal, and the PlotIn indoor texture was
+                             // rebuilt as an accent-masked floor plan that also paints inside the
+                             // Collect cards. No new shipped files, so SHELL_ASSETS is unchanged; the
+                             // bump is purely so existing installs stop serving the old shell.
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 

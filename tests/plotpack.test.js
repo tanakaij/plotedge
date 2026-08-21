@@ -455,19 +455,52 @@ const main = (async () => {
       'the pending import was left dangling instead of being cleared on success');
   });
 
-  await check('every rewired restore-path confirm button routes through runPendingPlotpackImport(), not importPlotpackBundle() directly', () => {
-    // Static guard alongside the runtime check above: catches the bug coming back even in a
-    // refactor that never gets exercised by the jsdom fixture (e.g. a fourth path added later
-    // that copies the old pattern instead of this one).
+  await check('no restore path calls importPlotpackBundle() directly — every one goes through runPendingPlotpackImport()', () => {
+    // Static guard alongside the runtime check above, and deliberately broader than the one it
+    // replaces. That one counted `confirmBtn.onclick = async () => {…}` rewire blocks, which only
+    // existed because three restore paths each rendered the legacy confirm wizard inline and then
+    // patched its buttons by hand. Those paths are gone — they all open the restore sheet
+    // (#restoreModal) now — so counting rewire sites would be checking for a pattern that no
+    // longer exists and would pass trivially forever.
+    //
+    // What actually has to stay true is the reason that guard was written: a .plotpack can be
+    // EITHER a project pack or a settings pack, and only runPendingPlotpackImport() looks at which.
+    // Anything calling importPlotpackBundle() directly reads p.features — undefined on a settings
+    // pack — throws, and has the throw swallowed by that function's own try/catch and reported as
+    // "Restore failed, nothing was changed" while localStorage is never touched. So this asserts
+    // the invariant itself: exactly one caller, and it is the dispatcher.
     const src = fs.readFileSync(path.join(ROOT, 'js', '17b-plotpack.js'), 'utf8');
-    const rewireSites = [...src.matchAll(/confirmBtn\.onclick = async \(\) => \{[\s\S]*?\};/g)].map(m => m[0]);
-    assert(rewireSites.length >= 3, `expected at least 3 rewired confirm buttons, found ${rewireSites.length}`);
-    rewireSites.forEach((block, i) => {
-      assert(!/await importPlotpackBundle\(\)/.test(block),
-        `rewired confirm button #${i + 1} calls importPlotpackBundle() directly again — a settings pack routed through it will silently fail`);
-      assert(/runPendingPlotpackImport\(\)/.test(block),
-        `rewired confirm button #${i + 1} does not call runPendingPlotpackImport()`);
-    });
+    const calls = [...src.matchAll(/^(?!\s*(?:\/\/|\*)).*\bimportPlotpackBundle\(\)/gm)].map(m => m[0].trim());
+    // The two legitimate mentions: the function's own declaration, and the single call inside
+    // runPendingPlotpackImport(). Everything else is a path that has skipped the kind check.
+    const offenders = calls.filter(line =>
+      !/^async function importPlotpackBundle/.test(line) &&
+      !/^return await importPlotpackBundle\(\)/.test(line));
+    assert(offenders.length === 0,
+      'these call importPlotpackBundle() directly instead of runPendingPlotpackImport(); a settings ' +
+      'pack routed through them will silently fail:\n    ' + offenders.join('\n    '));
+    assert(/return await importPlotpackBundle\(\);/.test(src),
+      'runPendingPlotpackImport() no longer calls importPlotpackBundle() at all');
+  });
+
+  await check('the restore sheet is the single confirm surface, and it cannot be dismissed mid-write', () => {
+    // The inline hosts are what made the old flow read as the page breaking: the confirm step was
+    // written into a hidden div in the middle of the Welcome screen. If one comes back, the mess
+    // comes back with it.
+    const src = fs.readFileSync(path.join(ROOT, 'js', '17b-plotpack.js'), 'utf8');
+    const shell = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    assert(/id="restoreModal"/.test(shell), 'the restore sheet markup is missing from index.html');
+    assert(!/getElementById\('foundBackupWizard'\)/.test(src),
+      'something is rendering into the old inline #foundBackupWizard host again');
+    // The invariant: a restore that is writing to the store refuses to close. Without this, the X,
+    // a backdrop tap or hardware Back can tear the sheet away mid-loop and leave a project holding
+    // half its photos with nothing on screen to explain it.
+    const close = src.slice(src.indexOf('function closeRestoreModal('));
+    assert(/if \(_restoreBusy\) return;/.test(close.slice(0, 1200)),
+      'closeRestoreModal() no longer refuses to close while a restore is in flight');
+    assert(/closeRestoreModal\(\)/.test(fs.readFileSync(path.join(ROOT, 'js', '07-navigation.js'), 'utf8')),
+      'closeTopOverlay() does not route the restore sheet through its own close — hardware Back ' +
+      'would fall through to the catch-all and strip .show mid-write');
   });
 
   // ── widget theme ──

@@ -472,6 +472,16 @@ function closeTopOverlay(){
   // already does on close — e.g. clearing the pending confirm callback — still runs.
   const confirmModal = document.getElementById('confirmModal');
   if (isReallyOpen(confirmModal)) { closeConfirmModal(); return true; }
+  // Listed high, immediately under confirmModal: the restore sheet can raise showConfirm() on top
+  // of itself (a settings pack asks to restart the app), so a Back press with both up must answer
+  // the confirm first and leave the sheet where it is.
+  // Routed through its own named close rather than the catch-all at the bottom because
+  // closeRestoreModal() carries a real refusal — it declines to close at all while a restore is
+  // mid-write. A generic classList.remove('show') would tear the sheet off the screen halfway
+  // through writing photos into a project, leaving a project holding half its media and nothing on
+  // screen to say so. See the invariant note in js/17b-plotpack.js.
+  const restoreModal = document.getElementById('restoreModal');
+  if (isReallyOpen(restoreModal)) { closeRestoreModal(); return true; }
   // Back / backdrop / X on the field sheet all discard the draft, matching Cancel — committing
   // half-typed edits on a dismiss gesture would be the surprising outcome here.
   // Checked BEFORE ftFieldModal: the subfield sheet is opened from inside the field sheet, so when
@@ -565,13 +575,24 @@ function closeTopOverlay(){
   // Catch-all. Every sheet above gets its own named close so its cleanup runs, but Back must never
   // navigate the screen out from under an open sheet just because someone added a modal and forgot
   // to list it here — that failure is invisible until a user is stuck behind it.
-  const stray = [...document.querySelectorAll('.modal-overlay.show')].find(isReallyOpen);
+  // ── ONE SHEET CAN REFUSE ──
+  // Both sweeps below strip .show directly rather than calling a sheet's own close, which is the
+  // whole point of a catch-all: a sheet nobody listed must still not trap the Back button. But
+  // the restore sheet is uninterruptible while it is writing photos into a project — see the
+  // invariant note in js/17b-plotpack.js — and a bare classList.remove() would tear it off the
+  // screen mid-loop, leaving a project holding half its media and nothing on screen to say so.
+  // Checked with typeof so the sweeps keep working unchanged if that file is ever not loaded.
+  const locked = el => el.id === 'restoreModal'
+    && typeof restoreIsLocked === 'function' && restoreIsLocked();
+  const stray = [...document.querySelectorAll('.modal-overlay.show')].find(el => isReallyOpen(el) && !locked(el));
   if (stray) { stray.classList.remove('show'); return true; }
   // Anything still carrying .show at this point is invisible — clear the class
   // so it cannot accumulate, but do NOT report it as closed: reporting true
   // here is exactly what made Back feel broken.
-  document.querySelectorAll('.modal-overlay.show').forEach(el => el.classList.remove('show'));
-  return false;
+  document.querySelectorAll('.modal-overlay.show').forEach(el => { if (!locked(el)) el.classList.remove('show'); });
+  // A locked restore sheet DID consume the press: nothing else should act on it, and Back must not
+  // fall through and navigate the screen out from under a write in progress.
+  return !![...document.querySelectorAll('.modal-overlay.show')].find(locked);
 }
 
 if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {

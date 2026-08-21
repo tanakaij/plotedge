@@ -376,3 +376,221 @@
      Sheets set their own bottom padding inconsistently, so the last control sat
      anywhere between flush against the action row and 20px clear of it. */
   .modal-box.has-sheet-chrome > .sheet-body > :last-child { margin-bottom:0; }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     RESTORE SHEET  (#restoreModal — see the markup note in index.html)
+     ══════════════════════════════════════════════════════════════════════════
+     The restore journey used to render inline on the Welcome page as plain body text and two
+     stacked buttons, which is why it read as the screen breaking rather than as a question being
+     asked. Everything below is the styling for the sheet that replaced it.
+
+     Nothing here restyles .modal-box, .sheet-head-bar or .modal-actions — those come from the
+     shared sheet chrome and this sheet deliberately looks like every other sheet in the app. What
+     is defined here is only what is genuinely new: the progress rail, the file rows, the summary
+     card, and the two waiting/finished states. */
+
+  /* ── PROGRESS RAIL ──
+     Three stages, always all three visible. Showing only the current one would be smaller but it
+     would also hide the fact that there IS a next step, and "how much more of this is there"
+     is the actual anxiety when someone is restoring data they are afraid of losing.
+     A stage is one of three states: done (filled dot), current (ringed dot, full-weight label),
+     ahead (hollow dot, dimmed). Set by data-stage on #restoreRail in restoreSetStage(). */
+  .restore-rail {
+    display:flex; align-items:center; gap:6px;
+    margin:0 0 16px;
+  }
+  .restore-rail-step {
+    display:flex; align-items:center; gap:7px;
+    flex:1; min-width:0;
+    font-size:11px; font-weight:800; letter-spacing:0.075em; text-transform:uppercase;
+    color:var(--text-tertiary);
+    transition:color var(--dur-base) ease;
+  }
+  /* The connector between stages. Drawn as the step's own trailing rule rather than as separate
+     elements, so the rail keeps working if a stage is ever added or removed. */
+  .restore-rail-step::after {
+    content:''; flex:1; height:2px; border-radius:999px;
+    background:var(--card-border);
+    transition:background var(--dur-base) ease;
+  }
+  .restore-rail-step:last-child { flex:0 0 auto; }
+  .restore-rail-step:last-child::after { display:none; }
+  .restore-rail-dot {
+    width:9px; height:9px; border-radius:999px; flex-shrink:0;
+    border:2px solid var(--card-border);
+    background:transparent;
+    transition:border-color var(--dur-base) ease, background var(--dur-base) ease, box-shadow var(--dur-base) ease;
+  }
+  .restore-rail-step.is-done { color:var(--text-secondary); }
+  .restore-rail-step.is-done .restore-rail-dot { border-color:var(--accent-primary); background:var(--accent-primary); }
+  .restore-rail-step.is-done::after { background:var(--accent-primary); }
+  .restore-rail-step.is-now { color:var(--accent-primary); }
+  .restore-rail-step.is-now .restore-rail-dot {
+    border-color:var(--accent-primary);
+    box-shadow:0 0 0 3px rgba(var(--accent-rgb),0.18);
+  }
+
+  /* ── STEP TRANSITION ──
+     One short fade-and-lift as the body content is swapped. Deliberately not a slide: a slide
+     implies a direction, and this flow can go forwards (choose → confirm) or sideways (confirm →
+     back to choose) through the same element. 140ms is short enough that it never delays a tap. */
+  .restore-body > * { animation:restore-step-in 0.16s cubic-bezier(0.32,0.72,0,1) both; }
+  @keyframes restore-step-in {
+    from { opacity:0; transform:translate3d(0,5px,0); }
+    to   { opacity:1; transform:none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .restore-body > * { animation:none; }
+  }
+
+  /* ── FILE ROWS ──
+     One row per backup found. A whole-row button, not a label with a Restore button on the end:
+     at this point in the flow every row does exactly one thing, and the next screen is a confirm
+     step anyway, so there is nothing to be gained by making the tap target a 70px button instead
+     of the row. */
+  .restore-row {
+    display:flex; align-items:center; gap:12px; width:100%;
+    text-align:left; font-family:var(--font);
+    padding:13px 14px; margin-bottom:8px;
+    border:1px solid var(--card-border); border-radius:var(--radius-lg);
+    background:var(--surface-sunken); color:var(--text-primary);
+    cursor:pointer;
+    transition:border-color var(--dur-fast) ease, background var(--dur-fast) ease, transform var(--dur-fast) ease;
+  }
+  .restore-row:last-of-type { margin-bottom:0; }
+  .restore-row:active { transform:scale(0.985); background:var(--card-bg); }
+  .restore-row:hover { border-color:rgba(var(--accent-rgb),0.45); }
+  .restore-row-icon {
+    width:36px; height:36px; border-radius:var(--radius-md); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(var(--accent-rgb),0.12);
+    border:1px solid rgba(var(--accent-rgb),0.28);
+    color:var(--accent-primary);
+  }
+  /* The row is a <button>, so its children are spans and every one of them has to be told to be a
+     block — a stray inline here collapses the two lines onto one and the ellipsis never fires. */
+  .restore-row-body { display:block; min-width:0; flex:1; }
+  .restore-row-name {
+    display:block;
+    font-size:13.5px; font-weight:700; color:var(--text-primary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .restore-row-meta {
+    display:block;
+    font-size:11.5px; font-weight:500; line-height:1.45; color:var(--text-tertiary);
+    margin-top:2px;
+  }
+  /* Soft, never a block: restoring is additive by design (a fresh project id is always minted), and
+     two projects of the same name can be entirely legitimate — two visits to one site. */
+  .restore-row-warn { color:var(--warn-ink); font-weight:600; }
+  .restore-row-chevron { display:flex; color:var(--text-tertiary); flex-shrink:0; }
+
+  /* ── SUMMARY CARD (confirm step) ──
+     The counts are the whole point of this step: it is the one moment someone can tell whether
+     the file they picked is the survey they think it is. So they are the largest thing on the
+     screen, as figures rather than as a sentence — "148" reads at a glance in a way that
+     "148 features · 3 feature types · 96 photos" does not. */
+  .restore-card {
+    border:1px solid var(--card-border); border-radius:var(--radius-lg);
+    background:var(--surface-sunken);
+    padding:16px 15px; margin-bottom:14px;
+  }
+  .restore-card-name {
+    font-family:var(--font-display); font-size:17px; font-weight:800; letter-spacing:-0.01em;
+    color:var(--text-primary); line-height:1.25;
+    overflow-wrap:anywhere;
+  }
+  .restore-card-file {
+    font-size:11.5px; font-weight:600; color:var(--text-tertiary); margin-top:3px;
+    overflow-wrap:anywhere;
+  }
+  .restore-stats {
+    display:flex; gap:8px; margin-top:14px;
+  }
+  .restore-stat {
+    flex:1; min-width:0; text-align:center;
+    padding:10px 4px; border-radius:var(--radius-md);
+    background:var(--card-bg); border:1px solid var(--card-border);
+  }
+  .restore-stat-n {
+    font-family:var(--font-display); font-size:19px; font-weight:800; line-height:1;
+    color:var(--accent-primary);
+    font-variant-numeric:tabular-nums;
+  }
+  .restore-stat-l {
+    font-size:9.5px; font-weight:800; letter-spacing:0.09em; text-transform:uppercase;
+    color:var(--text-tertiary); margin-top:5px;
+  }
+  /* The safety promise, and the reason this step exists at all. Tinted rather than plain body text
+     so it is read as reassurance and not skipped as boilerplate. */
+  .restore-note {
+    display:flex; gap:10px; align-items:flex-start;
+    font-size:12.5px; line-height:1.55; font-weight:500; color:var(--text-secondary);
+    padding:12px 13px; border-radius:var(--radius-lg);
+    background:rgba(var(--accent-rgb),0.07);
+    border:1px solid rgba(var(--accent-rgb),0.2);
+  }
+  .restore-note strong { color:var(--text-primary); font-weight:750; }
+  .restore-note-icon { color:var(--accent-primary); flex-shrink:0; margin-top:1px; }
+  .restore-note.is-warn {
+    background:rgba(var(--warn-rgb, 245,158,11),0.09);
+    border-color:rgba(var(--warn-rgb, 245,158,11),0.28);
+  }
+  .restore-note.is-warn .restore-note-icon { color:var(--warn-ink); }
+
+  /* ── WAITING AND FINISHED ──
+     Both states are the same centred block, because they are the same moment from the user's side:
+     nothing to decide, just something to be told. */
+  .restore-state {
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    padding:22px 6px 12px;
+  }
+  .restore-state-title {
+    font-family:var(--font-display); font-size:16px; font-weight:800; color:var(--text-primary);
+    margin-top:16px;
+  }
+  .restore-state-sub {
+    font-size:12.5px; line-height:1.55; font-weight:500; color:var(--text-secondary);
+    margin-top:6px; max-width:280px;
+  }
+  /* The one piece of motion in the sheet, and only while something is genuinely happening. */
+  .restore-spinner {
+    width:38px; height:38px; border-radius:999px;
+    border:3px solid var(--card-border);
+    border-top-color:var(--accent-primary);
+    animation:restore-spin 0.75s linear infinite;
+  }
+  @keyframes restore-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .restore-spinner { animation-duration:2.4s; }
+  }
+  /* Determinate where it can be: restoring is a known number of photos, so the bar reports real
+     progress rather than pretending with an indeterminate sweep. */
+  .restore-bar {
+    width:100%; max-width:260px; height:6px; border-radius:999px;
+    background:var(--card-border); overflow:hidden; margin-top:18px;
+  }
+  .restore-bar-fill {
+    height:100%; width:0%; border-radius:999px;
+    background:var(--accent-primary);
+    transition:width var(--dur-slow) linear;
+  }
+  .restore-tick {
+    width:46px; height:46px; border-radius:999px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(var(--accent-rgb),0.14);
+    border:1px solid rgba(var(--accent-rgb),0.32);
+    color:var(--accent-primary);
+    animation:restore-tick-in 0.34s cubic-bezier(0.34,1.4,0.64,1) both;
+  }
+  @keyframes restore-tick-in {
+    from { transform:scale(0.7); opacity:0; }
+    to   { transform:none; opacity:1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .restore-tick { animation:none; }
+  }
+  .restore-empty-where {
+    font-size:11.5px; font-weight:600; line-height:1.6; color:var(--text-tertiary);
+    margin-top:10px; max-width:300px;
+  }

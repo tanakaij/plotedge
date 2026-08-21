@@ -300,39 +300,159 @@
   html[data-gps="error"] { --gps-tint: 239,68,68;  --gps-a: 0.11; }
 
   /* ══ INDOOR TEXTURE (PlotIn) ══
-     Two layered CSS gradients, no images: an offset-brick weave (four linear-gradients staggered
-     into the classic brick trick) for close-up wall texture, plus one wide repeating-linear-
-     gradient for a few evenly-spaced vertical lines that read as structural columns/door frames at
-     a glance. Both painted in --text-primary so they auto-track the theme instead of needing a
-     light/dark variant, and both stay at opacity:0 until .indoor-active is set (see
-     updateIndoorTexture() in js/06-collect.js) — this layer exists in the DOM on every screen but
-     must only ever be visible on Collect while PlotIn is selected.
-     WHY STATIC: Collect is already the app's calmest screen — data-screen="form" dials --mesh-i
-     down specifically so a moving background can't distract someone filling in a field under
-     direct sun (see the screen-intensity note above). A drifting texture here would undo that same
-     reasoning the moment PlotIn switched on, so this has no animation at all. */
+     REWRITTEN. What was here before was five stacked linear-gradients making a small offset-brick
+     weave, painted in --text-primary at 0.09/0.11 opacity, on a single fixed z-index:-1 layer.
+     Two things were wrong with it:
+
+       1. IT WAS NOT VISIBLE. A 1px hairline at 0.09 alpha, in the SAME ink as the body text, over
+          the app gradient, is roughly a 1.1:1 contrast — below the threshold at which a repeating
+          pattern registers at all. The landing screen's contour layer reads because it is
+          accent-tinted and masked (see #view-projects::before above); this was neither.
+       2. IT HAD NO COVERAGE. Collect is the most card-dense screen in the app — step cards, the
+          vertex map, the attribute form. A z-index:-1 layer paints below every one of those
+          opaque .card backgrounds, so the texture only ever appeared in the ~16px gutters down
+          the sides. Switching to PlotIn changed a strip of margin and nothing else.
+
+     Both are fixed by splitting the job across three surfaces that together cover the screen:
+
+       · .indoor-texture itself — an enclosed-room wash. No tile: a soft overhead pool of light
+         at the top and a vignette drawn in at the edges, which is what actually sells "inside"
+         before any line work is read. It is also the only part that survives behind a full-bleed
+         map.
+       · ::before — the 48px floor grid, and ::after — the 240px floor plan. Both accent-masked
+         exactly like the landing contour, so they carry real chroma and track the active pillar.
+         The plan sits at roughly twice the landing texture's alpha, because it is competing with
+         a busier screen rather than an empty one.
+       · html.indoor-active #panel-collect .card — the same plan artwork painted INSIDE the cards
+         that were hiding it. This is the coverage fix. Baked ink rather than a mask (a
+         background-image cannot be tinted by one), which is why 01-tokens.css carries a light and
+         a dark variant.
+
+     WHY STILL NO DRIFT: unchanged from the original reasoning. data-screen="form" dials --mesh-i
+     down to 0.28 specifically so nothing moves behind someone typing a measurement under direct
+     sun. The one concession is a single non-looping reveal when PlotIn is switched on, so the
+     change of environment is felt rather than just found — it runs once and then the screen is
+     completely static again. */
   .indoor-texture {
     position: fixed; inset: 0; z-index: -1; pointer-events: none;
     opacity: 0;
     transition: opacity var(--dur-slow) ease;
+    /* Overhead light + room vignette. Painted on the element, not on a pseudo-element, so the two
+       masked tile layers below can each own one and neither has to share. */
     background-image:
-      linear-gradient(335deg, var(--text-primary) 1px, transparent 1px),
-      linear-gradient(155deg, var(--text-primary) 1px, transparent 1px),
-      linear-gradient(335deg, var(--text-primary) 1px, transparent 1px),
-      linear-gradient(155deg, var(--text-primary) 1px, transparent 1px),
-      repeating-linear-gradient(90deg, var(--text-primary) 0, var(--text-primary) 2px, transparent 2px, transparent 240px);
-    background-position: 0 2px, 4px 10px, 24px 12px, 28px 20px, 0 0;
-    background-size: 48px 24px, 48px 24px, 48px 24px, 48px 24px, 240px 100%;
+      radial-gradient(120% 62% at 50% -12%,
+        rgba(var(--accent-rgb), 0.16) 0%,
+        rgba(var(--accent-rgb), 0.06) 42%,
+        transparent 74%),
+      radial-gradient(140% 96% at 50% 42%,
+        transparent 52%,
+        rgba(0, 0, 0, 0.16) 88%,
+        rgba(0, 0, 0, 0.30) 100%);
   }
-  /* Dark theme: --text-primary is near-white, so a little goes a long way. Light theme's
-     --text-primary is near-black over a much brighter page and reads fainter at the same opacity,
-     so it gets a slightly higher ceiling — tuned by eye against the same "subtle but visible"
-     brief the header watermark above uses (opacity:0.1 there, on a much smaller mark). */
-  html.indoor-active .indoor-texture { opacity: 0.09; }
-  html[data-theme="light"].indoor-active .indoor-texture { opacity: 0.11; }
-  /* Same reasoning as the mesh blobs just below: this is a legibility wash, not motion, so outdoor
-     high-contrast mode drops it entirely rather than dimming it further. */
+  /* ── FLOOR GRID ── the surface underfoot. Deliberately almost subliminal on its own; its job is
+     to stop the plan above it reading as a diagram floating in space. */
+  .indoor-texture::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    /* See the ink note on ::after below — same problem, same fix, lower ceiling. */
+    background-color: rgba(var(--accent-rgb), 0.16);
+    background-color: color-mix(in srgb, color-mix(in srgb, rgb(var(--accent-rgb)) 30%, #ffffff) 13%, transparent);
+    -webkit-mask-image: var(--indoor-grid-tile);
+            mask-image: var(--indoor-grid-tile);
+    -webkit-mask-size: 48px 48px;
+            mask-size: 48px 48px;
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+  }
+  /* ── FLOOR PLAN ── the artwork that carries the meaning: walls, door swings, a stair run,
+     dimension lines, setout stations. 0.13 on dark against the landing texture's 0.055, because
+     this one has to be findable over cards and a map rather than over an empty screen. */
+  .indoor-texture::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    /* ══ WHY THE INK IS NOT JUST THE ACCENT ══
+       On a light canvas, accent-at-low-alpha darkens, which is a large perceptual change and is
+       exactly why the landing screen's contour layer reads at 0.075. On the dark theme it does the
+       opposite: laying a dark-ish accent over a near-black page barely moves the luminance at all,
+       so the same technique that works on light produces something invisible on dark — which is
+       the original "the texture is there but you cannot see it" complaint, restated.
+       So on dark the ink is the accent mixed toward white: it still carries the pillar's hue, but
+       it now LIGHTENS the page, which is the only direction that reads against a dark background.
+       The plain rgba() above it is a fallback for any WebView without color-mix() — a slightly
+       flatter line, never a missing one.
+       Alpha is baked into the colour rather than set as `opacity`, because the reveal animation
+       below animates opacity on this same element and would otherwise finish by resetting it to 1. */
+    background-color: rgba(var(--accent-rgb), 0.28);
+    background-color: color-mix(in srgb, color-mix(in srgb, rgb(var(--accent-rgb)) 40%, #ffffff) 26%, transparent);
+    -webkit-mask-image: var(--indoor-plan-tile);
+            mask-image: var(--indoor-plan-tile);
+    -webkit-mask-size: 240px 240px;
+            mask-size: 240px 240px;
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+  }
+  /* Light theme is the sunlight theme (see the note on the mesh bands above): ambient light
+     crushes low-contrast detail first, so the ceiling on both tile layers goes up rather than
+     down, exactly as it does for #view-projects::before. */
+  /* Light theme wants the plain accent, undiluted: here the ink is DARKENING a bright page, which
+     is the direction that reads, and mixing it toward white would undo the whole effect. */
+  html[data-theme="light"] .indoor-texture::before {
+    background-color: rgba(var(--accent-rgb), 0.13);
+    background-color: rgba(var(--accent-rgb), 0.13);
+  }
+  html[data-theme="light"] .indoor-texture::after {
+    background-color: rgba(var(--accent-rgb), 0.17);
+    background-color: rgba(var(--accent-rgb), 0.17);
+  }
+  html[data-theme="light"] .indoor-texture {
+    background-image:
+      radial-gradient(120% 62% at 50% -12%,
+        rgba(var(--accent-rgb), 0.20) 0%,
+        rgba(var(--accent-rgb), 0.07) 42%,
+        transparent 74%),
+      radial-gradient(140% 96% at 50% 42%,
+        transparent 52%,
+        rgba(0, 0, 0, 0.07) 88%,
+        rgba(0, 0, 0, 0.13) 100%);
+  }
+
+  html.indoor-active .indoor-texture { opacity: 1; }
+  /* ── THE ONE-SHOT REVEAL ──
+     Not a loop. `forwards` on a single 620ms run, so the layer settles and then never moves again
+     — the screen is as calm as it was before, but the transition into PlotIn is felt. The scale is
+     tiny on purpose: enough to read as the room resolving, not enough to be a zoom. */
+  html.indoor-active .indoor-texture::after { animation: indoor-reveal 0.62s var(--sheet-ease, cubic-bezier(0.32,0.72,0,1)) both; }
+  @keyframes indoor-reveal {
+    from { opacity: 0; transform: scale(1.035); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html.indoor-active .indoor-texture::after { animation: none; }
+  }
+  /* Same rule the mesh and the landing contour follow: this is a legibility wash, not information,
+     so outdoor high-contrast mode drops it outright rather than dimming it. */
   html[data-contrast="high"] .indoor-texture { opacity: 0 !important; }
+
+  /* ══ COVERAGE: THE CARDS THEMSELVES ══
+     The fixed layer above cannot reach the middle of the Collect screen, because the middle of the
+     Collect screen is opaque cards. Painting the same plan inside them is what turns a strip of
+     textured margin into a textured screen.
+     Kept to #panel-collect: PlotIn is a Collect-tab mode, and html.indoor-active is already gated
+     on that tab (see updateIndoorTexture() in js/06-collect.js), but scoping it here as well means
+     a future screen that reuses .card can never inherit a floor plan by accident.
+     background-blend-mode is what keeps this honest: the tile is blended into --card-bg rather
+     than laid over it, so the card surface stays one flat colour to the eye and nothing sitting on
+     it — labels, values, inputs — loses contrast. */
+  html.indoor-active #panel-collect .card {
+    background-image: var(--indoor-plan-ink);
+    background-repeat: repeat;
+    background-size: 240px 240px;
+    background-blend-mode: soft-light;
+  }
+  /* The tile ink is white, which is invisible on a light card — swap to the black-ink variant
+     rather than letting the texture silently vanish on exactly the theme used outdoors. */
+  html[data-theme="light"].indoor-active #panel-collect .card {
+    background-image: var(--indoor-plan-ink-dark);
+  }
+  html[data-contrast="high"].indoor-active #panel-collect .card { background-image: none; }
 
   /* ── REDUCED MOTION / LOW POWER ──
      Pause, don't hide. The palette is still doing legibility work; only the drift is a luxury. */
