@@ -1,7 +1,7 @@
 # PlotEdge update — restore flow + PlotIn texture
 
 Drop these over your tree preserving paths. **10 files: 9 modified, 1 new.**
-`npm test` → **502/502 passing** (baseline was 471).
+`npm test` → **503/503 passing** (baseline was 471).
 
 **Service worker bumped to v21.** No new shipped files, so `SHELL_ASSETS` is
 unchanged — the bump exists only so installed copies stop serving the old shell.
@@ -144,7 +144,7 @@ Outdoor high-contrast mode strips all of it, same rule as the mesh.
 | `js/07-navigation.js` | `closeTopOverlay()` routes the restore sheet through its own close, and the catch-all sweep honours a locked write |
 | `js/17b-plotpack.js` | the whole restore sheet; determinate progress hook; three inline restore paths collapsed into one |
 | `plotedge-sw.js` | v20 → v21 |
-| `tests/plotpack.test.js` | the "one dispatcher" guard rewritten as an invariant rather than a pattern count |
+| `tests/plotpack.test.js` | the "one dispatcher" guard rewritten as an invariant; plus a real `.plotpack` driven end-to-end through the sheet |
 | `tests/restore-sheet.test.js` | **new** — boots the real app and drives every step of the sheet |
 | `tests/run.js` | registers the new suite |
 
@@ -161,7 +161,21 @@ a project pack **or** a settings pack, and only `runPendingPlotpackImport()`
 looks at which. So the guard now asserts the invariant itself — exactly one
 caller of `importPlotpackBundle()`, and it is the dispatcher.
 
+### On the two new runtime checks
+
 `tests/restore-sheet.test.js` is a **runtime** suite on purpose. The failure it
 exists to catch is a step that renders into nothing, and that never throws — it
 just produces a screen with the wrong thing on it, which no amount of grepping
-the source will notice.
+the source will notice. It drives every step, including the "cannot be dismissed
+mid-write" invariant, against a JSON backup.
+
+`plotpack.test.js` gains one more: the **same real bundle** its other checks
+round-trip — real zip, real checksums, real photo bytes — driven through the
+sheet rather than through `importPlotpackBundle()` directly. Every existing check
+in that file asks *did the survey survive*; this one asks *did the person see
+what happened*, which is the half that was broken. It asserts the Check step
+writes nothing before you confirm, that the progress bar's total is the real
+photo count (a bundle carrying two photos reporting "photo 1 of 1" is worse than
+no bar), that the finished step's numbers come from the importer rather than
+being guessed, and that the progress hook is detached afterwards — left attached,
+the Import screen's own restores would report into a sheet that isn't on screen.

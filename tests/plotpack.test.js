@@ -274,6 +274,73 @@ const main = (async () => {
       'the restored photo is not a JPEG data URL');
   });
 
+  // ══ THE SAME BUNDLE, DRIVEN THROUGH THE RESTORE SHEET ══
+  // Every check above calls preparePlotpackImport()/importPlotpackBundle() directly, which is the
+  // right level for asking "did the survey survive the round trip". It is the wrong level for
+  // asking "did the person see what happened" — and that is the half that was broken. The sheet
+  // sits between those functions and the screen: it reads pendingPlotpackImport to build its
+  // confirm step, hooks the photo loop to drive its progress bar, and reads the importer's return
+  // value to report what came back. None of that is exercised by calling the importer directly, and
+  // none of it throws when it is wrong; it just puts the wrong numbers on screen.
+  // tests/restore-sheet.test.js drives the same flow with a JSON backup, where JSZip is stubbed.
+  // This is the one place a REAL .plotpack — real zip, real checksums, real photo bytes — goes
+  // through it.
+  await check('the restore sheet reports a real .plotpack accurately, start to finish', async () => {
+    w.__media.clear();
+    run('pendingPlotpackImport = null');
+    const file = lastExport.bytes; file.name = 'Sheet_Run.plotpack';
+
+    // Every progress report is recorded, so the bar can be checked for the two failures that matter:
+    // never moving, and lying about the total.
+    run('globalThis.__prog = []; globalThis.__realProg = restoreSetProgress; restoreSetProgress = (d,t) => { globalThis.__prog.push([d,t]); return globalThis.__realProg(d,t); };');
+
+    run("openRestoreSheet(null,{source:'file'})");
+    await w.restorePreparePack(file);
+
+    const bodyText = () => w.document.getElementById('restoreBody').textContent;
+    assert(run('pendingPlotpackImport'), 'the sheet did not leave a pending import to confirm');
+    // The counts are the whole reason the Check step exists: it is the one moment someone can tell
+    // whether the file they picked is the survey they think it is.
+    assert(/Bundle Test/.test(bodyText()), `the confirm step does not name the project: ${bodyText()}`);
+    assert(/Features/.test(bodyText()) && /Photos/.test(bodyText()),
+      'the confirm step is not showing the counts');
+    assert(/new project/.test(bodyText()),
+      'the confirm step dropped the "into a new project, nothing is touched" promise');
+    // Still nothing written at this point — that is what the step is promising.
+    assert(w.__media.size === 0, 'the Check step wrote photos before the person confirmed');
+    assert(/Restore as a new project/.test(w.document.getElementById('restorePrimary').textContent),
+      'the primary button does not commit');
+
+    const before = run('projects.length');
+    await w.restoreCommit();
+
+    assert(run('projects.length') === before + 1, 'confirming did not restore the project');
+    assert(w.__media.get('ph_a') && w.__media.get('ph_b'),
+      'the sheet path did not restore the photos the direct path does');
+
+    // The bar has to have moved, and its total has to be the real photo count — a bundle carrying
+    // two photos that reports "photo 1 of 1" is worse than no bar.
+    const prog = run('globalThis.__prog');
+    assert(prog.length >= 3, `the progress bar barely reported: ${JSON.stringify(prog)}`);
+    assert(prog.every(([, t]) => t === 2), `the progress total is not the real photo count: ${JSON.stringify(prog)}`);
+    assert(prog[prog.length - 1][0] === 2, `the bar never reached the end: ${JSON.stringify(prog)}`);
+
+    // And the finished step has to say what actually came back, from the importer's own numbers.
+    assert(/Restored/.test(bodyText()), 'the sheet did not reach its finished step');
+    assert(/1 feature\b/.test(bodyText()) && /2 photos/.test(bodyText()),
+      `the finished step misreports what was restored: ${bodyText()}`);
+
+    // The write is over, so the sheet must be dismissable again.
+    assert(run('restoreIsLocked()') === false, 'the sheet stayed locked after the restore finished');
+    run('closeRestoreModal()');
+    assert(!w.document.getElementById('restoreModal').classList.contains('show'),
+      'the sheet would not close once the restore was done');
+    // The hook must not survive the call: left set, the Import screen’s own restores would report
+    // into a sheet that is not on screen.
+    assert(run('plotpackProgressHook') === null, 'the progress hook was left attached after the restore');
+    run('restoreSetProgress = globalThis.__realProg;');
+  });
+
   await check('restoring never overwrites — it lands as a separate project', async () => {
     // v1 is deliberately new-project-only. A duplicate project is a nuisance; a
     // silently merged one is lost work.
