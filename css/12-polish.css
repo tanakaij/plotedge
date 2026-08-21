@@ -594,3 +594,155 @@
     font-size:11.5px; font-weight:600; line-height:1.6; color:var(--text-tertiary);
     margin-top:10px; max-width:300px;
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     PLOTIN — THE MODE SWITCH AND THE LEVEL CHIP
+     ══════════════════════════════════════════════════════════════════════════
+     The ambient half of PlotIn lives in css/02-mesh.css (texture, cooled mesh, the demoted GPS
+     row). These are the two pieces of chrome that had to change shape rather than just tone. */
+
+  /* ── ENVIRONMENT TOGGLE ──
+     It was two bare text pills using the shared .geo-opt, identical to the geometry-type toggle in
+     the schema editor — despite being the one control on Collect that changes how capture itself
+     works. Scoped to #collectEnvToggle so every other .geo-toggle in the app is untouched.
+     Two lines and an icon, because at arm's length in the field the icon is the read and the
+     second line answers the question the first one raises: PlotIn versus PlotOut says nothing
+     about what changes; "Indoors · plan" does. */
+  #collectEnvToggle .geo-opt {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:12px 8px 11px;
+    line-height:1.2;
+  }
+
+  /* ══ QUIET OUTDOORS, LOUD INDOORS ══
+     The two-line treatment above is right at the moment the mode is being chosen and wrong for
+     every capture that is never going to change it. Most crews work outdoors all day; PlotOut is
+     the default and stays the default, so a prominent two-line binary sitting near the top of
+     card 1 is a decision presented to somebody who does not have one to make — and it is the first
+     thing a first-time user meets, before they have captured anything.
+     So the control has two states. At rest in PlotOut it collapses to a single compact row that
+     reads as a setting already handled. It expands to the full two-line form when it is focused or
+     hovered (i.e. someone is actually looking at it) and, permanently, whenever PlotIn is
+     selected — where the distinction is load-bearing and the screen behaves differently because of
+     it.
+     Deliberately CSS-only and never display:none. Both options stay in the DOM, keep their real
+     size as tap targets, and remain reachable by keyboard and screen reader — this is a change of
+     emphasis, not of availability, and a mode switch that cannot be found is worse than one that
+     is merely loud. */
+  #collectEnvToggle[data-val="PlotOut"] .env-opt-sub {
+    max-height:0; opacity:0; overflow:hidden;
+    transition:max-height var(--dur-slow) ease, opacity var(--dur-base) ease;
+  }
+  #collectEnvToggle[data-val="PlotOut"] .geo-opt {
+    /* Row rather than column while collapsed: the icon sits beside the name instead of above it,
+       which is what actually removes the height rather than just hiding the second line. */
+    flex-direction:row; gap:7px; padding:10px 8px;
+  }
+  /* Expanded again the moment there is a reason to look at it. :focus-within covers the keyboard
+     path; :hover covers desktop. On touch there is no hover, which is correct — a tap is a choice,
+     and choosing PlotIn expands it for good via the [data-val="PlotIn"] rules below. */
+  #collectEnvToggle[data-val="PlotOut"]:hover .env-opt-sub,
+  #collectEnvToggle[data-val="PlotOut"]:focus-within .env-opt-sub {
+    max-height:20px; opacity:1;
+  }
+  #collectEnvToggle[data-val="PlotOut"]:hover .geo-opt,
+  #collectEnvToggle[data-val="PlotOut"]:focus-within .geo-opt {
+    flex-direction:column; gap:3px; padding:12px 8px 11px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #collectEnvToggle[data-val="PlotOut"] .env-opt-sub { transition:none; }
+  }
+  .env-opt-icon { color:var(--text-tertiary); transition:color var(--dur-base) ease, transform var(--dur-base) ease; }
+  .env-opt-name { font-size:12.5px; font-weight:800; letter-spacing:0.01em; }
+  .env-opt-sub {
+    font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase;
+    color:var(--text-tertiary);
+    transition:color var(--dur-base) ease;
+  }
+  #collectEnvToggle .geo-opt.sel .env-opt-icon { color:var(--accent-primary); }
+  #collectEnvToggle .geo-opt.sel .env-opt-sub { color:var(--accent-hover); opacity:0.85; }
+  /* The selected side gets real weight rather than a tint. This is a mode, and a mode switch that
+     you have to read twice to know which way it is set is a mode switch that gets left wrong. */
+  #collectEnvToggle .geo-opt.sel {
+    border-width:2px;
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),0.18);
+  }
+  /* The one bit of motion: the icon lifts as its side is taken. Fires on the tap that changes the
+     mode, so it lands exactly where the change is being made and nowhere else. */
+  #collectEnvToggle .geo-opt.sel .env-opt-icon { transform:translateY(-1px) scale(1.06); }
+  @media (prefers-reduced-motion: reduce) {
+    #collectEnvToggle .geo-opt.sel .env-opt-icon { transform:none; }
+  }
+
+  /* ── LEVEL CHIP (collect dock) ──
+     Replaces the fix-quality line while PlotIn is active — see the PlotIn branch in
+     updateCollectDockStatus() (js/22-boot.js) for why the floor is the thing worth carrying
+     continuously and the fix is not.
+     Sized and coloured to sit level with the accuracy readout it replaces, so the dock does not
+     change height when the environment is switched. */
+  .cd-status-main.is-level {
+    display:flex; align-items:center; gap:7px;
+    color:var(--accent-hover);
+  }
+  .cd-level {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:var(--radius-xs); flex-shrink:0;
+    background:rgba(var(--accent-rgb),0.16);
+    border:1px solid rgba(var(--accent-rgb),0.34);
+    color:var(--accent-primary);
+  }
+  /* Unset is a prompt, not an error. Nothing is blocked and no modal is raised — a crew mid-capture
+     must not be nagged — but this is the one place the omission is visible before it becomes forty
+     points written to the wrong storey. */
+  .cd-status-main.is-level.is-unset { color:var(--warn-ink); }
+  .cd-status-main.is-level.is-unset .cd-level {
+    background:rgba(var(--warn-rgb, 245,158,11),0.16);
+    border-color:rgba(var(--warn-rgb, 245,158,11),0.38);
+    color:var(--warn-ink);
+  }
+  /* The dot belongs to the outdoor reading and is re-appended by the fix branch; it is detached
+     rather than hidden while indoors, but this guarantees no stray bullet if that order ever
+     changes. */
+  .cd-status-main.is-level .cd-dot { display:none; }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     LINKED FEATURES (feature inspector)
+     ══════════════════════════════════════════════════════════════════════════
+     The back-reference list — everything whose 'feature_ref' field points at the feature currently
+     open. Rows, not a comma-separated line: each one is a real feature you should be able to open,
+     and the whole reason the link is stored flat rather than nested is that the child is a
+     first-class record. Making it a tappable row is that claim, honoured. */
+  .fi-linked-group { margin-bottom:10px; }
+  .fi-linked-group:last-child { margin-bottom:0; }
+  /* Grouped by the field carrying the link, with a count — a room pointed at by four fixtures and
+     one meter is two different relationships, and the header is what keeps them from reading as
+     one list of five. */
+  .fi-linked-via {
+    font-size:10.5px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--text-tertiary); margin:0 0 6px;
+  }
+  .fi-linked-row {
+    display:flex; align-items:center; gap:10px; width:100%;
+    text-align:left; font-family:var(--font);
+    padding:10px 12px; margin-bottom:6px;
+    border:1px solid var(--card-border); border-radius:var(--radius-md);
+    background:var(--surface-sunken); color:var(--text-primary);
+    cursor:pointer;
+    transition:border-color var(--dur-fast) ease, background var(--dur-fast) ease, transform var(--dur-fast) ease;
+  }
+  .fi-linked-row:last-child { margin-bottom:0; }
+  .fi-linked-row:active { transform:scale(0.985); background:var(--card-bg); }
+  .fi-linked-row:hover { border-color:rgba(var(--accent-rgb),0.45); }
+  /* Same colour chip the inspector's own header uses, so a row reads as the same kind of object
+     you are already looking at rather than as a reference to one. */
+  .fi-linked-chip { width:10px; height:10px; border-radius:var(--radius-xs); flex-shrink:0; }
+  .fi-linked-body { display:block; min-width:0; flex:1; }
+  .fi-linked-name {
+    display:block; font-size:13px; font-weight:700; color:var(--text-primary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .fi-linked-meta {
+    display:block; font-size:11px; font-weight:500; color:var(--text-tertiary); margin-top:1px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .fi-linked-row svg { color:var(--text-tertiary); flex-shrink:0; }

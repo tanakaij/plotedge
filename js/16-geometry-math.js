@@ -517,6 +517,43 @@ function gotoResolveDestination(dest){
 // ══════════════════════════════════════════════════════════════════════════════════════════
 let _inspectId = null;
 
+// ══ WHAT POINTS AT THIS FEATURE ══
+// The link recorded by a 'feature_ref' field (js/02-state.js) is a plain string — the parent's
+// Reference ID — and that is deliberate: it survives every export format and keeps the child a
+// first-class record rather than something nested inside its parent.
+// The cost of a plain string is that it only reads in one direction. Open the sink and it names
+// ROOM-004; open ROOM-004 and there was nothing to say three fixtures were in it.
+// This is the other direction, and it is only possible because the field type declares itself.
+// When "Room ref" was an ordinary text field nothing distinguished it from any other text on the
+// record, so the app could not have known which values were pointers — it would have had to guess
+// by scanning every attribute of every feature for something that looks like a ref, which is the
+// kind of heuristic that is right until somebody records a serial number.
+//
+// Cheap enough to run on sheet open rather than maintained as an index: it is one pass over the
+// project's features, and an index would be a second source of truth that can drift from the
+// attrs it summarises. A project large enough for this to cost anything is one where the pass is
+// still far cheaper than the render it feeds.
+function featuresLinkingTo(feature){
+  const ref = (feature && feature.ref || '').trim().toLowerCase();
+  if (!ref) return [];
+  const out = [];
+  (savedFeatures || []).forEach(other => {
+    if (!other || other.id === feature.id) return;
+    const ft = getFeatureType(other.featureTypeId);
+    if (!ft || !Array.isArray(ft.fields)) return;
+    const attrs = other.attrs || {};
+    ft.fields.forEach(fl => {
+      if (fl.type !== 'feature_ref') return;
+      // A link field constrained to a type that this feature is not cannot be pointing here, and
+      // skipping it early keeps a mixed schema from producing surprising cross-type matches.
+      if (fl.refTargetFtId && fl.refTargetFtId !== feature.featureTypeId) return;
+      if ((attrs[fl.id] || '').trim().toLowerCase() !== ref) return;
+      out.push({ feature: other, via: fl.label || fl.id });
+    });
+  });
+  return out;
+}
+
 function openInspect(id){
   const f = savedFeatures.find(x=>String(x.id)===String(id));
   if (!f){ showToast('That feature no longer exists'); return; }
@@ -549,6 +586,31 @@ function openInspect(id){
   });
   Object.keys(attrs).forEach(k=>{ if (!seen.has(k)) rows.push([k, formatAttrValue(attrs[k])]); });
 
+  // Grouped by the field that carries the link, because one feature can be pointed at through more
+  // than one — a fixture's "Room" and a meter's "Serves room" are different relationships and
+  // flattening them into one list would say less than either.
+  const linked = featuresLinkingTo(f);
+  const linkedGroups = {};
+  linked.forEach(l => { (linkedGroups[l.via] = linkedGroups[l.via] || []).push(l.feature); });
+  const linkedHtml = linked.length ? `
+    <div class="pe-result-title" style="margin:14px 0 4px;">Linked features</div>` +
+    Object.keys(linkedGroups).map(via => {
+      const items = linkedGroups[via];
+      return `<div class="fi-linked-group">
+        <div class="fi-linked-via">${escapeHtml(via)} \u00b7 ${items.length}</div>` +
+        items.map(o => {
+          const oi = resolveFeatureType(o);
+          return `<button type="button" class="fi-linked-row" onclick="openInspect('${escapeHtml(String(o.id))}')">
+            <span class="fi-linked-chip" style="background:${featureTypeColor(oi.key)}"></span>
+            <span class="fi-linked-body">
+              <span class="fi-linked-name">${escapeHtml(o.name || '(unnamed)')}</span>
+              <span class="fi-linked-meta">${escapeHtml(oi.label)}${o.ref ? ' \u00b7 ' + escapeHtml(o.ref) : ''}</span>
+            </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+          </button>`;
+        }).join('') + `</div>`;
+    }).join('') : '';
+
   document.getElementById('inspectBody').innerHTML = `
     <div class="fi-head">
       <span class="fi-chip" style="background:${color}"></span>
@@ -563,6 +625,7 @@ function openInspect(id){
     ${rows.length ? `<div class="pe-result-title" style="margin-bottom:4px;">Attributes</div>${
       rows.map(([k,v])=>`<div class="fi-attr"><span class="fi-attr-k">${escapeHtml(k)}</span><span class="fi-attr-v">${escapeHtml(v)}</span></div>`).join('')
     }` : ''}
+    ${linkedHtml}
     ${f.notes ? `<div class="pe-result-title" style="margin:14px 0 4px;">Notes</div><div class="help-p">${escapeHtml(f.notes)}</div>` : ''}
     <div class="pe-result" style="margin-top:14px;">
       <div class="pe-result-title">First vertex</div>

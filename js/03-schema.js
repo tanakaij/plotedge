@@ -433,8 +433,8 @@ function currentFtIsPointOnly(){
 function openFtFieldSheet(idx){
   ftFieldIdx = (idx === null || idx === undefined) ? null : idx;
   ftFieldDraft = ftFieldIdx === null
-    ? { id:'f_'+Date.now()+'_'+(ftFieldIdSeq++), label:'', type:'text', options:[], required:false, placeholder:'', scope:'feature', condition:null, expression:'', subfields:[] }
-    : { condition:null, expression:'', subfields:[], ...editingFtFields[ftFieldIdx], options:[...(editingFtFields[ftFieldIdx].options||[])], condition: editingFtFields[ftFieldIdx].condition ? {...editingFtFields[ftFieldIdx].condition} : null, subfields:(editingFtFields[ftFieldIdx].subfields||[]).map(s=>({...s, options:[...(s.options||[])]})) };
+    ? { id:'f_'+Date.now()+'_'+(ftFieldIdSeq++), label:'', type:'text', options:[], required:false, placeholder:'', scope:'feature', condition:null, expression:'', subfields:[], refTargetFtId:'' }
+    : { condition:null, expression:'', subfields:[], refTargetFtId:'', ...editingFtFields[ftFieldIdx], options:[...(editingFtFields[ftFieldIdx].options||[])], condition: editingFtFields[ftFieldIdx].condition ? {...editingFtFields[ftFieldIdx].condition} : null, subfields:(editingFtFields[ftFieldIdx].subfields||[]).map(s=>({...s, options:[...(s.options||[])]})) };
   document.getElementById('ftFieldSheetTitle').textContent = ftFieldIdx === null ? 'New field' : 'Edit field';
   document.getElementById('ftfDeleteBtn').style.display = ftFieldIdx === null ? 'none' : '';
   document.getElementById('ftfType').innerHTML =
@@ -475,6 +475,30 @@ function syncFtFieldSheet(){
   if (needsOptions){
     document.getElementById('ftfOptTags').innerHTML = (f.options||[]).map((o,oi)=>
       `<span class="opt-tag">${escapeHtml(o)}<button onclick="removeFtDraftOption(${oi})">×</button></span>`).join('');
+  }
+
+  // ══ WHAT A LINK FIELD MAY POINT AT ══
+  // Offered as the feature types in THIS project's schema, plus an explicit "any". Constraining it
+  // is what makes the picker usable at capture time — four Rooms on this floor rather than every
+  // feature in the project — and it is also what lets the linked-features list on a feature know
+  // which fields to look at. A type cannot point at itself: a room inside a room is a hierarchy
+  // this deliberately does not model, and offering it would invite exactly the nesting the flat
+  // pointer exists to avoid.
+  const isRefLink = f.type === 'feature_ref';
+  document.getElementById('ftfRefTargetField').style.display = isRefLink ? '' : 'none';
+  if (isRefLink){
+    const selfId = editingFt && editingFt.id;
+    const others = (featureTypes || []).filter(t => !selfId || t.id !== selfId);
+    const sel = document.getElementById('ftfRefTarget');
+    sel.innerHTML = '<option value="">Any feature type</option>' +
+      others.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name || t.id)}</option>`).join('');
+    sel.value = f.refTargetFtId || '';
+    // If the saved target has since been deleted from the schema, the select falls back to "any"
+    // — and the draft is corrected to match, so saving does not silently re-assert a dead id.
+    if (sel.value !== (f.refTargetFtId || '')) f.refTargetFtId = '';
+    document.getElementById('ftfRefTargetHint').textContent = others.length
+      ? 'At capture time this shows the Reference IDs of features already collected. Capture the thing being pointed at first.'
+      : 'Add another feature type first \u2014 a link needs something to point at.';
   }
 
   // A calculated field is never user-typed and is never "empty vs. required" in the same sense as

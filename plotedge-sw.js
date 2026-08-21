@@ -15,12 +15,21 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v21';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
+const SW_VERSION = 'v25';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
                              // js/07-navigation.js, js/17b-plotpack.js — the restore flow moved out of
                              // the Welcome page into #restoreModal, and the PlotIn indoor texture was
                              // rebuilt as an accent-masked floor plan that also paints inside the
                              // Collect cards. No new shipped files, so SHELL_ASSETS is unchanged; the
                              // bump is purely so existing installs stop serving the old shell.
+                             // v22 adds the PlotIn mode pass: cooled mesh, demoted GPS row, the
+                             // two-line environment switch and the dock level chip.
+                             // v23 adds js/06-collect.js + js/11-features.js: reference IDs are
+                             // checked for collisions on save, and the autofill counter stops
+                             // reusing a number that a parked capture already holds.
+                             // v24 adds the 'feature_ref' field type: js/02-state.js, js/03-schema.js,
+                             // js/06-collect.js, js/16-geometry-math.js and the inspector styles.
+                             // v25: the environment toggle collapses while outdoors, and the indoor
+                             // address survives a save instead of being retyped per fixture.
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 

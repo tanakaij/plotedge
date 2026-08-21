@@ -228,6 +228,51 @@ function saveFeature(){
   // sticky does: it is the authoritative version of what they meant.
   if (typeof learnFromSave === 'function') learnFromSave(ft, attrs);
 
+  // ══ A DUPLICATE REF IS NOT THE SAME MISTAKE AS A DUPLICATE NAME ══
+  // A name is a label. Two features called "Marker 3" is untidy and occasionally deliberate, which
+  // is why the check below asks rather than refuses.
+  // A ref is an IDENTIFIER — the Collect field says so: "matches your other app's ID". Its whole
+  // job is to be the one value that ties this feature to the same asset in another system. Two
+  // features carrying POLE-014 does not make the register untidy, it makes it ambiguous: a join
+  // against that other system now matches two rows and there is nothing in the data to say which
+  // one was meant. That is a reconciliation problem discovered months later, by someone who cannot
+  // ask the crew which pole they were standing at.
+  //
+  // It is also what any feature-to-feature link has to be built on. Recording that a transformer is
+  // on POLE-014 — whether that lives in a schema field today or becomes a model field later — is a
+  // pointer, and a pointer is worth nothing if the thing it points at is not unique. So this check
+  // has to come first regardless of how that lands.
+  //
+  // Deliberately environment-agnostic. `ref` is a plain field on every feature, and uniqueness is
+  // scoped to the project, so a sink captured in PlotIn and a pole captured in PlotOut are checked
+  // by the same rule without either mode knowing about it.
+  //
+  // Still a warning, not a block. Refs legitimately arrive pre-printed and occasionally duplicated
+  // on the asset itself, and a crew standing in front of a stencilled tag that genuinely reads
+  // POLE-014 twice must be able to record what is there. Refusing the save would mean the true
+  // state of the world cannot be entered — the wrong end to be strict at. Naming the other feature
+  // is the part that matters: it turns "that's a duplicate" into "that's the one I did on Tuesday".
+  const refTrimmed = (ref || '').trim();
+  const refClash = refTrimmed
+    ? savedFeatures.find(f => f.id !== editingFeatureId && (f.ref || '').trim().toLowerCase() === refTrimmed.toLowerCase())
+    : null;
+  if (refClash){
+    showConfirm(
+      `Reference ID "${refTrimmed}" is already used by "${refClash.name || '(unnamed)'}" in this project. ` +
+      `Refs are meant to be unique so they can be matched against your other records. Save anyway?`,
+      () => saveFeatureAfterRefCheck(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo),
+      'Save anyway', 'default');
+    return;
+  }
+  saveFeatureAfterRefCheck(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo);
+}
+
+
+// Split out of saveFeature() so the ref check above can run BEFORE it and still reach it from
+// inside a showConfirm callback. Order matters and is deliberate: ref is asked about first because
+// it is the more consequential of the two, and a crew that answers "no" to it should not have
+// already been made to answer a question about the name.
+function saveFeatureAfterRefCheck(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo){
   // Same name already used elsewhere in this project — easy to do by accident (retyping "Marker 3"
   // without realizing it's already logged), so ask before silently creating a second feature
   // with the identical name.
@@ -350,7 +395,9 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
   document.getElementById('featureRef').value='';
   document.getElementById('featureAssignedTo').value='';
   document.getElementById('featureNotes').value='';
-  resetCollectEnvironmentFields();
+  // The one call site that keeps the address: a save is "that one is done, next", not "clear the
+  // form". See the note on resetCollectEnvironmentFields() in js/06-collect.js.
+  resetCollectEnvironmentFields(true);
   refIdAutoFilled = null;   // the next capture of this type should autofill afresh
   // The draft has served its purpose the moment the feature is on disk —
   // leaving it behind would offer to "recover" work that is already saved.

@@ -227,7 +227,50 @@ function updateCollectDockStatus(){
   const accNum = parseFloat(accText);
   const quality = collectFixQuality(accNum);
 
+  // ══ INDOORS THE DOCK REPORTS A FLOOR, NOT A FIX ══
+  // Outdoors this line is the accuracy of the current fix, which is the number that decides whether
+  // the next tap is worth making. Indoors there is no fix — capture comes off the plan map — so the
+  // line was reporting "GPS off" permanently: a dead status occupying the one piece of chrome that
+  // is on screen for the whole session.
+  // What replaces it is the thing that actually goes wrong indoors. Building and Floor Level are
+  // two plain text inputs near the top of card 1, and once they scroll away nothing on screen says
+  // which level the points are being written to. Capture forty vertices believing you set Level 1
+  // when you set Level 2 and the survey is silently, invisibly wrong — there is no geometry cue to
+  // catch it the way a bad fix betrays itself outdoors. So the dock carries it continuously, and
+  // says so loudly while it is still unset.
+  if (typeof currentEnvironment !== 'undefined' && currentEnvironment === 'PlotIn'){
+    const building = (document.getElementById('collectBuildingId')?.value || '').trim();
+    const floor = (document.getElementById('collectFloorLevel')?.value || '').trim();
+    dotEl.dataset.fix = '';
+    mainEl.innerHTML = '';
+    // ══ THE DOT IS RE-APPENDED, NOT DROPPED ══
+    // It is hidden by .cd-status-main.is-level .cd-dot rather than removed, and that is load-bearing
+    // rather than tidy: dotEl is resolved by getElementById at the top of this function, so a branch
+    // that clears mainEl and does NOT put the dot back detaches #cdDot from the document for good.
+    // The very next call then resolves it to null, hits the guard above, and returns early — so the
+    // dock silently freezes on whatever it was last showing. Typing a floor, switching back to
+    // PlotOut, capturing a vertex: all of it stops updating, and nothing throws.
+    mainEl.appendChild(dotEl);
+    mainEl.classList.add('is-level');
+    // Not an error state — nothing is blocked, and a crew mid-capture must not be nagged into a
+    // modal. It is the one place the omission is visible, styled as a prompt rather than a failure.
+    mainEl.classList.toggle('is-unset', !floor);
+    const chip = document.createElement('span');
+    chip.className = 'cd-level';
+    // Stacked plates: the fastest available read for "storeys", and it distinguishes the chip from
+    // the round fix dot it replaces at a glance rather than on reading.
+    chip.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M3 7h18M3 12h18M3 17h18"/></svg>';
+    mainEl.appendChild(chip);
+    // Floor first: it is the field that changes several times per building, and the one that is
+    // wrong when something is wrong. The building name is context and gets truncated first.
+    mainEl.appendChild(document.createTextNode(
+      floor ? (building ? floor + ' · ' + building : floor) : 'Set floor level'));
+  } else {
+
   dotEl.dataset.fix = quality;
+  mainEl.classList.remove('is-level', 'is-unset');
   if (quality) {
     // The accuracy node already carries the user's chosen units, so reuse its string verbatim
     // instead of re-formatting and risking a metric/imperial mismatch against the card above.
@@ -238,6 +281,7 @@ function updateCollectDockStatus(){
     mainEl.innerHTML = '';
     mainEl.appendChild(dotEl);
     mainEl.appendChild(document.createTextNode(statusText || 'GPS off'));
+  }
   }
 
   const n = Array.isArray(currentVertices) ? currentVertices.length : 0;
@@ -270,6 +314,14 @@ function updateCollectDockStatus(){
   const realSave = document.getElementById('saveFeatureBtn');
   if (realSave) new MutationObserver(() => updateCollectDockStatus())
     .observe(realSave, { attributes:true, attributeFilter:['disabled'] });
+  // The two PlotIn fields are typed into rather than written by the app, so a MutationObserver
+  // never sees them — an <input>'s value is not its DOM content. Without these the level chip
+  // would keep showing "Set floor level" for as long as the card stayed open, which is worse than
+  // not having a chip at all.
+  ['collectBuildingId','collectFloorLevel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateCollectDockStatus);
+  });
   updateCollectDockStatus();
 })();
 

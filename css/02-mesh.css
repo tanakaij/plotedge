@@ -431,6 +431,83 @@
      so outdoor high-contrast mode drops it outright rather than dimming it. */
   html[data-contrast="high"] .indoor-texture { opacity: 0 !important; }
 
+  /* ══ THE ROOM IS COOLER THAN THE STREET ══
+     The texture said "inside"; the light did not. PlotIn ran the same warm, drifting ambient mesh
+     as PlotOut, and the mesh is by far the largest coloured thing on screen — so switching
+     environments changed the line work and left the atmosphere identical, which is most of why the
+     mode still felt like the same screen with a pattern on it.
+     Two changes, both keeping the pillar's hue rather than overriding it (an accent shift would
+     make PlotIn read as a different THEME rather than a different mode, and the accent is how all
+     six pillars identify themselves):
+       · --mesh-i drops to roughly half what Collect already uses. Outdoor light is the thing being
+         evoked out there; in here the drifting glow is the wrong instinct entirely.
+       · The blobs slow down again on top of the form screen's existing slowdown. A moving light
+         source is a window or the sun. Indoors, light does not travel.
+     The cool cast itself is painted by .indoor-texture's own gradient stack above — see the
+     overhead pool and vignette — plus the desaturating wash below, which is what actually shifts
+     the colour temperature of everything behind the cards. */
+  html.indoor-active[data-screen="form"] { --mesh-i: 0.14; }
+  html.indoor-active .mesh-blob { animation-duration: 104s, 84s; }
+  /* Interior light is neutral-to-cool and it is FLAT — no sun, no sky gradient, no warm bounce off
+     the ground. This is a single low-saturation blue-grey film over the mesh, sitting under the
+     plan and grid layers, that pulls the whole backdrop toward that. Deliberately not a hue
+     rotation: rotating the accent would fight the pillar, whereas a neutral film desaturates
+     whatever hue is there and leaves its identity intact.
+     Light theme gets a weaker one — a bright page reads as daylight through a window and does not
+     need as much help to stop looking like open sky. */
+  .indoor-texture {
+    box-shadow: inset 0 0 0 100vmax rgba(96, 122, 158, 0.10);
+  }
+  html[data-theme="light"] .indoor-texture {
+    box-shadow: inset 0 0 0 100vmax rgba(96, 122, 158, 0.05);
+  }
+
+  /* ══ THE GPS ROW IS NOT THE INSTRUMENT IN HERE ══
+     PlotIn does not gate capture on a fix — the plan map is the capture surface (see
+     setCollectEnvironment() in js/06-collect.js). But the screen never said so. The .gps-bar kept
+     its full size, its 36px status ring, its accuracy readout and its "Tap Start to begin", and the
+     PlotIn note was added ABOVE it — so the single largest element in step 2 was still the outdoor
+     instrument, sitting on top of a sentence explaining it was not needed. That is a screen arguing
+     with itself, and the instrument wins because it is bigger.
+     So the two swap weight. Nothing is hidden: GPS genuinely does work near a window, and a crew
+     that gets a fix indoors should still be able to use it. It just stops being the headline. */
+  html.indoor-active #collectCardGps .gps-bar {
+    padding: 9px 12px;
+    opacity: 0.62;
+    filter: saturate(0.65);
+    transition: opacity var(--dur-slow) ease, filter var(--dur-slow) ease, padding var(--dur-slow) ease;
+  }
+  /* Restored the moment it has something real to say. A fix that actually arrives indoors is worth
+     more attention than one outdoors, not less — it is unexpected, and it is better than a tap. */
+  html.indoor-active #collectCardGps .gps-bar:hover,
+  html.indoor-active #collectCardGps .gps-bar:focus-within,
+  html.indoor-active #collectCardGps .gps-bar:has(.gps-ring.good),
+  html.indoor-active #collectCardGps .gps-bar:has(.gps-ring.acquiring) {
+    opacity: 1; filter: none;
+  }
+  html.indoor-active #collectCardGps .gps-ring { width: 26px; height: 26px; border-width: 2px; }
+  html.indoor-active #collectCardGps .gps-ring svg { width: 12px; height: 12px; }
+  html.indoor-active #collectCardGps .gt-status { font-size: 12px; font-weight: 700; }
+  html.indoor-active #collectCardGps .gt-acc { font-size: 11px; }
+  html.indoor-active #collectCardGps .gps-toggle { padding: 6px 11px; font-size: 11px; }
+  /* The one line that has to be ADDED rather than shrunk: without it, "Tap Start to begin" on a
+     dimmed row still reads as an instruction that has not been followed. */
+  .gt-optional { display: none; }
+  html.indoor-active #collectCardGps .gt-optional {
+    display: block;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
+    color: var(--text-tertiary); margin-top: 3px;
+  }
+  /* And the note that was buried above it becomes the thing the card leads with. */
+  html.indoor-active #plotinCaptureNote {
+    font-size: 12.5px; font-weight: 650; line-height: 1.5;
+    padding: 13px 14px;
+    background: rgba(var(--accent-rgb), 0.14);
+    border-color: rgba(var(--accent-rgb), 0.42);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  html.indoor-active #plotinCaptureNote svg { width: 18px; height: 18px; }
+
   /* ══ COVERAGE: THE CARDS THEMSELVES ══
      The fixed layer above cannot reach the middle of the Collect screen, because the middle of the
      Collect screen is opaque cards. Painting the same plan inside them is what turns a strip of
@@ -453,6 +530,14 @@
     background-image: var(--indoor-plan-ink-dark);
   }
   html[data-contrast="high"].indoor-active #panel-collect .card { background-image: none; }
+  /* ══ ORTHOGONAL, BECAUSE DRAWINGS ARE ══
+     A rounded card reads as "app"; a squarer one reads as "drawing". One step down the existing
+     radius scale — --radius-lg to --radius-md — is enough to feel and small enough not to look like
+     a rendering fault. Deliberately a step WITHIN the scale rather than a fresh number: the four
+     radius steps exist so the app cannot drift out of register, and tests/theme.test.js enforces
+     it. */
+  html.indoor-active #panel-collect .card { border-radius: var(--radius-md); }
+
 
   /* ── REDUCED MOTION / LOW POWER ──
      Pause, don't hide. The palette is still doing legibility work; only the drift is a luxury. */

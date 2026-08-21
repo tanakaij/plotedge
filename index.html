@@ -1288,9 +1288,27 @@ try {
         <!-- PlotOut is the default (existing GNSS behavior, untouched). Switching to PlotIn
              unhides Building ID / Floor Level below and changes how Step 2 captures a position —
              see setCollectEnvironment() in js/06-collect.js. -->
-        <div class="geo-toggle" id="collectEnvToggle" data-val="PlotOut">
-          <div class="geo-opt sel" data-env="PlotOut" onclick="setCollectEnvironment('PlotOut')">PlotOut</div>
-          <div class="geo-opt" data-env="PlotIn" onclick="setCollectEnvironment('PlotIn')">PlotIn</div>
+        <!-- ══ THIS IS A MODE SWITCH, NOT A PREFERENCE ══
+             It used to be two bare text pills, visually identical to the geometry-type toggle in
+             the schema editor and to every other .geo-toggle in the app — despite being the one
+             control on this screen that changes how capture itself works (GPS stops being the
+             source of truth; the plan map becomes it). A switch with that much reach has to look
+             like it, and the moment it is tapped is the moment the difference has to land.
+             The icon is the fastest read at arm's length — open sky and a horizon for outdoors, a
+             building elevation for indoors — and the second line states the consequence rather
+             than restating the name. Scoped by #collectEnvToggle in the stylesheet so the plain
+             .geo-toggle everywhere else is untouched. -->
+        <div class="geo-toggle env-toggle" id="collectEnvToggle" data-val="PlotOut">
+          <div class="geo-opt sel" data-env="PlotOut" onclick="setCollectEnvironment('PlotOut')">
+            <svg class="env-opt-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="3.4"/><path d="M12 2v1.6M12 14.4V16M5.4 9H4M20 9h-1.4M7.3 4.3 6.3 3.3M17.7 4.3l1-1M7.3 13.7l-1 1M17.7 13.7l1 1"/><path d="M2 20h20"/></svg>
+            <span class="env-opt-name">PlotOut</span>
+            <span class="env-opt-sub">Outdoors · GPS</span>
+          </div>
+          <div class="geo-opt" data-env="PlotIn" onclick="setCollectEnvironment('PlotIn')">
+            <svg class="env-opt-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V6.5L12 3l7 3.5V21"/><path d="M9 21v-5h6v5"/><path d="M9 9h1.5M13.5 9H15M9 12.5h1.5M13.5 12.5H15"/></svg>
+            <span class="env-opt-name">PlotIn</span>
+            <span class="env-opt-sub">Indoors · plan</span>
+          </div>
         </div>
       </div>
       <div id="collectIndoorFields" style="display:none;">
@@ -1336,8 +1354,12 @@ try {
           <svg id="gpsIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
         </div>
         <div class="gps-text">
-          <div class="gt-status" id="gpsStatus">Tap Start to begin</div>
+            <div class="gt-status" id="gpsStatus">Tap Start to begin</div>
           <div class="gt-acc" id="gpsAcc">—</div>
+          <!-- Shown only while PlotIn is active (css/02-mesh.css). Indoors this whole row is
+               optional equipment, not the instrument the capture depends on — saying so in the row
+               itself is what stops "Tap Start to begin" reading as an instruction. -->
+          <div class="gt-optional">Optional indoors · works near windows</div>
         </div>
         <button class="gps-toggle" id="gpsBtn" onclick="toggleGPS()">Start GPS</button>
       </div>
@@ -1926,6 +1948,9 @@ try {
        bound to them by ID — the button's job is unchanged, only where it lives. -->
   <div class="capture-fab" id="captureFab">
     <div class="cd-status" id="collectDockStatus">
+      <!-- Outdoors this line is the fix quality. Indoors there is no fix to report, and the number
+           that actually decides whether the next tap is worth making is which floor you are on —
+           see the PlotIn branch in updateCollectDockStatus() (js/22-boot.js). -->
       <div class="cd-status-main" id="cdStatusMain"><span class="cd-dot" id="cdDot"></span>GPS off</div>
       <div class="cd-status-sub" id="cdStatusSub">No vertices yet</div>
     </div>
@@ -2572,6 +2597,18 @@ try {
         <input type="text" id="ftfOptInput" placeholder="Add a choice…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addFtDraftOption();}">
         <button onclick="addFtDraftOption()">+</button>
       </div>
+    </div>
+    <!-- ══ WHAT THIS LINK MAY POINT AT ══
+         Shown only for a "Link to another feature" field. Constraining the target to one feature
+         type is the difference between a picker offering the four Rooms on this floor and one
+         offering every feature in the project — and on a survey of any size the second is unusable
+         and invites picking the wrong thing. "Any feature type" stays available because a genuinely
+         mixed case exists (a photo point that could hang off anything), but it is not the default
+         anybody should reach for. -->
+    <div class="field" id="ftfRefTargetField" style="display:none;">
+      <label>Points at <span class="hint">(which kind of feature this links to)</span></label>
+      <div class="select-wrap"><select id="ftfRefTarget" onchange="updateFtDraft('refTargetFtId', this.value)"></select></div>
+      <div class="hint" id="ftfRefTargetHint" style="margin-top:6px;"></div>
     </div>
     <div class="field" id="ftfExpressionField" style="display:none;">
       <label>Expression</label>

@@ -1,9 +1,9 @@
-# PlotEdge update — restore flow + PlotIn texture
+# PlotEdge update — restore flow, PlotIn mode pass, linked features
 
-Drop these over your tree preserving paths. **10 files: 9 modified, 1 new.**
-`npm test` → **503/503 passing** (baseline was 471).
+Drop these over your tree preserving paths. **20 files: 18 modified, 2 new.**
+`npm test` → **553/553 passing** (baseline was 471).
 
-**Service worker bumped to v21.** No new shipped files, so `SHELL_ASSETS` is
+**Service worker bumped to v25.** No new shipped files, so `SHELL_ASSETS` is
 unchanged — the bump exists only so installed copies stop serving the old shell.
 Hard refresh, or close all tabs, on first load after deploy.
 
@@ -131,6 +131,234 @@ toward white: same hue, but lightening, which is the only direction that reads.
 
 Outdoor high-contrast mode strips all of it, same rule as the mesh.
 
+### And four more things that make it a mode, not a pattern
+
+The texture said *inside*; nothing else on the screen did. These four were the
+gap.
+
+**The ambience is cooler and stiller.** The mesh is by far the largest coloured
+thing on screen and it ran identically in both environments, so switching
+changed the line work and left the atmosphere untouched. `--mesh-i` now drops to
+roughly half what Collect already uses, the blobs slow again on top of the form
+screen's existing slowdown — a moving light source is a window or the sun;
+indoors light does not travel — and a low-saturation blue-grey film pulls the
+whole backdrop toward interior lighting. Deliberately a *neutral* film rather
+than a hue rotation: rotating would fight the pillar, desaturating leaves its
+identity intact.
+
+**The GPS row stops being the headline.** PlotIn never gated capture on a fix,
+but the screen never said so: `.gps-bar` kept its full size, its 36px ring, its
+accuracy readout and its "Tap Start to begin", and the PlotIn note was added
+*above* it. The largest element in step 2 was the outdoor instrument sitting on
+top of a sentence explaining it wasn't needed — a screen arguing with itself, and
+the instrument wins because it's bigger. The two now swap weight. Nothing is
+hidden: GPS genuinely works near a window, and the row restores to full strength
+the moment it has something real to say (`.gps-ring.good` / `.acquiring`).
+
+**The dock reports a floor, not a fix.** Outdoors that line is accuracy — the
+number that decides whether the next tap is worth making. Indoors there is no
+fix, so it read "GPS off" permanently: a dead status in the one piece of chrome
+on screen for the whole session. It now carries `Level 2 · NORTHWOOD-A`, floor
+first, because the floor is the field that's wrong when something is wrong.
+Capture forty vertices believing you set Level 1 when you set Level 2 and the
+survey is silently wrong, with no geometry cue to catch it the way a bad fix
+betrays itself outdoors. Unset, it says so — as a prompt, not an error, and
+never as a modal.
+
+**The environment toggle looks like a mode switch.** Two bare text pills,
+visually identical to the geometry toggle in the schema editor, despite being the
+one control on Collect that changes how capture works. Now an icon (open sky with
+a horizon / building elevation), the name, and a second line stating the
+*consequence* — "PlotIn" says nothing about what changes; "Indoors · plan" does.
+
+Collect's cards also square off one step down the radius scale while indoors — a
+rounded card reads as *app*, a squarer one reads as *drawing*. A step **within**
+the four-step scale, not a fresh number; `theme.test.js` enforces that and
+rightly.
+
+---
+
+## 3. Reference IDs are identifiers, so they have to be unique
+
+`ref` is described on the Collect form as *"matches your other app's ID"* — its
+whole job is to tie a feature to the same asset in another system. Nothing
+enforced that. Two features could both carry `POLE-014` and the app would save
+both without a word.
+
+That is not the same mistake as two features sharing a *name*. A duplicate name
+is untidy and occasionally deliberate, which is why that check asks rather than
+refuses. A duplicate ref makes the register **ambiguous**: a join against the
+other system now matches two rows, and there is nothing left in the data to say
+which one was meant. It surfaces months later, in front of someone who cannot
+ask the crew which pole they were standing at.
+
+**Still a warning, not a block.** Refs legitimately arrive pre-printed and
+occasionally duplicated on the asset itself, and a crew standing in front of a
+stencilled tag that genuinely reads `POLE-014` twice must be able to record what
+is there — refusing the save would mean the true state of the world cannot be
+entered, which is the wrong end to be strict at. The prompt names the other
+feature, which is the part that matters: it turns *"that's a duplicate"* into
+*"that's the one I did on Tuesday"*.
+
+Environment-agnostic by construction. `ref` is a plain field on every feature and
+uniqueness is scoped to the project, so a sink captured in PlotIn and a pole
+captured in PlotOut are covered by the same rule without either mode knowing
+about it.
+
+### The bug this surfaced
+
+Adding the check broke an existing capture-stack test, and it was right to.
+
+`generateReferenceId()` was *saved features of this type + 1* — correct only
+while exactly one capture is in flight. The capture stack exists precisely so it
+is not: pause a road to record the side road crossing it, pause that to record a
+sign, and three captures are open at once. **None of them is saved yet, so all
+three autofilled the same number.** Three features shipped as `ROAD-002`.
+
+Nothing caught it, because a duplicated ref still looks like a ref.
+
+The counter now takes the first number nobody is using — checked against what is
+saved, what is parked on the stack, and what is in the form right now. Ordinary
+projects number exactly as before; it only diverges where a collision would
+actually have happened.
+
+### Why this and not nested features
+
+The question that prompted it was whether a sink inside a bathroom, or a
+transformer on a pole, should be stored *inside* its parent. It should not. The
+sink is an asset with its own identity, condition and replacement cost — nesting
+makes it reachable only by walking its parent, which breaks the query you run
+most (*every sink in the building, worst condition first*) to gain one you can
+get by grouping. Flat rows with a pointer express the same containment and
+survive every export format; nesting has no representation in GeoJSON, CSV or
+shapefile and has to be flattened at each hand-off.
+
+That relationship is capturable **today**: add a `Parent ref` field to the
+feature types that need it and pin it with PlotSeed, which already carries values
+forward and marks them as inherited. Nothing needs building for that.
+
+What *did* need building is this. A pointer is worth nothing if the thing it
+points at is not unique — so unique refs are the prerequisite either way, and
+they earn their place on their own merits regardless of whether a model-level
+parent field ever follows.
+
+---
+
+## 4. Linking one feature to another
+
+A sink in a bathroom. A transformer on a pole. A valve in a chamber. Same
+relationship, and all of it was *already* recordable — type the parent's
+Reference ID into an ordinary text field.
+
+That is exactly the problem. A typed ref is a pointer with no spell-check.
+`ROOM-04` for `ROOM-004` orphans the fixture, nothing objects, and it is found
+months later by whoever is joining the register against another system.
+
+**New field type: "Link to another feature."** Same stored value — the parent's
+ref, a plain string — but the crew *picks* it from the refs already in the
+project. You cannot mistype a value you selected. In the schema editor it takes
+a **Points at** setting naming which feature type it may link to, so the picker
+offers the four Rooms on this floor rather than every feature in the project.
+
+### Why a field type and not a parent column on every feature
+
+Because the value stays a string, **nothing downstream changes shape**. The
+review table, the attribute query engine and every export path read it through
+the generic attribute route with no knowledge that link fields exist — so
+`"Room ref" = 'ROOM-004'` works in the Review query box today, and the value
+lands in GeoJSON, CSV and your asset management system as a normal column. No
+plotpack format bump, nothing permanent to regret: delete the field from the
+schema and the project is back where it started.
+
+It is also **not nesting**, deliberately. The fixture stays its own feature, its
+own row, its own record with its own condition and replacement cost. Storing it
+inside its parent would make *every sink in the building, worst condition first*
+a tree walk instead of a filter — and that is the query that actually gets run.
+Flat rows with a pointer express the same containment and survive every export
+format; nesting has no representation in any of them.
+
+### And the parent can now see what points at it
+
+A plain string only reads in one direction: open the sink and it names
+`ROOM-004`; open `ROOM-004` and nothing said three fixtures were in it. The
+feature inspector now lists everything pointing at the feature you have open,
+grouped by the field carrying the link (a room pointed at by four fixtures *and*
+one meter is two relationships, not a list of five), as tappable rows you can
+open.
+
+This is only possible **because the field type declares itself**. When it was an
+ordinary text field, nothing distinguished a pointer from any other string on the
+record — the app would have had to guess which values look like refs, which is
+the kind of heuristic that works until somebody records a serial number.
+
+### One ordering constraint worth knowing
+
+Refs are assigned at capture time, so a link can only point at something already
+captured. **Capture the room, then its fixtures.** Natural, but it is an
+ordering, and the picker says so rather than just showing an empty list: *"Nothing
+to link to yet — capture Room first, then come back."*
+
+A link whose target is later deleted is **kept and flagged** (`no longer in this
+project`) rather than silently dropped. Losing a recorded relationship because
+the other end moved is worse than showing one that needs looking at, and the crew
+is the only one who can decide which.
+
+---
+
+## 5. Two bugs the end-to-end sweep found
+
+Everything above was tested per seam and passed. Walking the **whole** indoor job
+in sequence — switch to PlotIn, trace a room, save it, capture a fixture inside
+it, link the two, park one mid-capture, resume, re-open the room — found two
+failures that were invisible in isolation. Both are now covered by
+`tests/indoor-flow.test.js`.
+
+**The indoor address was thrown away after every save.**
+`resetCollectEnvironmentFields()` ran unconditionally on save, dropping back to
+PlotOut with Building and Floor blank. Right for an explicit *clear this form*;
+wrong for a save. A building visit is a sink, a toilet, a basin and a geyser —
+all on Level 2 of NORTH-A — so it meant re-selecting PlotIn and retyping the same
+address four times, and **every retype is a chance to type Level 1**. The address
+now survives a save (opt-in at that one call site, so every other caller keeps its
+old behaviour) and an explicit clear still clears.
+
+This is the same reasoning PlotSeed applies to pinned attributes. The difference:
+PlotSeed's carry-over is opt-in per field because it can hide an unobserved
+answer. The indoor address cannot — the dock chip shows it continuously, so it
+can never be inherited unnoticed.
+
+**The dock froze silently.** The level chip cleared `#cdDot` from the DOM instead
+of hiding it, so the *next* call resolved it to `null`, hit the guard at the top
+of `updateCollectDockStatus()` and returned early. The dock then stopped updating
+entirely — typing a floor, switching back to PlotOut, capturing a vertex — and
+nothing threw. The dot is re-appended and hidden by CSS, with a comment marking
+that as load-bearing.
+
+---
+
+## 6. Keeping the form light for a first-time user
+
+The two-line environment switch is right at the moment the mode is being chosen
+and wrong for every capture that will never change it. Most crews work outdoors
+all day, and that control sits near the top of card 1 — so it was presenting a
+decision to someone who does not have one to make, as the first thing they meet.
+
+It now has two states. At rest in PlotOut it collapses to a single compact row
+that reads as a setting already handled. It expands to the full two-line form on
+focus or hover, and permanently whenever PlotIn is selected — where the screen
+genuinely behaves differently because of it.
+
+CSS-only and never `display:none`: both options stay in the DOM at full tap-target
+size and stay reachable by keyboard and screen reader. This is a change of
+emphasis, not availability — a mode switch that cannot be found is worse than one
+that is merely loud.
+
+**Net effect on a first run:** nothing else added. The link field is opt-in per
+schema and the template project does not use one; Building/Floor still only appear
+in PlotIn; the dock chip replaces the fix reading rather than adding a row; the
+ref prompt only fires on a real clash, which collision-free autofill now makes
+rare; and the linked-features list renders nothing when there are no links.
+
 ---
 
 ## Every file in this drop, with why it changed
@@ -143,9 +371,20 @@ Outdoor high-contrast mode strips all of it, same rule as the mesh.
 | `css/12-polish.css` | the restore sheet: progress rail, file rows, summary card, waiting/finished states |
 | `js/07-navigation.js` | `closeTopOverlay()` routes the restore sheet through its own close, and the catch-all sweep honours a locked write |
 | `js/17b-plotpack.js` | the whole restore sheet; determinate progress hook; three inline restore paths collapsed into one |
-| `plotedge-sw.js` | v20 → v21 |
+| `css/02-mesh.css` (2nd pass) | cooled + stilled mesh indoors; GPS row demotion; squarer Collect cards |
+| `css/12-polish.css` (2nd pass) | the two-line environment switch; the dock level chip |
+| `js/06-collect.js` | repaints the dock when the environment is switched |
+| `js/22-boot.js` | the dock's PlotIn branch — level chip instead of fix quality — and live listeners on the two indoor fields |
+| `js/06-collect.js` | the indoor address survives a save; the ref picker (feature and per-vertex scope); autofill counter skips refs held by saved features, parked captures and the live form |
+| `js/11-features.js` | the ref-collision check on save, split out so it runs before the name check |
+| `tests/capture-stack.test.js` | ten checks: ref collisions across parked captures, the prompt, empty refs, editing your own — plus the picker, flat storage, the back-reference list, the Review column, and dangling links |
+| `js/02-state.js` | the `feature_ref` field type, and its exclusion from repeat-group sub-fields |
+| `js/03-schema.js` | the **Points at** control in the field editor |
+| `js/16-geometry-math.js` | `featuresLinkingTo()` and the linked-features list in the inspector |
+| `tests/indoor-flow.test.js` | **new** — the whole indoor job in sequence; found both bugs in §5 |
+| `plotedge-sw.js` | v20 → v25 |
 | `tests/plotpack.test.js` | the "one dispatcher" guard rewritten as an invariant; plus a real `.plotpack` driven end-to-end through the sheet |
-| `tests/restore-sheet.test.js` | **new** — boots the real app and drives every step of the sheet |
+| `tests/restore-sheet.test.js` | **new** — drives every step of the sheet, plus the PlotIn dock/toggle/GPS-row behaviour |
 | `tests/run.js` | registers the new suite |
 
 ### On the rewritten test guard

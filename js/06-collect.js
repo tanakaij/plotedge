@@ -13,11 +13,45 @@
 // in this project). Fully editable — typing over it is respected on later type changes.
 let refIdAutoFilled = null; // last value *we* wrote, so we can tell a user edit apart from our own autofill
 
+// ══ THE COUNTER HAS TO SKIP WHAT IS ALREADY TAKEN ══
+// This used to be `saved features of this type + 1`, which is correct only while exactly one
+// capture is in flight. The capture stack (js/06a-capture-stack.js) exists precisely so it is not:
+// pause a road to record the side road that crosses it, pause that to record a sign, and all three
+// are open at once. None of them is SAVED yet, so all three autofilled the same number — three
+// features shipped as ROAD-002.
+// Nothing caught it, because a ref that is merely duplicated still looks like a ref. It only
+// surfaces later, when the register is matched against another system and one asset ID returns two
+// rows with no way to tell which was meant.
+// So the number is now the first one nobody is using — checked against what is saved, what is
+// parked on the stack, and what is sitting in the form right now.
+function takenReferenceIds(){
+  const taken = new Set();
+  const add = v => { const t = (v || '').trim().toLowerCase(); if (t) taken.add(t); };
+  (savedFeatures || []).forEach(f => add(f.ref));
+  // Guarded: js/06a-capture-stack.js loads after this file, so the binding exists by the time this
+  // ever runs in the app — but not in a harness that loads a subset.
+  if (typeof suspendedCaptures !== 'undefined') (suspendedCaptures || []).forEach(c => add(c && c.ref));
+  const live = document.getElementById('featureRef');
+  // Only counts a ref the CREW typed. Our own last autofill is the value we are about to replace,
+  // so treating it as taken would make the number climb by one on every feature-type change.
+  if (live && live.value.trim() !== refIdAutoFilled) add(live.value);
+  return taken;
+}
+
 function generateReferenceId(ft){
   if (!ft) return '';
   const prefix = (ft.name||'FEAT').toUpperCase().replace(/[^A-Z0-9]+/g,'').slice(0,6) || 'FEAT';
-  const count = savedFeatures.filter(f=>f.featureTypeId===ft.id).length + 1;
-  return `${prefix}-${String(count).padStart(3,'0')}`;
+  const taken = takenReferenceIds();
+  // Starts where the old counter did, so an ordinary project's numbering is unchanged — this only
+  // diverges where a collision would actually have happened. Bounded rather than while(true): a
+  // project that has genuinely used 9999 of one type has a bigger problem than a repeated ref, and
+  // an unbounded loop on a phone is not the way to find out.
+  let n = (savedFeatures || []).filter(f => f.featureTypeId === ft.id).length + 1;
+  for (let guard = 0; guard < 9999; guard++, n++){
+    const candidate = `${prefix}-${String(n).padStart(3,'0')}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${prefix}-${Date.now()}`;
 }
 
 function autofillReferenceId(ft){
@@ -59,6 +93,11 @@ function setCollectEnvironment(env){
   if (env === 'PlotIn' && !vertexMapVisible) toggleVertexMap();
   else if (env === 'PlotOut' && vertexMapVisible && !currentVertices.length) toggleVertexMap();
   updateIndoorTexture();
+  // The dock's status line means something different in each environment — a fix quality outdoors,
+  // a floor level indoors (see updateCollectDockStatus() in js/22-boot.js). Nothing it observes
+  // changes when the toggle is flipped, so the flip has to say so itself, or the dock keeps
+  // reporting "GPS off" for the whole of an indoor session.
+  if (typeof updateCollectDockStatus === 'function') updateCollectDockStatus();
 }
 
 // ══ INDOOR TEXTURE (PlotIn) ══ — see css/02-mesh.css and #indoorTexture in index.html. On
@@ -72,7 +111,26 @@ function updateIndoorTexture(){
   document.documentElement.classList.toggle('indoor-active', active);
 }
 
-function resetCollectEnvironmentFields(){
+// ══ THE INDOOR ADDRESS OUTLIVES ONE FEATURE ══
+// This used to unconditionally drop back to PlotOut and blank Building and Floor. That is right for
+// an explicit "clear this feature" or a cancelled edit — you asked for a clean form — and it is
+// wrong immediately after a successful save, which is the call site that runs most.
+// A crew does not visit a building to record one fixture. They record a sink, a toilet, a basin and
+// a geyser, all on Level 2 of NORTH-A. Resetting after each one meant re-selecting PlotIn and
+// retyping the same two fields four times, and every retype is a chance to type Level 1.
+// This is the same reasoning PlotSeed applies to pinned attributes (js/06b-plotseed.js): a value
+// that is constant across a run of captures should not be re-entered per capture. The difference is
+// that PlotSeed's carry-over is opt-in per field because it can hide an unobserved answer — the
+// indoor address cannot, because the dock chip shows it continuously (see updateCollectDockStatus()
+// in js/22-boot.js). It is on screen the whole time, so it can never be inherited unnoticed.
+// `keepAddress` is opt-IN rather than opt-out so every existing call site keeps its old behaviour
+// and only the save path, which explicitly asks, changes.
+function resetCollectEnvironmentFields(keepAddress){
+  if (keepAddress && currentEnvironment === 'PlotIn'){
+    // Environment and address both stay. Nothing else about the form is preserved — name, ref,
+    // notes and attributes are cleared by the caller exactly as before.
+    return;
+  }
   setCollectEnvironment('PlotOut');
   const bId = document.getElementById('collectBuildingId'); if (bId) bId.value = '';
   const fl = document.getElementById('collectFloorLevel'); if (fl) fl.value = '';
@@ -364,6 +422,62 @@ function bindSeedClearOnce(){
   _seedClearBound = true;
 }
 
+// ══ THE CANDIDATES A LINK FIELD MAY POINT AT ══
+// Saved features of the target type that actually carry a ref, newest first — newest because the
+// thing you are pointing at is almost always the one you just captured: trace the room, then place
+// its fixtures. The feature being edited is excluded so it cannot point at itself.
+// Refs without a ref are skipped rather than offered with a blank value: the stored link IS the
+// ref, so a feature that has none is not a thing that can be pointed at.
+function featureRefCandidates(field){
+  const targetFt = field && field.refTargetFtId;
+  const out = [];
+  const seen = new Set();
+  for (let i = (savedFeatures || []).length - 1; i >= 0; i--){
+    const f = savedFeatures[i];
+    if (!f) continue;
+    if (editingFeatureId && f.id === editingFeatureId) continue;
+    if (targetFt && f.featureTypeId !== targetFt) continue;
+    const ref = (f.ref || '').trim();
+    if (!ref) continue;
+    // Refs are unique per project (see the collision check in js/11-features.js), but that check is
+    // a warning rather than a block, so a duplicate CAN exist. Offering it twice would be a menu
+    // with two identical rows and no way to tell them apart.
+    const key = ref.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ref, name: (f.name || '').trim(), ftName: f.featureTypeName || '' });
+  }
+  return out;
+}
+
+function featureRefPickerHtml(a, val){
+  const current = (val || '').trim();
+  const list = featureRefCandidates(a);
+  // Nothing to point at yet. Said plainly, with the reason — a crew that has not captured the room
+  // has not made a mistake, they are just in the wrong order, and "no options" alone does not say
+  // which. The select stays in the DOM and disabled so collectAttrs() still finds it and writes ''.
+  if (!list.length){
+    const what = a.refTargetFtId
+      ? ((featureTypes.find(t => t.id === a.refTargetFtId) || {}).name || 'that type')
+      : 'a feature';
+    return `<div class="select-wrap"><select id="attr_${a.id}" disabled><option value=""></option></select></div>` +
+      `<div class="hint" style="margin-top:6px;">Nothing to link to yet \u2014 capture ${escapeHtml(what)} first, then come back.</div>`;
+  }
+  // A value saved earlier whose target has since been deleted or renamed. Kept and marked rather
+  // than silently dropped: losing a recorded relationship because the other end moved is worse than
+  // showing a link that needs looking at, and the crew is the only one who can decide which.
+  const known = list.some(c => c.ref.toLowerCase() === current.toLowerCase());
+  const orphan = current && !known
+    ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} \u2014 no longer in this project</option>` : '';
+  const opts = `<option value=""${current ? '' : ' selected'}>\u2014 none \u2014</option>` + orphan +
+    list.map(c => {
+      const label = c.name ? `${c.ref} \u00b7 ${c.name}` : c.ref;
+      return `<option value="${escapeHtml(c.ref)}"${c.ref.toLowerCase() === current.toLowerCase() ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+  return `<div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div>`;
+}
+
+
 function renderAttrField(a, val) {
   const req = a.required ? ' <span class="hint">(required)</span>' : ' <span class="hint">(optional)</span>';
   // The pin sits on the label rather than beside the input: it is a statement about the FIELD
@@ -378,6 +492,15 @@ function renderAttrField(a, val) {
   if (a.type === 'single_select') {
     const opts = (a.options||[]).map(o => `<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
     return `<div class="field">${label}<div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div></div>`;
+  }
+  // ══ LINK TO ANOTHER FEATURE ══
+  // A <select>, so collectAttrs() reads it through the same el.value path every plain input uses
+  // and the stored value is an ordinary string — the parent's Reference ID. Nothing downstream
+  // needs to know this field type exists.
+  // The whole point is that the ref is CHOSEN rather than typed: a typed "ROOM-04" for "ROOM-004"
+  // orphans the fixture and nothing ever objects.
+  if (a.type === 'feature_ref') {
+    return `<div class="field">${label}${featureRefPickerHtml(a, val)}</div>`;
   }
   if (a.type === 'multi_select') {
     const sel = Array.isArray(val) ? val : [];
@@ -899,6 +1022,22 @@ function renderVertexAttrField(a, vIdx, val) {
   const id = `vattr_${vIdx}_${a.id}`;
   if (a.type === 'single_select') {
     const opts = (a.options||[]).map(o => `<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
+    return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)">${opts}</select></div></div>`;
+  }
+  // Per-vertex link. Same candidate list, but the value is written through setVertexAttr() rather
+  // than read off the DOM at save time, which is how every vertex-scoped field works.
+  if (a.type === 'feature_ref') {
+    const list = featureRefCandidates(a);
+    if (!list.length){
+      return `<div class="field">${label}<div class="select-wrap"><select id="${id}" disabled><option value=""></option></select></div>` +
+        `<div class="hint" style="margin-top:6px;">Nothing to link to yet.</div></div>`;
+    }
+    const cur = (val || '').trim();
+    const known = list.some(c => c.ref.toLowerCase() === cur.toLowerCase());
+    const orphan = cur && !known
+      ? `<option value="${escapeHtml(cur)}" selected>${escapeHtml(cur)} \u2014 no longer in this project</option>` : '';
+    const opts = `<option value=""${cur ? '' : ' selected'}>\u2014 none \u2014</option>` + orphan +
+      list.map(c => `<option value="${escapeHtml(c.ref)}"${c.ref.toLowerCase() === cur.toLowerCase() ? ' selected' : ''}>${escapeHtml(c.name ? c.ref + ' \u00b7 ' + c.name : c.ref)}</option>`).join('');
     return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)">${opts}</select></div></div>`;
   }
   if (a.type === 'multi_select') {

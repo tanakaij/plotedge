@@ -179,6 +179,63 @@ const stageIsNow = s => d.querySelector(`.restore-rail-step[data-stage="${s}"]`)
   // the pile of unstyled text and out-of-nowhere buttons comes back with it.
   ok('no inline wizard host is left on the Welcome screen', !d.getElementById('foundBackupWizard'));
 
+  // ══ PLOTIN: THE DOCK REPORTS A FLOOR, NOT A FIX ══
+  // The mode's whole point is that GPS is not the source of truth indoors, and the dock's status
+  // line is the one piece of chrome on screen for the entire session. Left alone it reported
+  // "GPS off" permanently — a dead status in the most valuable slot on the screen. What replaces
+  // it is the field that is actually wrong when something is wrong: capture forty vertices
+  // believing you set Level 1 when you set Level 2 and the survey is silently wrong, with no
+  // geometry cue to catch it the way a bad fix betrays itself outdoors.
+  const dockMain = () => d.getElementById('cdStatusMain');
+  w.eval("currentEnvironment='PlotOut'; updateCollectDockStatus();");
+  ok('outdoors the dock still reports the fix', !dockMain().classList.contains('is-level'));
+
+  w.eval("currentEnvironment='PlotIn'; document.getElementById('collectBuildingId').value=''; document.getElementById('collectFloorLevel').value=''; updateCollectDockStatus();");
+  ok('indoors the dock switches to a level chip', dockMain().classList.contains('is-level'));
+  // A prompt, not an error: nothing is blocked and no modal is raised, but the omission has to be
+  // visible before it becomes forty points on the wrong storey.
+  ok('an unset floor is called out rather than left blank',
+    dockMain().classList.contains('is-unset') && /Set floor level/.test(dockMain().textContent),
+    dockMain().textContent);
+
+  // An <input>'s value is not its DOM content, so the MutationObserver that keeps the rest of the
+  // dock in step never sees these two fields — they need their own listeners, or the chip would
+  // keep saying "Set floor level" for as long as the card stayed open.
+  const floorEl = d.getElementById('collectFloorLevel');
+  d.getElementById('collectBuildingId').value = 'NORTHWOOD-A';
+  floorEl.value = 'Level 2';
+  floorEl.dispatchEvent(new w.Event('input', { bubbles: true }));
+  ok('typing a floor updates the chip without any other trigger',
+    /Level 2/.test(dockMain().textContent) && !dockMain().classList.contains('is-unset'),
+    dockMain().textContent);
+  // Floor first: it changes several times per building and is the field that is wrong when
+  // something is wrong. The building name is context, and is what truncates first.
+  ok('the floor reads before the building name',
+    dockMain().textContent.indexOf('Level 2') < dockMain().textContent.indexOf('NORTHWOOD-A'),
+    dockMain().textContent);
+
+  w.eval("currentEnvironment='PlotOut'; updateCollectDockStatus();");
+  ok('switching back restores the fix reading',
+    !dockMain().classList.contains('is-level') && !dockMain().classList.contains('is-unset'));
+
+  // ══ PLOTIN: THE MODE SWITCH ══
+  // The toggle carries the consequence of each mode, not just its name — PlotIn versus PlotOut
+  // says nothing about what changes; "Indoors · plan" does.
+  const envToggle = d.getElementById('collectEnvToggle');
+  ok('each side of the environment toggle states what it changes',
+    envToggle.querySelectorAll('.env-opt-sub').length === 2 &&
+    /Indoors/.test(envToggle.querySelector('[data-env="PlotIn"] .env-opt-sub').textContent));
+  ok('each side carries an icon for the arm\u2019s-length read',
+    envToggle.querySelectorAll('.env-opt-icon').length === 2);
+
+  // ══ PLOTIN: THE GPS ROW IS DEMOTED, NOT HIDDEN ══
+  // GPS genuinely does work near a window, and a crew that gets a fix indoors should still be able
+  // to use it — so the row keeps working and keeps its ids. It just stops being the headline.
+  ok('the demoted GPS row is still present and still wired',
+    !!d.querySelector('#collectCardGps .gps-bar') && !!d.getElementById('gpsBtn'));
+  ok('it gains the line that stops "Tap Start" reading as an instruction',
+    !!d.querySelector('#collectCardGps .gt-optional'));
+
   // ══ PLOTIN TEXTURE ══
   // The texture layer is toggled by one class. Everything else about it is CSS, but the class has
   // to be set on <html> or none of that CSS applies.

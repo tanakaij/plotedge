@@ -83,7 +83,10 @@ function seed(w) {
             { id: 'surface', label: 'Surface', type: 'single_select', options: ['gravel', 'paved'] }
           ] },
           { id: 'sign', name: 'Traffic Sign', geometryType: 'point', fields: [
-            { id: 'sign_code', label: 'Code', type: 'text' }
+            { id: 'sign_code', label: 'Code', type: 'text' },
+            // The link field under test: a sign hangs off the road it stands on. Constrained to
+            // 'road', which is what makes the picker offer roads rather than every feature.
+            { id: 'on_road', label: 'On road', type: 'feature_ref', refTargetFtId: 'road' }
           ] }
         ]
       }
@@ -318,6 +321,215 @@ check('three deep: road, side road, sign — saved back out in reverse order', (
   assert(byName('Nested Sign').vertices.length === 1, 'the sign did not keep its own single vertex');
   assert(byName('Nested Side').vertices.length === 2, 'the side road did not keep its own two vertices');
   assert(byName('Nested Main').vertices.length === 3, 'the main road did not keep its own three vertices');
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// REFERENCE IDS ARE IDENTIFIERS, SO THEY HAVE TO BE UNIQUE
+// ══════════════════════════════════════════════════════════════════════════
+// These live in this suite rather than features.test.js because the bug they cover is a capture-
+// STACK bug. generateReferenceId() counted saved features of the type and added one, which is
+// correct only while exactly one capture is in flight — and the stack exists precisely so it is
+// not. Pause a road, start another, and both autofilled the same number. Nothing caught it,
+// because a duplicated ref still looks like a ref; it surfaces months later when the register is
+// matched against another system and one asset ID returns two rows.
+check('two captures of the same type parked at once do not autofill the same ref', () => {
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  const startRoadNamed = name => {
+    $('featureTypeSelect').value = 'road';
+    w.onFeatureTypeChange();
+    $('featureName').value = name;
+    run(`currentVertices = [{lat:-17.8,lon:31,attrs:{},photos:[]},{lat:-17.81,lon:31.01,attrs:{},photos:[]}];`);
+  };
+  startRoadNamed('Ref collide A');
+  const refA = $('featureRef').value;
+  assert(refA, 'the first capture did not autofill a ref at all');
+  run('suspendCurrentCapture()');
+
+  startRoadNamed('Ref collide B');
+  const refB = $('featureRef').value;
+  assert(refB && refB !== refA,
+    `both captures autofilled the same reference ID (${refA}) — the counter is ignoring the stack`);
+  run(`suspendedCaptures = []; blankCollectForm();`);
+});
+
+check('a ref already used elsewhere in the project is queried before it is saved', () => {
+  // A warning, never a block. Refs legitimately arrive pre-printed and occasionally duplicated on
+  // the asset itself, and a crew standing in front of a tag that genuinely reads POLE-014 twice has
+  // to be able to record what is there. What matters is that the save cannot happen SILENTLY, and
+  // that the prompt names the other feature — that turns "that's a duplicate" into "that's the one
+  // I did on Tuesday".
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  const before = run('savedFeatures.length');
+  const existing = run(`savedFeatures.find(f => (f.ref||'').trim())`);
+  assert(existing, 'no already-saved feature carries a ref to collide with');
+
+  $('featureTypeSelect').value = 'sign';
+  w.onFeatureTypeChange();
+  $('featureName').value = 'Ref clash probe';
+  $('featureRef').value = existing.ref;
+  run(`currentVertices = [{lat:-17.8,lon:31,attrs:{},photos:[]}];`);
+  run('saveFeature()');
+
+  assert(run('savedFeatures.length') === before,
+    'the duplicate ref was saved without asking');
+  const msg = $('confirmModalMsg').textContent;
+  assert(new RegExp(existing.ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(msg),
+    `the prompt does not quote the clashing ref: "${msg}"`);
+  assert(msg.indexOf(existing.name) !== -1,
+    `the prompt does not name the feature already using it: "${msg}"`);
+
+  // Confirming goes through, because the crew is the one who can see the tag.
+  $('confirmModalOk').click();
+  assert(run('savedFeatures.length') === before + 1,
+    'confirming the duplicate ref did not save the feature');
+});
+
+check('an empty ref is not treated as a collision', () => {
+  // Ref is optional, and two features with no ref are not two features sharing one. Getting this
+  // wrong would put a confirm in front of every single save on a survey that does not use refs.
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  run(`savedFeatures.push({ id:'noref_a', name:'No ref A', ref:'', featureTypeId:'sign', vertices:[{lat:-17.8,lon:31}], attrs:{} });`);
+  const before = run('savedFeatures.length');
+  $('featureTypeSelect').value = 'sign';
+  w.onFeatureTypeChange();
+  $('featureName').value = 'No ref B';
+  $('featureRef').value = '';
+  run(`currentVertices = [{lat:-17.8,lon:31,attrs:{},photos:[]}];`);
+  run('saveFeature()');
+  assert(run('savedFeatures.length') === before + 1,
+    `an empty ref raised a prompt instead of saving: "${$('confirmModalMsg').textContent}"`);
+});
+
+check('editing a feature does not collide with its own ref', () => {
+  // The check skips the feature being edited. Without that, re-saving any feature that has a ref
+  // would accuse it of clashing with itself — a confirm on every single edit.
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  // Must be a feature whose ref is unique in the project — the check above deliberately created a
+  // genuine duplicate, and picking that one would be testing the clash path, not the self path.
+  const target = run(`savedFeatures.find(f => {
+    const r = (f.ref||'').trim().toLowerCase();
+    return r && savedFeatures.filter(g => (g.ref||'').trim().toLowerCase() === r).length === 1;
+  })`);
+  assert(target, 'no feature with a unique ref to re-save');
+  const before = run('savedFeatures.length');
+  run(`editFeature(${JSON.stringify(target.id)})`);
+  assert(run('editingFeatureId') === target.id, 'the feature did not open for editing');
+  run('saveFeature()');
+  assert(run('savedFeatures.length') === before,
+    'editing created a new feature instead of updating');
+  assert(!$('confirmModal').classList.contains('show'),
+    `re-saving a feature accused it of clashing with its own ref: "${$('confirmModalMsg').textContent}"`);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// LINKING ONE FEATURE TO ANOTHER
+// ══════════════════════════════════════════════════════════════════════════
+// A sink in a bathroom, a transformer on a pole, a sign on a road: all the same relationship, and
+// all of it was already recordable by typing the parent's ref into a text field. That is exactly
+// the problem — a typed ref is a pointer with no spell-check, and "ROAD-01" for "ROAD-001" orphans
+// the child silently. These cover the picker that replaces the typing, and the back-reference list
+// that makes the link readable from the other end.
+check('a link field offers the refs already captured, not a text box', () => {
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  $('featureTypeSelect').value = 'sign';
+  w.onFeatureTypeChange();
+  const el = $('attr_on_road');
+  assert(el, 'the link field did not render at all');
+  assert(el.tagName === 'SELECT', `a link field rendered as <${el.tagName.toLowerCase()}> — it must be a picker, or the typo it exists to prevent is still possible`);
+  const values = Array.from(el.options).map(o => o.value).filter(Boolean);
+  assert(values.length, 'the picker offered nothing despite roads being saved');
+  // Constrained to 'road', so nothing of another type may appear — an unconstrained picker on a
+  // real survey is a list of hundreds and invites picking the wrong thing.
+  const roadRefs = run(`savedFeatures.filter(f => f.featureTypeId === 'road').map(f => (f.ref||'').trim()).filter(Boolean)`);
+  values.forEach(v => assert(roadRefs.some(r => r.toLowerCase() === v.toLowerCase()),
+    `the picker offered "${v}", which is not a Road — the refTargetFtId constraint is not being applied`));
+});
+
+check('a link is stored as a plain ref string, so nothing downstream changes shape', () => {
+  run(`suspendedCaptures = []; blankCollectForm();`);
+  const target = run(`savedFeatures.find(f => f.featureTypeId === 'road' && (f.ref||'').trim())`);
+  assert(target, 'no road with a ref to link to');
+  $('featureTypeSelect').value = 'sign';
+  w.onFeatureTypeChange();
+  $('featureName').value = 'Linked sign probe';
+  $('attr_on_road').value = target.ref;
+  run(`currentVertices = [{lat:-17.8,lon:31,attrs:{},photos:[]}];`);
+  const before = run('savedFeatures.length');
+  run('saveFeature()');
+  assert(run('savedFeatures.length') === before + 1,
+    `the linked sign did not save — app said: "${$('toast').textContent}"`);
+  const saved = run(`savedFeatures.find(f => f.name === 'Linked sign probe')`);
+  assert(typeof saved.attrs.on_road === 'string',
+    `the link saved as ${typeof saved.attrs.on_road}, not a string — plotpack/GeoJSON/CSV all expect a plain attribute`);
+  assert(saved.attrs.on_road === target.ref, `the link stored "${saved.attrs.on_road}" instead of "${target.ref}"`);
+  // The child stays its own feature. Nesting would have put it inside the parent, which is what
+  // makes "every sign in the survey, worst condition first" a tree walk instead of a filter.
+  assert(run(`savedFeatures.some(f => f.id === ${JSON.stringify(target.id)})`),
+    'the parent feature disappeared');
+  assert(!run(`!!(savedFeatures.find(f => f.id === ${JSON.stringify(target.id)}).children)`),
+    'the parent grew a children array — the link must stay flat');
+});
+
+check('the parent can see what points at it', () => {
+  // The whole reason the field type declares itself rather than being an ordinary text field: with
+  // a text field nothing distinguishes a pointer from any other string on the record, so this list
+  // could only ever have been produced by guessing which values look like refs.
+  const target = run(`savedFeatures.find(f => f.featureTypeId === 'road' && (f.ref||'').trim())`);
+  const linked = run(`featuresLinkingTo(savedFeatures.find(f => f.id === ${JSON.stringify(target.id)}))`);
+  assert(linked.length >= 1, 'the road cannot see the sign that points at it');
+  assert(linked.some(l => l.feature.name === 'Linked sign probe'), 'the linked sign is missing from the list');
+  // Grouped by the field carrying the link, because one feature can be pointed at through more
+  // than one relationship and flattening them says less than either.
+  assert(linked.every(l => l.via === 'On road'), `the link is not attributed to its field: ${JSON.stringify(linked.map(l => l.via))}`);
+
+  // And it renders as tappable rows, which is the flat-storage claim honoured: the child is a
+  // first-class record you can open, not a detail of its parent.
+  run(`openInspect(${JSON.stringify(target.id)})`);
+  const rows = $('inspectBody').querySelectorAll('.fi-linked-row');
+  assert(rows.length >= 1, 'the inspector did not render the linked features');
+  assert(/Linked sign probe/.test($('inspectBody').textContent), 'the linked sign is not named in the inspector');
+  run('closeInspect()');
+});
+
+check('a link is an ordinary column in Review, so it can be filtered like any other field', () => {
+  // This is the payoff for storing the link as a plain string rather than nesting. The review
+  // table, the attribute query engine and every export path read it through the generic attribute
+  // route with no knowledge that a link field exists — which is what makes
+  //   "On road" = 'ROAD-001'
+  // work in the Review query box, and what makes the value survive into GeoJSON, CSV and an
+  // external asset system as a normal column. A nested child would have had no column at all.
+  const cols = run(`attrTableColumns(savedFeatures).map(c => c.label)`);
+  assert(cols.indexOf('On road') !== -1,
+    `the link field has no column in Review: ${JSON.stringify(cols)}`);
+  const col = run(`attrTableColumns(savedFeatures).find(c => c.label === 'On road')`);
+  assert(col.attr === true, 'the link column is not being read through the generic attribute path');
+});
+
+check('a feature with no ref is never offered as a link target', () => {
+  // The stored link IS the ref, so a feature without one is not a thing that can be pointed at.
+  // Offering it would put a blank row in the picker that silently records nothing.
+  run(`savedFeatures.push({ id:'road_noref', name:'Unreffed road', ref:'', featureTypeId:'road', featureTypeName:'Road', vertices:[{lat:-17.8,lon:31}], attrs:{} });`);
+  run(`blankCollectForm();`);
+  $('featureTypeSelect').value = 'sign';
+  w.onFeatureTypeChange();
+  const labels = Array.from($('attr_on_road').options).map(o => o.textContent);
+  assert(!labels.some(l => /Unreffed road/.test(l)),
+    'a feature with no ref was offered as a link target');
+});
+
+check('a link whose target has gone is kept and flagged, not silently dropped', () => {
+  // Losing a recorded relationship because the other end was deleted is worse than showing a link
+  // that needs looking at — and the crew is the only one who can decide which.
+  run(`blankCollectForm();`);
+  const saved = run(`savedFeatures.find(f => f.name === 'Linked sign probe')`);
+  run(`savedFeatures.push({ id:'ghost_sign', name:'Ghost link sign', ref:'GHOSTREF-1', featureTypeId:'sign', featureTypeName:'Traffic Sign', vertices:[{lat:-17.8,lon:31}], attrs:{ on_road:'ROAD-DELETED-999' } });`);
+  run(`editFeature('ghost_sign')`);
+  const el = $('attr_on_road');
+  assert(el.value === 'ROAD-DELETED-999', `the dangling link was dropped instead of preserved (got "${el.value}")`);
+  const sel = Array.from(el.options).find(o => o.value === 'ROAD-DELETED-999');
+  assert(sel && /no longer/i.test(sel.textContent),
+    `the dangling link is not flagged: "${sel ? sel.textContent : '(missing)'}"`);
+  run(`blankCollectForm(); editingFeatureId = null;`);
 });
 
 check('the dashboard reports paused captures after leaving the tab', () => {

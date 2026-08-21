@@ -348,6 +348,27 @@ const FIELD_TYPES = [
   { value:'multi_select',  label:'Multiple choice' },
   { value:'date',          label:'Date' },
   { value:'barcode',       label:'Barcode / QR' },
+  // ══ LINKING ONE FEATURE TO ANOTHER ══
+  // The relationship this exists for is containment and attachment: a sink in a bathroom, a
+  // transformer on a pole, a valve in a chamber. All of it was already recordable — type the
+  // parent's Reference ID into an ordinary text field — and that is exactly the problem. A typed
+  // ref is a pointer with no spell-check: "ROOM-04" for "ROOM-004" orphans the fixture, nothing
+  // objects, and it is found months later by someone joining the register against another system.
+  //
+  // So this stores the same thing — the parent's ref, a plain string — but the crew PICKS it from
+  // the refs already in the project instead of typing it. You cannot mistype a value you selected.
+  //
+  // ══ WHY A FIELD TYPE AND NOT A PARENT COLUMN ON EVERY FEATURE ══
+  // Because the value stays a string, nothing downstream changes shape: plotpack, GeoJSON, CSV and
+  // any external asset system see an ordinary attribute, exactly as they would have seen the typed
+  // text field. There is no format version to bump and nothing permanent to regret — delete the
+  // field from the schema and the project is back where it started.
+  // It is also opt-in per feature type, which matters because most types have nothing to point at.
+  // And it is deliberately NOT nesting: the fixture stays its own feature, its own row, its own
+  // record with its own condition and replacement cost. Storing it inside its parent would make
+  // "every sink in the building, worst condition first" a tree walk instead of a filter, which is
+  // the query that actually gets run.
+  { value:'feature_ref',   label:'Link to another feature' },
   { value:'calculated',    label:'Calculated (from other fields)' },
   { value:'repeat_group',  label:'Repeating group (multiple entries)' }
 ];
@@ -359,7 +380,11 @@ const FIELD_TYPES = [
 // single DOM id; wiring one scanner per dynamically-added instance is solvable but out of scope
 // for this pass). Text/number/choice/date cover the overwhelming majority of real repeating data
 // (occupants, damage entries, inspection line items).
-const REPEAT_SUBFIELD_TYPES = FIELD_TYPES.filter(t => !['calculated','barcode','repeat_group'].includes(t.value));
+// feature_ref joins the exclusions for the same reason barcode is here: the picker is rebuilt from
+// the project's live refs and targets a single DOM id, and wiring one per dynamically-added group
+// instance is solvable but out of scope for this pass. A group entry that needs to name a parent
+// can carry the parent on the FEATURE instead, which is where containment naturally sits anyway.
+const REPEAT_SUBFIELD_TYPES = FIELD_TYPES.filter(t => !['calculated','barcode','repeat_group','feature_ref'].includes(t.value));
 
 
 // Look up a feature type by id within the active project's schema
