@@ -480,6 +480,8 @@ function closeTopOverlay(){
   // mid-write. A generic classList.remove('show') would tear the sheet off the screen halfway
   // through writing photos into a project, leaving a project holding half its media and nothing on
   // screen to say so. See the invariant note in js/17b-plotpack.js.
+  const plotairModal = document.getElementById('plotairModal');
+  if (isReallyOpen(plotairModal)) { closePlotAir(); return true; }
   const restoreModal = document.getElementById('restoreModal');
   if (isReallyOpen(restoreModal)) { closeRestoreModal(); return true; }
   // Back / backdrop / X on the field sheet all discard the draft, matching Cancel — committing

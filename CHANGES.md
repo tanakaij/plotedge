@@ -1,11 +1,13 @@
-# PlotEdge update — restore flow, PlotIn mode pass, linked features
+# PlotEdge update — restore flow, PlotIn mode pass, linked features, PlotAir
 
-Drop these over your tree preserving paths. **20 files: 18 modified, 2 new.**
-`npm test` → **553/553 passing** (baseline was 471).
+Drop these over your tree preserving paths. **28 files: 23 modified, 5 new.**
+`npm test` → **577/577 passing** (baseline was 471).
 
-**Service worker bumped to v25.** No new shipped files, so `SHELL_ASSETS` is
-unchanged — the bump exists only so installed copies stop serving the old shell.
-Hard refresh, or close all tabs, on first load after deploy.
+**Service worker bumped to v29.** This one **also changes `SHELL_ASSETS`**, unlike the
+bumps before it, because PlotAir adds a new shipped file (`js/17e-plotair.js`) —
+a file the app loads but the shell never cached is a file that is missing the
+first time the device goes offline. Hard refresh, or close all tabs, on first
+load after deploy.
 
 ---
 
@@ -113,10 +115,21 @@ Spread across three surfaces that together cover the screen:
   texture, so it carries real chroma and tracks whichever pillar is active. Plus
   an overhead pool of light and an edge vignette, which is what actually sells
   "enclosed" before any line work is read.
-- **Inside the Collect cards** — the same artwork, `soft-light`-blended into the
-  card surface. This is the coverage fix: the cards that were hiding the texture
-  now carry it. Blended rather than laid over, so the card stays one flat colour
-  to the eye and nothing sitting on it loses contrast.
+- **The Collect cards themselves** — and this is the part that took two passes.
+  The first version only textured the cards, at very low ink, on the theory that
+  legibility beats visibility. That was the wrong call: at that strength the plan
+  was not subtle, it was **absent**, and a faint pattern over an unchanged card
+  still reads as the same card. Two things fixed it. The ink came up to a real
+  blueprint strength — `soft-light` blends it *into* the surface rather than over
+  it, so text on the card loses no contrast at any strength. And the card
+  **surface tokens** themselves now shift indoors: cooler and bluer for the
+  drafting-paper read, with the ambient lift dropped for a crisp inset hairline,
+  because a drawing lies flat on a table and does not float. Because these are
+  tokens, redefining them on the panel cascades to every card, input and
+  sub-surface at once — the whole screen shifts rather than the cards
+  individually. The luminance move is deliberately small and the hue move large:
+  a card that gets much lighter or darker changes how every piece of text on it
+  contrasts, which is not worth paying for atmosphere.
 - **A one-shot reveal** on entering PlotIn — 620ms, `forwards`, then completely
   static. Collect stays the app's calmest screen (`data-screen="form"` dials the
   mesh down to 0.28 precisely so nothing moves behind someone typing a measurement
@@ -361,6 +374,163 @@ rare; and the linked-features list renders nothing when there are no links.
 
 ---
 
+## 7. Two more bugs
+
+**The indoor texture leaked onto the Welcome screen.** `updateIndoorTexture()`
+gated on *PlotIn + the Collect tab*, and `getCurrentTab()` keeps reporting
+`collect` after you leave the project — the tab stays where you left it, for when
+you come back. So both conditions held on Welcome and Projects, and the indoor
+floor plan painted over the landing screen's own contour texture. Two different
+environments' artwork on one screen, and a landing screen that quietly changed
+depending on what the last project happened to be doing.
+
+Now three conditions: the treatment also requires `#view-app` to be the active
+view, read off `.active` rather than tracked in a variable so it cannot drift
+from what is on screen. And `activateView()` re-runs the check, because leaving a
+project never went through the branch that did.
+
+**Restoring the same backup twice made a silent second copy.** Restoring always
+mints a fresh project id — that is deliberate, and it is why a restore can never
+overwrite work. It is also exactly why a repeat restore was undetectable:
+everything identifying the original had just been replaced.
+
+Import now records `restoredFrom: { projectId, exportedAt, restoredAt }`
+alongside the new identity, on both the `.plotpack` and `.plotedge.json` paths.
+That supports three grades of answer, because they need three different
+responses:
+
+| Match | Meaning | Response |
+|---|---|---|
+| Same project **and** same export stamp | Literally the same file, twice | Primary becomes **Open "Ward 7"**; a second copy is demoted to the secondary button |
+| Same project, different export | A later backup of something already here | Says so, primary action unchanged |
+| Same *name* only | Two visits to one site | Nothing — this is ordinary |
+
+Name is deliberately **not** a grade of its own. Two projects called Ward 7 are
+normal, and treating that as a duplicate would refuse the most common case there
+is.
+
+Not blocked outright, either: a crew that wants a scratch copy to experiment on
+should be able to have one, and refusing would be deciding something only they
+can. The escape hatch is just no longer the button under your thumb.
+
+The guard proved itself immediately — it fired inside `plotpack.test.js`, whose
+earlier checks had already restored that exact bundle. That test now covers both
+paths.
+
+---
+
+## 8. PlotAir — planning a drone flight
+
+A new module, named to match the others and reachable from **Data → PlotAir**.
+It turns a boundary this project already holds into a mapping flight, and
+exports a KML (and a plain waypoint CSV) to open in whatever flight app you use.
+
+Set the camera and the altitude and it reports **ground sample distance**, area,
+line count, path length, air time, photo count and batteries — recomputing live
+as you move the altitude, because that is how an altitude actually gets chosen.
+There is also a solver in the other direction: say *2 cm/px* and it gives you the
+height that delivers it, which is the right way round when the job has a
+legibility requirement (a meter dial, a pole number) rather than a height limit.
+
+### Three things it deliberately is not
+
+**It does not fly the drone.** Manufacturer SDKs are native and need app-level
+integration a WebView cannot reach; MAVLink needs USB or serial. No control, no
+telemetry, no over-the-air upload.
+
+**It does not process imagery.** Structure-from-motion is desktop or cloud work
+by an order of magnitude.
+
+**It has no ground control point workflow — on purpose.** GCPs are the obvious
+drone feature and the wrong one at 3–5 m. A GCP at phone-GPS accuracy is *worse
+than none*: it drags the photogrammetric solution away from where a good relative
+reconstruction would have put it. There should be no GCP export here until there
+is an RTK or PPK source. Flight planning has no such problem — the plan only has
+to cover the polygon, the aircraft navigates on its own GNSS, and every real
+flight carries buffer anyway — which is exactly why it is the drone work worth
+building on this hardware.
+
+### Some detail worth knowing
+
+- **The boundary is one you already surveyed.** Any polygon feature, or the
+  project's PlotBounds working area. Nothing is re-entered by hand — that is how
+  a plan ends up covering somewhere slightly different from the survey.
+- **Concave boundaries are clipped properly.** Even-odd scan-line clipping, so an
+  L-shaped yard does not get flown as its convex hull. Tested: the L-shape plans
+  12 ha and a shorter path than the 16 ha square that contains it.
+- **Lawnmower, not deadhead.** Lines alternate direction so the aircraft turns at
+  the end of each one. Turn distance is counted in the path length, because a
+  tight spacing is exactly what multiplies turns.
+- **Every parameter travels in the KML.** A file that says only where to fly is
+  unreproducible six months later, and the first question anyone asks of imagery
+  is what altitude and overlap produced it. The airspace caveat travels with it
+  too.
+- **It says what it does not know.** The sheet carries a warning, not a tooltip:
+  this computes geometry and knows nothing about the airspace over the site, the
+  height limits in force, or whose consent is needed.
+
+### On the testing
+
+`tests/plotair.test.js` checks the arithmetic against figures derived by hand,
+not against the code's own output — a P4P at 100 m must give 2.74 cm/px, a 150 m
+frame and 45 m line spacing at 70% side overlap. A wrong number here throws
+nothing and looks fine; it is discovered after somebody has flown the site and
+found the images will not reconstruct.
+
+It also pins the mistake most likely to be made in this file: the shutter
+interval must use the **along-track** frame dimension, not the across-track one.
+Getting that wrong produces images that overlap sideways but not forwards, which
+fails reconstruction while every number on the screen still looks plausible.
+
+### The return leg: flight photos
+
+PlotAir planned a flight and nothing came back. It does now — and the design is
+shaped entirely by one number.
+
+A 16 ha mission at these defaults is about **700 frames at 8–12 MB each: 6–8 GB.**
+No amount of compression makes that something a phone app holds. So nothing here
+copies a photograph.
+
+- **It never reads a whole file.** EXIF lives in the APP1 segment at the head of
+  a JPEG, so it slices the first 128 KB — `File.slice()` reads only that. Seven
+  hundred photos costs tens of megabytes of reads instead of eight gigabytes.
+- **It never decodes an image.** Drone JPEGs carry their own thumbnail in EXIF
+  IFD1, and it is lifted as bytes. Decoding a 12 MP frame to a canvas 700 times
+  would kill the app long before storage became the problem — this path never
+  constructs an `Image` at all.
+- **It thins on the way in.** A mapping flight is 80% overlap *by design* —
+  consecutive frames are the same picture, because they are inputs to
+  photogrammetry rather than documentation. One frame per N metres (default 20)
+  is what a person actually wants to look at, and kept-versus-found is always
+  reported so the thinning is never silent.
+
+Roughly 15–25 KB per kept photo. The originals stay on the card, and the filename
+travels with each record so the real frame can be found again.
+
+**Altitude is recorded but never called elevation.** Some drones write height
+above take-off, some write ellipsoidal height, and some put the absolute figure
+in an XMP block this does not read. Horizontal position is dependable across
+manufacturers; vertical is not, and labelling an unknown datum as elevation is
+how a survey acquires a number nobody can defend later.
+
+### The bug the EXIF tests found — twice
+
+`plotairThinByDistance()` guarded with `isFinite(s.lat)`. **The global `isFinite`
+coerces before testing, so `isFinite(null)` evaluates `isFinite(0)` — true.** A
+photo the drone could not place passed every check and was positioned at 0°N 0°E,
+in the Gulf of Guinea. It does not throw, it does not warn, and on a map centred
+over the real site it does not even appear: the feature is simply somewhere else,
+in the project, counted.
+
+Every guard in PlotAir now goes through one non-coercing helper.
+
+Sweeping for the same pattern found it a second time, pre-existing, in
+`js/15-plotetch.js`: the GeoJSON importer filtered vertices the same way, so a
+position of `[null,null]` — which bad exports do produce — would have landed a
+sketch in the same place. Fixed with the same reasoning written next to it.
+
+---
+
 ## Every file in this drop, with why it changed
 
 | Path | Why |
@@ -378,11 +548,18 @@ rare; and the linked-features list renders nothing when there are no links.
 | `js/06-collect.js` | the indoor address survives a save; the ref picker (feature and per-vertex scope); autofill counter skips refs held by saved features, parked captures and the live form |
 | `js/11-features.js` | the ref-collision check on save, split out so it runs before the name check |
 | `tests/capture-stack.test.js` | ten checks: ref collisions across parked captures, the prompt, empty refs, editing your own — plus the picker, flat storage, the back-reference list, the Review column, and dangling links |
-| `js/02-state.js` | the `feature_ref` field type, and its exclusion from repeat-group sub-fields |
+| `js/02-state.js` | leaving a project clears the indoor treatment; the `feature_ref` field type, and its exclusion from repeat-group sub-fields |
 | `js/03-schema.js` | the **Points at** control in the field editor |
 | `js/16-geometry-math.js` | `featuresLinkingTo()` and the linked-features list in the inspector |
 | `tests/indoor-flow.test.js` | **new** — the whole indoor job in sequence; found both bugs in §5 |
-| `plotedge-sw.js` | v20 → v25 |
+| `js/17-export.js` | the JSON restore path records the same provenance |
+| `js/17e-plotair.js` | **new** — PlotAir: flight geometry, estimates, KML and CSV export, EXIF photo ingest, the sheet |
+| `js/15-plotetch.js` | the same `isFinite` coercion bug in the GeoJSON importer |
+| `tests/fixtures-exif.json` | **new** — JPEGs assembled byte by byte, both byte orders, known coordinates |
+| `js/05-projects.js` | the PlotAir row on the Data hub |
+| `js/21a-plotwords.js` | PlotAir's glossary entry |
+| `tests/plotair.test.js` | **new** — the flight arithmetic, checked against hand calculations |
+| `plotedge-sw.js` | v20 → v28, and `SHELL_ASSETS` gains the new file |
 | `tests/plotpack.test.js` | the "one dispatcher" guard rewritten as an invariant; plus a real `.plotpack` driven end-to-end through the sheet |
 | `tests/restore-sheet.test.js` | **new** — drives every step of the sheet, plus the PlotIn dock/toggle/GPS-row behaviour |
 | `tests/run.js` | registers the new suite |

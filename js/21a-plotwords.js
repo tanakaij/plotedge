@@ -133,6 +133,12 @@ const PLOTWORDS = {
     short: 'Suggests what you type',
     long: 'Remembers the words this crew actually types into each field and offers them back as tappable suggestions. It never fills anything in on its own. A suggestion only becomes an answer when you tap it.'
   },
+  plotair: {
+    name: 'PlotAir',
+    short: 'Plan a drone flight',
+    long: 'Turns a boundary you have already surveyed into a drone mapping flight: how high to fly for the detail you need, how many lines, how long it takes and how many batteries. Exports a file you open in your flight app. It does not fly the drone and it does not process the pictures afterwards.',
+    open: 'openPlotAirFromHub'
+  },
   plotwords: {
     name: 'PlotWords',
     short: 'What the names mean',

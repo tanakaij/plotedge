@@ -15,7 +15,7 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v25';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
+const SW_VERSION = 'v29';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
                              // js/07-navigation.js, js/17b-plotpack.js — the restore flow moved out of
                              // the Welcome page into #restoreModal, and the PlotIn indoor texture was
                              // rebuilt as an accent-masked floor plan that also paints inside the
@@ -30,6 +30,16 @@ const SW_VERSION = 'v25';   // bumped: index.html, css/01-tokens.css, css/02-mes
                              // js/06-collect.js, js/16-geometry-math.js and the inspector styles.
                              // v25: the environment toggle collapses while outdoors, and the indoor
                              // address survives a save instead of being retyped per fixture.
+                             // v26: the Collect card SURFACE changes indoors, not just the pattern
+                             // on it — cooler tokens, flat drawing-sheet edge, stronger plan ink.
+                             // v27: the indoor texture no longer leaks onto Welcome, and restoring a
+                             // bundle already on the device offers to open it instead.
+                             // v28 adds a NEW SHIPPED FILE, js/17e-plotair.js (PlotAir) — so
+                             // SHELL_ASSETS changes here as well as the version, unlike every bump
+                             // above it. A file the app loads but the shell never cached is a file
+                             // that is missing the first time the device is offline.
+                             // v29: PlotAir gains the return leg — flight photos read for their
+                             // EXIF position and added as points, without copying the photographs.
 const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
 const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
 
@@ -91,6 +101,7 @@ const APP_ASSETS = [
   'js/17b-plotpack.js',
   'js/17c-plotcad.js',
   'js/17d-plotfix.js',
+  'js/17e-plotair.js',
   'js/18-import.js',
   'js/19-sync.js',
   'js/19a-plotvault.js',

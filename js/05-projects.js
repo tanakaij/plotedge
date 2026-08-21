@@ -146,6 +146,11 @@ function renderDataHub(){
   const backupSub = t.unsynced
     ? plural(t.unsynced, 'project') + ' not exported yet'
     : (t.lastExport ? 'Last export ' + timeAgo(t.lastExport) : 'Nothing exported yet');
+  // States the precondition rather than offering a row that opens onto an apology. PlotAir plans
+  // over a polygon this project already holds; with no project open there is nothing to fly.
+  const airSub = activeProjectId
+    ? 'Plan a mapping flight over a surveyed boundary'
+    : 'Open a project first \u2014 a flight is planned over its boundary';
   const projectsSub = t.inProgress
     ? plural(t.count, 'project') + ' · ' + t.inProgress + ' mid-capture'
     : plural(t.count, 'project') + ' · ' + plural(t.features, 'feature');
@@ -167,10 +172,17 @@ function renderDataHub(){
 
   const rows = document.getElementById('hubRows');
   if (rows) {
+    // A quadcopter seen from above: four arms, four rotors, a body. Reads at 18px in a way a
+    // side-on aircraft does not.
+    const icoAir = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 9 5.5 5.5M15 9l3.5-3.5M9 15l-3.5 3.5M15 15l3.5 3.5"/><circle cx="4" cy="4" r="2"/><circle cx="20" cy="4" r="2"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="20" r="2"/></svg>';
     const icoExit = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>';
     rows.innerHTML =
       row('showProjectManagerFromHub()', icoFolder, 'Projects', projectsSub, t.unsynced ? t.unsynced + ' unsynced' : '')
     + row('showBackupRestore()', icoBackup, 'Backup & Restore', backupSub, '')
+    // PlotAir sits on Data rather than in a project tab because a flight is planned from a
+    // boundary that already exists, usually while nobody is mid-capture — and it needs a project
+    // open to have a boundary at all, which is why it says so rather than opening onto nothing.
+    + row('openPlotAirFromHub()', icoAir, 'PlotAir', airSub, '')
     + row('showStorage()', icoDisk, 'Storage', formatBytes(t.bytes) + ' used on this device', '')
     // Exit lives here because Data is the only tab that is about the app rather than about the
     // survey in front of you — the same reasoning that put Backup and Storage on it. Native only:

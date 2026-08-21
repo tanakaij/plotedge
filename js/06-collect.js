@@ -107,7 +107,18 @@ function setCollectEnvironment(env){
 // itself is touched, not on every tab change). Called from here and from switchTabScreenState()
 // in js/02-state.js, which covers that tab-change case.
 function updateIndoorTexture(){
-  const active = currentEnvironment === 'PlotIn' && getCurrentTab() === 'collect';
+  // ══ THREE CONDITIONS, NOT TWO ══
+  // getCurrentTab() reports which tab is selected INSIDE a project — and it keeps reporting
+  // 'collect' after you leave the project entirely, because the tab is still where you left it for
+  // when you come back. So PlotIn + collect was true on the Welcome and Projects screens as well,
+  // and the indoor floor plan was painting over the landing screen's own contour texture. Two
+  // different environments' artwork on one screen, and the landing screen quietly changing
+  // depending on what the last project happened to be doing.
+  // #view-app is the only view the indoor treatment belongs to. Read off .active rather than
+  // tracked in a variable so it cannot drift from what is actually on screen.
+  const appView = document.getElementById('view-app');
+  const inProject = !!(appView && appView.classList.contains('active'));
+  const active = inProject && currentEnvironment === 'PlotIn' && getCurrentTab() === 'collect';
   document.documentElement.classList.toggle('indoor-active', active);
 }
 

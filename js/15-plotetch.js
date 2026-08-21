@@ -1284,7 +1284,13 @@ function onPlotEtchImportFile(ev){
       // Multi-part geometries are split into one sketch per part: every operation here works on a
       // single ring/path, so keeping a MultiPolygon whole would make it un-analysable.
       const push = (type, coords) => {
-        const verts = coords.map(c=>({ lat:c[1], lon:c[0] })).filter(v=>isFinite(v.lat)&&isFinite(v.lon));
+        // Number.isFinite, not the global. The global COERCES before testing, so isFinite(null) is
+        // isFinite(0) === true — and a GeoJSON position of [null,null], which bad exports do
+        // produce, would sail through this filter and land the sketch at 0 degrees north, 0 east.
+        // It does not throw, and on a map centred over the real site it does not even appear: the
+        // sketch is simply somewhere in the Gulf of Guinea, in the project, counted.
+        const num = v => typeof v === 'number' && Number.isFinite(v);
+        const verts = coords.map(c=>({ lat:c[1], lon:c[0] })).filter(v=>num(v.lat)&&num(v.lon));
         if (!verts.length) { skipped++; return; }
         // GeoJSON rings repeat the first point last; the app's model doesn't.
         if (type==='polygon' && verts.length>1){

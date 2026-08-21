@@ -518,16 +518,60 @@
      background-blend-mode is what keeps this honest: the tile is blended into --card-bg rather
      than laid over it, so the card surface stays one flat colour to the eye and nothing sitting on
      it — labels, values, inputs — loses contrast. */
+  html.indoor-active #panel-collect {
+    /* ══ THE CARD SURFACE ITSELF, NOT JUST A PATTERN ON IT ══
+       Texturing the cards was not enough on its own: a faint plan over an unchanged card still
+       reads as the same card. The surface has to change too, and because these are TOKENS,
+       redefining them on the panel cascades to every card, input and sub-surface inside it at once
+       — the whole screen shifts rather than the cards individually.
+       Cooler and bluer, which is the drafting-paper / blueprint read and the same temperature shift
+       the mesh takes behind them. Deliberately a small move in luminance and a larger one in hue:
+       a card that gets much lighter or darker changes how every piece of text on it contrasts, and
+       that is not a cost worth paying for atmosphere. */
+    --card-bg: #1B2740;
+    --card-border: #3A4C6E;
+    /* A drawing lies flat on a table; it does not float. Dropping the ambient lift and replacing it
+       with a crisp inset hairline is most of why the indoor cards read as sheets rather than as the
+       raised panels they are outdoors — and it costs nothing in legibility. */
+    --card-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.07);
+  }
+  html[data-theme="light"].indoor-active #panel-collect {
+    /* Drafting paper, not white. The plain white card is the single largest reason the light theme
+       looked identical in both modes — a tint this small is invisible on its own and unmistakable
+       next to an untinted one. */
+    --card-bg: #F4F7FC;
+    --card-border: #C7D3E6;
+    --card-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.06);
+  }
   html.indoor-active #panel-collect .card {
     background-image: var(--indoor-plan-ink);
     background-repeat: repeat;
     background-size: 240px 240px;
+    /* soft-light blends the plan INTO the card surface rather than laying it over: the card stays
+       one flat colour to the eye, so labels, values and inputs sitting on it lose no contrast.
+       The ink strength lives in the tile itself (css/01-tokens.css) rather than here, because a
+       background-image cannot be given its own opacity. It was originally pitched very low on the
+       theory that legibility beats visibility — which was the wrong call: at that strength the
+       texture was not merely subtle, it was absent, and a texture nobody can see buys no legibility
+       it has not already been given by the blend mode. */
     background-blend-mode: soft-light;
   }
   /* The tile ink is white, which is invisible on a light card — swap to the black-ink variant
      rather than letting the texture silently vanish on exactly the theme used outdoors. */
   html[data-theme="light"].indoor-active #panel-collect .card {
     background-image: var(--indoor-plan-ink-dark);
+  }
+  /* Outdoor high-contrast mode strips the whole indoor treatment, not just the tile. The surface
+     tokens go back to their defaults too — a cooled, tinted card is a legibility cost under direct
+     sun for an atmospheric gain nobody in that situation is looking for, and this mode's entire job
+     is to trade atmosphere for readability. */
+  html[data-contrast="high"].indoor-active #panel-collect {
+    /* `inherit`, not `initial`. On a CUSTOM property `initial` resolves to the guaranteed-invalid
+       value, so `background: var(--card-bg)` would become invalid at computed-value time and the
+       card would render with no background at all — text on a transparent panel over a textured
+       page. `inherit` takes the value from the parent, which is the :root definition these rules
+       are overriding, and is what "put it back" actually means here. */
+    --card-bg: inherit; --card-border: inherit; --card-shadow: inherit;
   }
   html[data-contrast="high"].indoor-active #panel-collect .card { background-image: none; }
   /* ══ ORTHOGONAL, BECAUSE DRAWINGS ARE ══

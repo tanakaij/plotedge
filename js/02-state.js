@@ -326,6 +326,10 @@ function activateView(id){
   const band = VIEW_SCREEN_STATE[id];
   if (band) setScreenState(band);
   else if (id === 'view-app') switchTabScreenState(getCurrentTab());
+  // Leaving a project has to clear the indoor treatment too. switchTabScreenState() only runs on
+  // the view-app branch above, so without this the floor plan stayed on screen all the way out to
+  // Welcome — see updateIndoorTexture() in js/06-collect.js for why the tab alone is not enough.
+  if (typeof updateIndoorTexture === 'function') updateIndoorTexture();
   if (typeof closePmMenu === 'function') closePmMenu();
 }
 

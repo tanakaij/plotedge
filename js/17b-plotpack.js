@@ -622,7 +622,18 @@ async function importPlotpackBundle(){
       name: plotpackUniqueName(name),
       createdAt: src.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      lastExportedAt: null
+      lastExportedAt: null,
+      // ══ WHERE THIS CAME FROM ══
+      // The four fields above deliberately overwrite the bundled record so the restored project
+      // belongs to THIS device — a fresh id, a non-colliding name, stamps describing the restore.
+      // That is correct, and it is also why a second restore of the same file used to be
+      // undetectable: everything that identified the original had just been replaced.
+      // This keeps the original identity alongside the new one. `projectId` + `exportedAt` together
+      // name one specific export of one specific project, which is the only signal precise enough
+      // to say "you already have exactly this" rather than "you have something with a similar
+      // name" — and two visits to one site legitimately produce two projects called Ward 7.
+      restoredFrom: { projectId: src.id || null, exportedAt: p.manifest.exportedAt || null,
+                      restoredAt: new Date().toISOString() }
     });
     projectData[id] = {
       savedFeatures: p.features,
@@ -855,6 +866,33 @@ function backupLooksAlreadyRestored(entry){
   if (!entry || !entry.projectNames || !entry.projectNames.length) return false;
   const here = new Set(projects.map(p => (p.name || '').trim().toLowerCase()));
   return entry.projectNames.some(n => here.has((n || '').trim().toLowerCase()));
+}
+
+// ══ HAVE I ALREADY GOT EXACTLY THIS? ══
+// Three grades of answer, because they call for three different responses and collapsing them into
+// one boolean is what made the old name-only check too weak to act on.
+//   'same-export'  — same source project AND same export timestamp. This is literally the same file
+//                    restored twice. Unambiguous, and the only grade worth blocking on.
+//   'same-project' — same source project, different export. A LATER backup of something already
+//                    here, which is a legitimate thing to want (restore Tuesday's version alongside
+//                    Monday's) and must not be refused.
+//   null           — no relationship worth mentioning.
+// Name is deliberately not a grade of its own. Two projects called "Ward 7" are ordinary — two
+// visits to one site — and treating that as a duplicate would refuse the most normal case there is.
+function findRestoredTwin(manifest){
+  const src = (manifest || {}).project || {};
+  if (!src.id) return null;
+  const exportedAt = (manifest || {}).exportedAt || null;
+  let looser = null;
+  for (const proj of (projects || [])){
+    const from = proj.restoredFrom;
+    if (!from || from.projectId !== src.id) continue;
+    if (exportedAt && from.exportedAt === exportedAt) return { grade: 'same-export', project: proj };
+    // Kept as a fallback rather than returned immediately: an exact match anywhere in the list
+    // outranks a loose one, and the list is not ordered by relevance.
+    looser = looser || { grade: 'same-project', project: proj };
+  }
+  return looser;
 }
 
 // One row's supporting line: kind, size, date, folder — and, where peekBackupContents() managed to
@@ -1606,15 +1644,51 @@ function restoreShowPackConfirm(fileName){
   // v1 always creates a NEW project. Merging into an open one means deciding what to do about
   // colliding feature ids and same-id-different-fields schemas, and getting that wrong silently
   // corrupts a live survey. A duplicate project is a nuisance; a corrupted one is lost work.
-  restoreSetBody(
-    '<div class="restore-card">' +
+  const card = '<div class="restore-card">' +
       '<div class="restore-card-name">' + escapeHtml(name) + '</div>' +
       '<div class="restore-card-file">' + escapeHtml(fileName || (_restoreEntry && _restoreEntry.name) || 'PlotPack') +
         (when ? ' \u00b7 exported ' + escapeHtml(when) : '') + '</div>' +
       restoreStatsHtml(stats) +
-    '</div>' +
+    '</div>';
+
+  // ══ YOU ALREADY HAVE THIS ONE ══
+  // Restoring always mints a new project, which is the right default — it can never overwrite work
+  // — but it also means restoring the same file twice silently produces two identical projects,
+  // and on a device holding several old exports that is easy to do and tedious to undo.
+  // So an exact re-restore stops being the default action rather than being merely warned about.
+  // Not blocked outright: a crew that genuinely wants a scratch copy to experiment on should be
+  // able to have one, and refusing would be deciding something only they can. The escape hatch is
+  // just no longer the button under your thumb.
+  const twin = findRestoredTwin(pendingPlotpackImport.manifest);
+  if (twin && twin.grade === 'same-export'){
+    const twinName = twin.project.name || '(unnamed)';
+    const twinWhen = (twin.project.restoredFrom.restoredAt || '').slice(0, 10);
+    restoreSetHead('Already on this device', 'Nothing has been changed.');
+    restoreSetStage('check');
+    restoreSetBody(card + restoreNoteHtml(
+      'You restored this exact backup' + (twinWhen ? ' on ' + escapeHtml(twinWhen) : '') +
+      ', as <strong>' + escapeHtml(twinName) + '</strong>. Restoring it again would make a second ' +
+      'copy \u2014 the one you already have is not touched either way.', true));
+    // The useful action is the one that gets them to the data they already have.
+    restoreSetActions({ label: 'Open \u201c' + twinName + '\u201d', fn: () => {
+        closeRestoreModal();
+        if (typeof openProject === 'function') openProject(twin.project.id);
+      } },
+      { label: 'Restore a second copy', fn: restoreCommit });
+    return;
+  }
+
+  // Same project, different export — a later backup of something already here. Legitimate and
+  // common (restore Tuesday's version alongside Monday's), so this only says so; the primary action
+  // is unchanged.
+  const olderNote = twin ? restoreNoteHtml(
+    'A different backup of this project is already on this device, as <strong>' +
+    escapeHtml(twin.project.name || '(unnamed)') + '</strong>. This one will come in beside it, not ' +
+    'over it.', true) : '';
+
+  restoreSetBody(card +
     restoreNoteHtml('This restores everything \u2014 schema, photos, per-vertex data and notes \u2014 into a ' +
-      '<strong>new project</strong>. Nothing already on this device is touched.'));
+      '<strong>new project</strong>. Nothing already on this device is touched.') + olderNote);
   restoreSetActions({ label: 'Restore as a new project', fn: restoreCommit },
                     { label: 'Cancel', fn: restoreBackToList });
 }

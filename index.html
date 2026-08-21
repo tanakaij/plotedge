@@ -2737,6 +2737,105 @@ try {
      adds the X, and wraps everything between the header and .modal-actions into a .sheet-body.
      That is why this markup is so short, and it is also what makes the X, the Android hardware
      Back button and a tap on the backdrop all resolve to the same closeRestoreModal(). -->
+<!-- ══ PLOTAIR ══
+     Planning a drone flight over a boundary this project already holds. A sheet rather than a
+     screen on purpose: it is a short arithmetic errand — pick a boundary, set an altitude, read the
+     numbers, export a file — not a place to be.
+     Note what is NOT here: no ground control point workflow. A phone fix is 3–5 m, and GCPs at that
+     accuracy actively drag a photogrammetric solution off true. Flight planning has no such
+     problem, which is why it is the drone work worth building on this hardware. See the header of
+     js/17e-plotair.js. -->
+<div class="modal-overlay" id="plotairModal" role="dialog" aria-modal="true" aria-label="PlotAir flight planning">
+  <div class="modal-box">
+    <div class="modal-title">PlotAir</div>
+    <p class="modal-sub">Plan a mapping flight over a boundary you have already surveyed.</p>
+
+    <div class="field">
+      <label>Area to fly</label>
+      <div class="select-wrap"><select id="plotairSource" onchange="updatePlotairPlan()"></select></div>
+    </div>
+    <div class="field">
+      <label>Camera</label>
+      <div class="select-wrap"><select id="plotairCamera" onchange="updatePlotairPlan()"></select></div>
+    </div>
+    <!-- Only meaningful for the Custom preset. A silently-ignored input is worse than a hidden one. -->
+    <div class="plotair-row" id="plotairCustomRow" style="display:none;">
+      <div class="field"><label>Sensor width <span class="hint">mm</span></label>
+        <input type="number" step="0.1" id="plotairSensorW" value="13.2" oninput="updatePlotairPlan()"></div>
+      <div class="field"><label>Focal length <span class="hint">mm</span></label>
+        <input type="number" step="0.1" id="plotairFocal" value="8.8" oninput="updatePlotairPlan()"></div>
+      <div class="field"><label>Image width <span class="hint">px</span></label>
+        <input type="number" step="1" id="plotairImgW" value="5472" oninput="updatePlotairPlan()"></div>
+    </div>
+
+    <div class="plotair-row">
+      <div class="field"><label>Altitude <span class="hint">m AGL</span></label>
+        <input type="number" step="5" id="plotairAlt" value="80" oninput="updatePlotairPlan()"></div>
+      <div class="field"><label>Heading <span class="hint">degrees</span></label>
+        <input type="number" step="5" id="plotairHeading" value="0" oninput="updatePlotairPlan()"></div>
+    </div>
+    <!-- 80/70 is the usual photogrammetry recommendation. Under-lapping is the single most common
+         reason a set of images fails to reconstruct, so the defaults err generous. -->
+    <div class="plotair-row">
+      <div class="field"><label>Front overlap <span class="hint">%</span></label>
+        <input type="number" step="5" id="plotairFront" value="80" oninput="updatePlotairPlan()"></div>
+      <div class="field"><label>Side overlap <span class="hint">%</span></label>
+        <input type="number" step="5" id="plotairSide" value="70" oninput="updatePlotairPlan()"></div>
+    </div>
+    <!-- Altitude is what a flight app asks for; detail is what a survey needs. This solves the one
+         from the other, for jobs with a legibility requirement rather than a height limit. -->
+    <div class="plotair-row plotair-solve">
+      <div class="field"><label>Detail needed <span class="hint">cm/px</span></label>
+        <input type="number" step="0.1" id="plotairTargetGsd" placeholder="e.g. 2"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button type="button" class="btn btn-outline" onclick="plotairSolveAltitude()">Set altitude</button></div>
+    </div>
+    <div class="plotair-row">
+      <div class="field"><label>Speed <span class="hint">m/s</span></label>
+        <input type="number" step="1" id="plotairSpeed" value="8" oninput="updatePlotairPlan()"></div>
+      <div class="field"><label>Battery <span class="hint">minutes</span></label>
+        <input type="number" step="1" id="plotairBattery" value="18" oninput="updatePlotairPlan()"></div>
+    </div>
+
+    <div id="plotairResult"></div>
+
+    <!-- Said plainly and not buried in a tooltip. This app computes geometry; it knows nothing
+         about the airspace over the site, the height limits that apply, or whose consent is
+         needed. -->
+    <!-- ══ THE RETURN LEG ══
+         PlotAir planned a flight and nothing came back. This is the other half, and it is built
+         around one number: a 16 ha mission at these defaults is ~700 frames at 8-12 MB each, which
+         is 6-8 GB. No compression makes that a thing a phone holds, so nothing here copies a
+         photograph. It reads the head of each file for its EXIF position, lifts the thumbnail the
+         camera already embedded, thins to one frame every N metres (a mapping flight is 80%
+         overlap BY DESIGN, so consecutive frames are the same picture), and leaves the originals on
+         the card. See the ingest section of js/17e-plotair.js. -->
+    <div class="plotair-section">
+      <div class="plotair-section-title">Flight photos</div>
+      <div class="plotair-section-sub">Reads where each photo was taken and adds a point for it. The photos themselves stay on your card.</div>
+      <div class="plotair-row">
+        <div class="field"><label>Add as <span class="hint">feature type</span></label>
+          <div class="select-wrap"><select id="plotairPhotoFt"></select></div></div>
+        <div class="field"><label>One photo every <span class="hint">m</span></label>
+          <input type="number" step="5" id="plotairThin" value="20" oninput="renderPlotairScan()"></div>
+      </div>
+      <button type="button" class="btn btn-outline" style="width:100%;" onclick="plotairChoosePhotos()">Choose flight photos</button>
+      <input type="file" id="plotairPhotoInput" accept="image/jpeg,.jpg,.jpeg" multiple style="display:none;" onchange="plotairScanPhotos(event)">
+      <div id="plotairPhotoResult"></div>
+      <button type="button" class="btn btn-primary" id="plotairImportBtn" style="width:100%;margin-top:10px;" disabled onclick="plotairImportPhotos()">Add these photo points</button>
+    </div>
+
+    <div class="plotair-warn">
+      A flight path only. Check airspace, height limits and landowner consent before flying.
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="plotairExportCsv" style="flex:1;" onclick="plotairExport('csv')">Waypoints CSV</button>
+      <button class="btn btn-primary" id="plotairExportKml" style="flex:1;" onclick="plotairExport('kml')">Export KML</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="restoreModal" role="dialog" aria-modal="true" aria-label="Restore from backup">
   <div class="modal-box restore-box">
     <div class="modal-title" id="restoreTitle">Restore from backup</div>
@@ -3140,6 +3239,7 @@ try {
 <script src="js/17b-plotpack.js"></script>
 <script src="js/17c-plotcad.js"></script>
 <script src="js/17d-plotfix.js"></script>
+<script src="js/17e-plotair.js"></script>
 <script src="js/18-import.js"></script>
 <script src="js/19-sync.js"></script>
 <script src="js/19a-plotvault.js"></script>

@@ -1400,7 +1400,13 @@ function peUniqueName(base){
 function importOneBackupProject(meta, data){
   const id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
   const now = new Date().toISOString();
-  projects.push({ ...(meta||{}), id, name: peUniqueName((meta||{}).name), createdAt:(meta&&meta.createdAt)||now, updatedAt:now, lastExportedAt:null });
+  // restoredFrom mirrors what the .plotpack path records (js/17b-plotpack.js): the id above is
+  // freshly minted so the project belongs to this device, which is correct and is also what makes a
+  // second restore of the same file otherwise undetectable. Keeping the source id alongside it is
+  // what lets "you already have exactly this" be answered precisely rather than by name — and two
+  // projects called Ward 7 are ordinary, being two visits to one site.
+  projects.push({ ...(meta||{}), id, name: peUniqueName((meta||{}).name), createdAt:(meta&&meta.createdAt)||now, updatedAt:now, lastExportedAt:null,
+    restoredFrom: { projectId: (meta&&meta.id) || null, exportedAt: (meta&&meta.exportedAt) || null, restoredAt: now } });
   projectData[id] = peBackupProjectData(data);
   // A backup file carries its photos inline as base64. persistStore() strips
   // those fields on the way to localStorage, so unless they are moved into the

@@ -174,6 +174,24 @@ const stageIsNow = s => d.querySelector(`.restore-rail-step[data-stage="${s}"]`)
   ok('a file that is not a PlotEdge backup says so', /not a PlotEdge backup/.test(body()));
   w.eval('closeRestoreModal()');
 
+  // ══ A LATER BACKUP OF THE SAME PROJECT IS NOT A DUPLICATE ══
+  // The guard has to distinguish "the same file twice" from "a newer export of something I already
+  // have". Refusing the second would be refusing a legitimate and common thing: restore Tuesday's
+  // version alongside Monday's to compare them.
+  w.eval(`projects.push({ id:'twin_host', name:'Ward 7',
+    restoredFrom:{ projectId:'src_abc', exportedAt:'2026-03-01T00:00:00.000Z', restoredAt:'2026-03-01T00:00:00.000Z' } });`);
+  const exact = w.eval(`JSON.stringify(findRestoredTwin({ project:{id:'src_abc'}, exportedAt:'2026-03-01T00:00:00.000Z' }))`);
+  ok('the same export restored twice is caught exactly', /same-export/.test(exact), exact);
+  const later = w.eval(`JSON.stringify(findRestoredTwin({ project:{id:'src_abc'}, exportedAt:'2026-06-09T00:00:00.000Z' }))`);
+  ok('a later export of the same project is flagged, not blocked', /same-project/.test(later), later);
+  // Name is deliberately not a signal on its own: two projects called Ward 7 are ordinary, being
+  // two visits to one site, and treating that as a duplicate would refuse the most normal case.
+  const byName = w.eval(`JSON.stringify(findRestoredTwin({ project:{id:'src_other', name:'Ward 7'}, exportedAt:'2026-06-09T00:00:00.000Z' }))`);
+  ok('a different project sharing a name is not called a duplicate', byName === 'null', byName);
+  const noId = w.eval(`JSON.stringify(findRestoredTwin({ project:{}, exportedAt:'2026-06-09T00:00:00.000Z' }))`);
+  ok('a bundle with no source id is never guessed at', noId === 'null', noId);
+  w.eval(`projects = projects.filter(p => p.id !== 'twin_host');`);
+
   // ══ THE INLINE FLOW IS GONE ══
   // Guarding the actual regression: if a confirm step is ever rendered into the Welcome page again,
   // the pile of unstyled text and out-of-nowhere buttons comes back with it.
@@ -239,10 +257,24 @@ const stageIsNow = s => d.querySelector(`.restore-rail-step[data-stage="${s}"]`)
   // ══ PLOTIN TEXTURE ══
   // The texture layer is toggled by one class. Everything else about it is CSS, but the class has
   // to be set on <html> or none of that CSS applies.
-  w.eval("currentEnvironment='PlotIn'; getCurrentTab=()=>'collect'; updateIndoorTexture()");
-  ok('selecting PlotIn arms the indoor texture', d.documentElement.classList.contains('indoor-active'));
+  // The indoor treatment belongs to one screen: the Collect tab, inside a project, in PlotIn. All
+  // three conditions, because getCurrentTab() keeps reporting 'collect' after you leave the project
+  // — the tab stays where you left it for when you come back — so tab alone was true on Welcome
+  // too, and the floor plan painted over the landing screen's own contour texture.
+  w.eval("activateView('view-app'); currentEnvironment='PlotIn'; getCurrentTab=()=>'collect'; updateIndoorTexture()");
+  ok('selecting PlotIn inside a project arms the indoor texture', d.documentElement.classList.contains('indoor-active'));
   w.eval("getCurrentTab=()=>'review'; updateIndoorTexture()");
   ok('and it never lingers on another tab', !d.documentElement.classList.contains('indoor-active'));
+  w.eval("getCurrentTab=()=>'collect'; updateIndoorTexture()");
+  ok('back on Collect it returns', d.documentElement.classList.contains('indoor-active'));
+  // The regression this exists for: leaving the project must strip it, or the Welcome screen wears
+  // whatever the last project happened to be doing.
+  w.eval("activateView('view-projects')");
+  ok('leaving the project clears it from the Welcome screen',
+    !d.documentElement.classList.contains('indoor-active'));
+  w.eval("activateView('view-app'); updateIndoorTexture()");
+  ok('and coming back restores it', d.documentElement.classList.contains('indoor-active'));
+  w.eval("activateView('view-projects'); currentEnvironment='PlotOut';");
 
   ok('the app booted without errors', bootErrors.length === 0, bootErrors.join(' | '));
 

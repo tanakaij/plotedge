@@ -304,17 +304,33 @@ const main = (async () => {
     assert(/Bundle Test/.test(bodyText()), `the confirm step does not name the project: ${bodyText()}`);
     assert(/Features/.test(bodyText()) && /Photos/.test(bodyText()),
       'the confirm step is not showing the counts');
-    assert(/new project/.test(bodyText()),
-      'the confirm step dropped the "into a new project, nothing is touched" promise');
     // Still nothing written at this point — that is what the step is promising.
     assert(w.__media.size === 0, 'the Check step wrote photos before the person confirmed');
-    assert(/Restore as a new project/.test(w.document.getElementById('restorePrimary').textContent),
-      'the primary button does not commit');
 
-    const before = run('projects.length');
-    await w.restoreCommit();
+    // ══ THE DUPLICATE GUARD, ON A REAL BUNDLE ══
+    // Earlier checks in this suite already restored this exact file, so the sheet must recognise it
+    // rather than offering to make a second identical project. This is the whole point of recording
+    // restoredFrom on import: the restored project's own id and name are deliberately replaced so
+    // it belongs to this device, which is what made a repeat restore otherwise undetectable.
+    assert(/Already on this device/.test(w.document.getElementById('restoreTitle').textContent),
+      `a bundle already restored was offered again as if new: "${w.document.getElementById('restoreTitle').textContent}"`);
+    assert(/restored this exact backup/i.test(bodyText()),
+      `the duplicate step does not say why it is a duplicate: ${bodyText()}`);
+    // The useful action gets them to the data they already have; a second copy is demoted, not
+    // removed — a crew wanting a scratch copy to experiment on should still be able to have one.
+    assert(/^Open /.test(w.document.getElementById('restorePrimary').textContent),
+      `the primary action is not "open what you already have": "${w.document.getElementById('restorePrimary').textContent}"`);
+    assert(/second copy/i.test(w.document.getElementById('restoreSecondary').textContent),
+      'there is no way to deliberately make a second copy');
+    assert(w.__media.size === 0, 'the duplicate step wrote something');
 
-    assert(run('projects.length') === before + 1, 'confirming did not restore the project');
+    // Take the escape hatch, which is also how the rest of this check reaches the commit path.
+    run(`document.getElementById('restoreSecondary').click()`);
+    await new Promise(r => setTimeout(r, 0));
+
+    // restoreCommit() was already invoked by the click above; wait for it rather than calling twice.
+    for (let i = 0; i < 60 && run('_restoreBusy'); i++) await new Promise(r => setTimeout(r, 25));
+    assert(run('_restoreBusy') === false, 'the restore never finished');
     assert(w.__media.get('ph_a') && w.__media.get('ph_b'),
       'the sheet path did not restore the photos the direct path does');
 
