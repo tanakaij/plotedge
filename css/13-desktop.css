@@ -1,0 +1,476 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   13-desktop.css — DESKTOP SHELL
+   ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+   ══ THE BRIEF ══
+   Not "the phone app, wider". The desktop build has a different job from the APK and should look
+   like it knows that. The phone is for CAPTURE — one hand, gloves, sunlight, a thumb on a 44px
+   target. The desktop is for everything capture is bad at: reviewing four hundred features, fixing
+   attributes in bulk, checking a survey against its standard, planning a flight, exporting. That is
+   deskwork, and deskwork wants density, alignment and calm.
+
+   So the direction is INSTRUMENT, not app. The vernacular is the one this product already lives in
+   — total stations, levelling staffs, the ruled margin of a topographic sheet: precision read off a
+   scale, numbers that line up in columns, surfaces that stay quiet so the data is the loudest thing
+   on screen. Every value below derives from the existing token scale in 01-tokens.css. No new
+   colour is invented, because the desktop view has to read as the same product as the APK, not as a
+   sibling with its own palette.
+
+   ══ THE ONE BOLD MOVE ══
+   The navigation rail is a levelling staff. Its trailing edge carries a ruled hairline, each screen
+   meets it with a graduation tick, and the active screen extends into a full accent graduation. It
+   encodes real information — which of six screens you are on — in the visual language of the
+   instrument the user carries in the field. Everything else in this file is deliberately quiet so
+   this is the thing the desktop build is remembered by.
+   (The previous pass had a plain 2px accent bar and a `content:'PlotEdge'` text string at the top of
+   the rail. Both were placeholders: the bar was just the mobile active state rotated 90°, and a CSS
+   text string cannot be translated, cannot be read by a screen reader, and ignored the real brand
+   mark already sitting in resources/. Both are gone.)
+
+   ══ WHY THE APK CANNOT REACH ANY OF THIS ══
+   Every rule sits inside one media query carrying three independent locks, and every selector is
+   additionally prefixed with html:not(.native-android):
+
+     @media (min-width: 1024px) and (hover: hover) and (pointer: fine)
+
+   Any ONE would be sufficient. Together they make it impossible for the Android build to be touched
+   by a single declaration here:
+
+     · min-width: 1024px  — a phone WebView viewport is ~360–430 CSS px.
+     · hover: hover       — a touchscreen has no hovering primary pointer. This is the lock that
+                            discriminates a large Android tablet from a laptop.
+     · pointer: fine      — a finger is a coarse pointer.
+     · :not(.native-android) — index.html adds this to <html> before first paint when Capacitor
+                            reports Android. Not a heuristic: the build stating what it is. It holds
+                            even if the APK is run on a Chromebook with a mouse, which is the one
+                            plausible way all three viewport conditions could pass at once.
+
+   Delete this file and the APK renders identically. tests/desktop.test.js enforces that structure —
+   including that every selector carries the guard — because the failure mode is silent: a rule
+   added later outside the query would ship to every phone in the field with nothing to flag it.
+
+   ══ NO JAVASCRIPT ══
+   positionNavPill() (js/06-collect.js) drives #navPill with a measured horizontal transform —
+   geometry that assumes a row. Rather than teach it about a vertical rail (a JS change, which WOULD
+   reach the APK), the pill is hidden and the graduation replaces it. The JS keeps running and moves
+   an invisible element. Harmless, and it keeps the whole desktop story inside CSS where the media
+   query can contain it.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+
+  /* ═══ 0 · DESKTOP TOKENS ═══
+     Density is the substance of this pass, not a side effect. A review list showing twelve rows
+     where thirty would fit is the clearest tell that a desktop screen was designed for a phone —
+     and here it has a real cost, because scanning a long list IS the job on this screen. These step
+     the existing scale down one notch for chrome and data and leave body copy alone; shrinking
+     prose to fit more of it on screen is the mistake in the other direction. */
+  html:not(.native-android) {
+    --rail-w: 244px;
+    --desk-max: 1180px;
+    --desk-gutter: 36px;
+    --row-h: 34px;
+    --tick-w: 9px;
+  }
+
+  /* The bottom nav reserves vertical space through --dock-h, consumed by .panel, .pm-body and the
+     toast. Nothing is docked at the bottom now, so that reservation is dead space under every
+     screen. Collapsing the token fixes all four call sites at once. */
+  html:not(.native-android) body { --dock-h: 24px; }
+
+
+  /* ═══ 1 · THE RAIL ═══ */
+  html:not(.native-android) .bottom-nav {
+    top: 0;
+    bottom: 0;
+    right: auto;
+    width: var(--rail-w);
+    height: 100%;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 1px;
+    padding: 22px 0 18px;
+    border-top: none;
+    border-right: 1px solid var(--card-border);
+    /* Flat, not glass. The translucent fill and backdrop blur exist on mobile so content reads as
+       continuing underneath a bar laid over it. A full-height rail has nothing scrolling behind it,
+       so the blur would cost a per-frame raster pass to render an effect nobody can see. */
+    background: var(--surface-sunken);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  /* The brand mark from resources/, not a CSS text string. */
+  html:not(.native-android) .bottom-nav::before {
+    content: '';
+    flex: 0 0 auto;
+    height: 42px;
+    margin: 0 0 20px;
+    background-image: url('../resources/welcome-mark-176.png');
+    background-repeat: no-repeat;
+    background-position: 22px center;
+    background-size: auto 34px;
+    opacity: 0.92;
+  }
+
+  /* THE RULED EDGE — a hairline down the rail's trailing edge that the per-item ticks meet. On the
+     nav's ::after so it spans full height regardless of how many tabs are present. */
+  html:not(.native-android) .bottom-nav::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 1px;
+    background: linear-gradient(to bottom,
+      transparent 0%,
+      var(--card-border) 12%,
+      var(--card-border) 88%,
+      transparent 100%);
+    pointer-events: none;
+  }
+
+  html:not(.native-android) .nav-btn {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 13px;
+    height: var(--row-h);
+    padding: 0 18px 0 22px;
+    border-radius: 0;
+    text-align: left;
+    /* Colour only, and quickly. A rail item is a destination, not an event. */
+    transition: color 0.12s ease, background 0.12s ease;
+  }
+  html:not(.native-android) .nav-btn span {
+    font-size: var(--text-md);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  html:not(.native-android) .nav-btn svg { width: 17px; height: 17px; opacity: 0.85; }
+
+  /* THE GRADUATION. Every item carries a short tick against the ruled edge; the active one extends
+     to full length and takes the accent. This replaces both the mobile top-edge rule and the
+     JS-driven sliding pill — position on a scale, which is what the rail is actually telling you. */
+  html:not(.native-android) .nav-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: auto;
+    right: 0;
+    width: 4px;
+    height: 1px;
+    margin-top: -0.5px;
+    background: var(--text-tertiary);
+    border-radius: 0;
+    opacity: 0.5;
+    transition: width 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  }
+  html:not(.native-android) .nav-btn.active::before {
+    width: var(--tick-w);
+    height: 2px;
+    margin-top: -1px;
+    background: var(--accent-primary);
+    opacity: 1;
+  }
+  html:not(.native-android) .nav-btn:hover::before { opacity: 0.9; width: 6px; }
+
+  html:not(.native-android) .nav-btn.active {
+    color: var(--accent-primary);
+    background: linear-gradient(to right,
+      rgba(var(--accent-rgb), 0.10) 0%,
+      rgba(var(--accent-rgb), 0) 82%);
+  }
+  html:not(.native-android) .nav-btn.active svg { opacity: 1; }
+
+  /* The sliding pill's geometry is horizontal and JS-driven — see the header note. */
+  html:not(.native-android) .nav-pill { display: none; }
+
+  /* On mobile the rail slides away during data entry to make room for the keyboard. There is no
+     on-screen keyboard here and no reason to lose navigation mid-capture. */
+  html:not(.native-android) body.collect-nav-hidden .bottom-nav {
+    transform: none;
+    pointer-events: auto;
+  }
+
+
+  /* ═══ 2 · CONTENT ═══ */
+  html:not(.native-android) #scrollRoot { padding-left: var(--rail-w); }
+
+  /* 600px is a phone measure. 1180 gives tables and map panels somewhere to go while stopping well
+     short of a full-width line of text, which is unreadable on a 27" display. */
+  html:not(.native-android) .panel,
+  html:not(.native-android) .pm-body,
+  html:not(.native-android) .subpage-body {
+    max-width: var(--desk-max);
+    padding-left: var(--desk-gutter);
+    padding-right: var(--desk-gutter);
+  }
+
+  html:not(.native-android) header,
+  html:not(.native-android) .pm-header {
+    padding-left: var(--desk-gutter);
+    padding-right: var(--desk-gutter);
+  }
+  html:not(.native-android) .header-top { max-width: var(--desk-max); margin: 0 auto; }
+
+  /* The compass watermark is sized and parked for a phone-width header; across a 1100px bar it
+     drifts away from the title into open space and reads as a stray graphic rather than a mark. */
+  html:not(.native-android) header::before { opacity: 0.05; }
+
+  html:not(.native-android) .welcome-shell > .welcome-panel,
+  html:not(.native-android) .welcome-panel { max-width: 560px; }
+
+  html:not(.native-android) .capture-fab { left: var(--rail-w); }
+  html:not(.native-android) .toast { margin-left: calc(var(--rail-w) / 2); }
+
+
+  /* ═══ 3 · DATA ═══
+     The instrument idea earning its keep. Survey data is numeric and columnar, and proportional
+     digits of different widths make a column of coordinates jitter left and right so the eye cannot
+     scan down it. tabular-nums fixes the advance width so every digit sits in the same track — the
+     highest-value typographic change available on this screen, and invisible until you notice you
+     can suddenly read down a column.
+
+     ══ THESE SELECTORS WERE WRONG ══
+     The first version of this rule targeted .stat-value, .mono, .list-row and .feature-row. NONE of
+     those classes exist anywhere in the app — they were assumed rather than looked up, so the rule
+     matched nothing and the density claim in this file's own header was false. The real names are
+     below, checked against the markup. tests/desktop.test.js now fails if a selector here matches
+     no class the app actually renders, which is the check that would have caught it. */
+  html:not(.native-android) .attr-table,
+  html:not(.native-android) .kpi-value,
+  html:not(.native-android) .hub-stat-val,
+  html:not(.native-android) .dash-health-val,
+  html:not(.native-android) .fi-attr-v,
+  html:not(.native-android) .feat-ref,
+  html:not(.native-android) .coord {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  html:not(.native-android) .attr-table { font-size: var(--text-xs); }
+  html:not(.native-android) .attr-table td,
+  html:not(.native-android) .attr-table th { padding: 7px 12px; }
+  /* Headers as small caps rather than bold: at this size bold headers outweigh the data they label,
+     which inverts the table's hierarchy. */
+  html:not(.native-android) .attr-table th {
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  /* ══ DENSITY, FOR REAL THIS TIME ══
+     The review list is .feature-card — a header strip plus a body, repeated. On a phone its 12/14px
+     padding and 10px gap are correct for a thumb. On a desk they are the difference between twelve
+     visible features and twenty-two, and scanning that list IS the job on this screen.
+     Tightened toward the rail's 34px rhythm so a list and the navigation beside it share a baseline
+     rather than drifting against each other. */
+  html:not(.native-android) .feature-card { margin-bottom: 6px; }
+  html:not(.native-android) .feature-card-header { padding: 7px 12px; min-height: var(--row-h); }
+  html:not(.native-android) .feature-card-body { padding: 8px 12px; }
+  html:not(.native-android) .settings-row { padding-top: 9px; padding-bottom: 9px; }
+  html:not(.native-android) .dash-health-row { padding: 5px 0; }
+
+
+  /* ═══ 3b · REVIEW: MASTER–DETAIL ═══
+     The one change here that alters what the desktop build can DO rather than how it looks.
+     On a phone the map and the list cannot coexist — 260px of map above a scrolling list, and you
+     lose sight of one to read the other. That is a real cost on this screen, because reviewing a
+     survey is a back-and-forth: read a row, find it on the map, read the next. Every one of those
+     round trips currently costs a scroll.
+     So the panel becomes two columns with the map parked in the right one, sticky, full height. The
+     list scrolls past it. Grid does this WITHOUT touching the DOM — the map stays exactly where it
+     is in source order, which matters because index.html is shared with the APK and reordering it
+     for a layout only desktop can see would be the wrong trade.
+     Everything that is not the map is pinned to column 1 explicitly rather than left to
+     auto-placement: the panel's children are populated at runtime and a new one appearing would
+     otherwise land in whichever cell the algorithm chose, most likely on top of the map. */
+  html:not(.native-android) #panel-review {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+    grid-auto-rows: min-content;
+    align-items: start;
+    column-gap: 24px;
+  }
+  html:not(.native-android) #panel-review > * { grid-column: 1; min-width: 0; }
+  html:not(.native-android) #panel-review > .review-map-wrap {
+    grid-column: 2;
+    grid-row: 1 / span 99;
+    position: sticky;
+    top: 16px;
+    margin-bottom: 0;
+  }
+  /* Tall enough to be a working map rather than a thumbnail, and expressed against the viewport so
+     it fills whatever window it is given. The floor stops it collapsing to nothing on a short
+     laptop screen in landscape. */
+  html:not(.native-android) #reviewMap {
+    height: calc(100vh - 190px);
+    min-height: 420px;
+  }
+  /* Full-screen still wins. .review-map-wrap.fullscreen is position:fixed in 05-components.css, and
+     this file loads after it — without re-asserting, the sticky rule above would silently break the
+     full-screen toggle, which is exactly the kind of regression a later stylesheet causes. */
+  html:not(.native-android) .review-map-wrap.fullscreen {
+    position: fixed;
+    grid-column: 1 / -1;
+    grid-row: auto;
+    top: 0;
+  }
+  /* ── THE ATTRIBUTE TABLE STAYS IN COLUMN 1 ──
+     It wants the whole width, and an earlier version of this rule gave it `grid-column: 1 / -1`.
+     That was a collision. setReviewView() (js/12-review.js) swaps #attrTableWrap and #featuresList
+     but leaves the MAP visible in both modes, and the map spans rows 1–99 of column 2 — so a
+     full-width table would have been laid over the top of it. Grid items are allowed to overlap;
+     nothing would have errored, the table would simply have been drawn on the map.
+     Column 1 is minmax(0, 1fr), so the table already gets the larger share, and .attr-table-scroll
+     handles the overflow it was always going to have. Giving it the full width properly means
+     hiding the map in table mode, which is a JS change, and the map is genuinely useful there —
+     selecting rows highlights features on it. */
+  html:not(.native-android) #attrTableWrap { min-width: 0; }
+
+
+  /* ═══ 3c · THE SIX SCREENS THAT HAD NO DESKTOP PASS ═══
+     PlotAtlas, analytics, the capture form, quick actions and PlotArchive each carry their own
+     stylesheet with its own internal layout, and until now the desktop layer only widened the
+     container they sit in — so they were phone layouts inside a wider box. These are deliberately
+     container-level only: reflow the grids that already exist into the extra columns they can now
+     afford, and change nothing about the components inside them. */
+
+  /* PlotAtlas is position:fixed inset:0, so it covered the navigation rail — the one full-screen
+     surface in the app where you could not see where you were. It now starts where the content
+     does, which also means the rail stays available to leave from. */
+  html:not(.native-android) .plot-atlas { left: var(--rail-w); }
+
+  /* Two-up grids that already step to more columns on a wide phone. A desktop can hold more. */
+  html:not(.native-android) .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  html:not(.native-android) .an-stat-grid { grid-template-columns: repeat(4, 1fr); }
+  html:not(.native-android) .qa-grid { grid-template-columns: repeat(6, 1fr); }
+
+  /* ── THE CAPTURE FORM IS DELIBERATELY LEFT ALONE ──
+     The obvious move is to pair its short fields into two columns on a wide screen. Two reasons not
+     to. First, .field-row2 — the existing paired-field grid — is used exactly once in the whole app,
+     inside a modal, NOT in #panel-collect, so a `#panel-collect .field-row2` rule would have matched
+     nothing: the same dead-selector mistake this file already made once. Second, and the real
+     reason: putting fields side by side changes what Tab does. Tab order follows the DOM, so a
+     two-column form reads left-right visually and top-bottom by keyboard, and those disagree. On the
+     one screen where somebody is typing survey data all day, that is a worse outcome than scrolling.
+     Reflowing this properly means reordering the DOM, which is shared with the APK. Not worth it. */
+
+  /* PlotWords sits at a fixed left:10px, so on desktop it floated over the navigation rail. */
+  html:not(.native-android) .plotwords-layer { left: calc(var(--rail-w) + 10px); }
+
+  /* PlotArchive's picker is a scrolling list inside a modal sized for a phone. On desktop the sheet
+     is wider, so the list can breathe rather than staying in a 600px lane. */
+  html:not(.native-android) .pa-list { max-height: 60vh; }
+
+
+  /* ═══ 4 · POINTER AND KEYBOARD ═══
+     There was not one hover rule in the mobile stylesheet — correct for touch, and the reason the
+     app felt inert under a cursor: nothing acknowledged the mouse until it clicked.
+     Deliberately restrained. No lift, no shadow animation, no scale. A background shift and a
+     border tint is what desktop software does; anything more reads as a website. */
+  html:not(.native-android) .nav-btn:hover { color: var(--text-primary); background: rgba(var(--accent-rgb), 0.05); }
+  html:not(.native-android) .nav-btn.active:hover { color: var(--accent-primary); }
+
+  /* The previous pass used filter:brightness() here. Wrong twice over: it washes the label text
+     along with the button fill, and filter creates a stacking context that interferes with
+     backdrop-filter on any child. Background and border move instead — the properties that should
+     have been moving all along. */
+  html:not(.native-android) .btn:hover:not(:disabled) { border-color: rgba(var(--accent-rgb), 0.55); }
+  html:not(.native-android) .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+  html:not(.native-android) .card:hover,
+  html:not(.native-android) .feature-card:hover,
+  html:not(.native-android) .pm-card:hover {
+    border-color: rgba(var(--accent-rgb), 0.34);
+    background: rgba(var(--accent-rgb), 0.03);
+  }
+
+  html:not(.native-android) [onclick],
+  html:not(.native-android) label,
+  html:not(.native-android) summary { cursor: pointer; }
+
+  /* ══ KEYBOARD ══
+     A desktop tool is judged within about a minute on whether the keyboard works. Focus rings are
+     the CSS half of that; the shortcuts themselves live in js/23-desktop-keys.js, which carries its
+     own runtime gate because a keydown handler is exactly the thing a media query cannot contain.
+     :focus-visible rather than :focus, so a mouse click never draws a ring; that distinction is the
+     entire reason the pseudo-class exists. */
+  html:not(.native-android) :focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+  html:not(.native-android) .nav-btn:focus-visible { outline-offset: -2px; }
+
+
+  /* ═══ 5 · SCROLLBARS ═══
+     Desktop Chrome has no overlay scrollbars, so the default grey bar sits over a themed surface
+     and is the last obviously-not-native detail on screen. */
+  html:not(.native-android) #scrollRoot { scrollbar-width: thin; scrollbar-color: var(--card-border) transparent; }
+  html:not(.native-android) #scrollRoot::-webkit-scrollbar { width: 11px; }
+  html:not(.native-android) #scrollRoot::-webkit-scrollbar-track { background: transparent; }
+  html:not(.native-android) #scrollRoot::-webkit-scrollbar-thumb {
+    background: var(--card-border);
+    border-radius: var(--radius-xs);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  html:not(.native-android) #scrollRoot::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+    background-clip: content-box;
+  }
+
+
+  /* ═══ 6 · SHEETS ═══
+     05-components.css already turns .modal-overlay into a centred dialog at min-width:480px, so the
+     modal system needed almost nothing. It is capped for a tablet; a sheet holding a table or a map
+     wants more room here. */
+  /* .modal-wide was in the first version of this file and is not a class the app has ever used.
+     Removed rather than left as a hook for a convention nobody follows. */
+  html:not(.native-android) .modal-content { max-width: 720px; }
+
+
+  /* ═══ 7 · THE AMBIENT LAYER ═══
+     A deliberate reversal of the mobile treatment, and the reasoning is worth keeping.
+     On a phone the drifting accent mesh is atmosphere: it fills the margins of a small screen and
+     gives the product warmth in the two seconds before data loads. On a 27" monitor the same wash
+     becomes the largest object in the room — a slowly moving gradient behind a table of survey
+     coordinates, competing with the thing the user came to read. Professional field tools sit on
+     calm flat surfaces for exactly this reason: at a desk, the data is supposed to be the loudest
+     thing on screen.
+     So the mesh is dimmed to a trace rather than removed — enough to keep the theme's identity at
+     the edge of vision, not enough to compete. The blobs also stop drifting: ambient motion at arm's
+     length is charm; ambient motion at desk distance beside a column of numbers is a distraction,
+     and the kind that is felt long before it is noticed. */
+  html:not(.native-android) { --mesh-i: 0.28; }
+  html:not(.native-android)[data-screen="home"] { --mesh-i: 0.34; }
+  html:not(.native-android)[data-screen="map"]  { --mesh-i: 0; }
+  html:not(.native-android) .mesh-blob {
+    filter: blur(130px);
+    animation-play-state: paused;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   WIDE-BUT-TOUCH (tablets in landscape)
+   ═══════════════════════════════════════════════════════════════════════════════════════════════
+   A 10" Android tablet held sideways clears 1024px but has no mouse, so it correctly fails the
+   hover/pointer locks and keeps the phone layout — right for the rail and for every touch target.
+   The one thing it should still get is the wider content column, because a 600px strip centred on a
+   1280px tablet wastes the same space it does on a monitor, minus the pointer.
+   Scoped to width alone, and to max-width alone, so it cannot touch geometry the APK depends on.
+   tests/desktop.test.js enforces that this block changes no other property. */
+@media (min-width: 900px) and (hover: none) {
+  .panel, .pm-body, .subpage-body { max-width: 780px; }
+}

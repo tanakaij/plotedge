@@ -1,82 +1,100 @@
-# PlotEdge — update bundle (v3, supersedes v2)
+# PlotEdge — update bundle (final)
 
-Drop these ten files over the same paths in `plotedge-main/`. `index.html` untouched, no new
-dependencies. **`npm test` → 599/599 passed** (577 before any of this).
+Seventeen files. Drop them over the same paths in `plotedge-main/`.
+**`npm test` → 630/630 passed** (577 at the start).
 
-| File | Fixes |
-|---|---|
-| `js/06a-capture-stack.js` | **The resume-capture nag** (new in v3) |
-| `js/05a-plotbounds.js` | `NaN × NaN km`; the dead outlier check |
-| `js/17e-plotair.js` | PlotAir not opening; sources; photo types; lost photo imports |
-| `js/05-projects.js` | Data hub PlotAir row stuck on "Open a project first" |
-| `js/21b-plotalert.js` | Notifications never delivered |
-| `js/17b-plotpack.js` | Auto-scan finding nothing; the Restore-button file-picker ambush |
-| `css/02-mesh.css` | Ambient gradient invisible outside the home screen |
-| `tests/*` | 18 regression tests across three suites |
+No new dependencies. `index.html` gains two `<link>`/`<script>` lines and nothing else.
 
 ---
 
-## The capture resume prompt (v3)
-
-`offerResumeAfterSave()` raised a **blocking confirm after every single save** for as long as
-anything sat on the capture stack — and declining did nothing to stop it. There was no `onCancel`,
-so the refusal was invisible to the module and the identical dialog returned on the next save, and
-the one after that, indefinitely. The only way out was to finish or discard the paused capture.
-
-Pause a fence line, then collect a run of thirty poles: **thirty modal dialogs**, each asking a
-question already answered "no" twenty-nine times.
-
-Worse than annoying, it was self-defeating. A prompt that can't be dismissed for good stops being
-read — people learn to tap past it without looking. That is precisely how a paused capture gets
-forgotten, which is the failure the capture stack exists to prevent.
-
-Now it asks **once per paused capture**. Decline it and it stays declined until the stack itself
-changes. Nothing is lost: the resume bar is already on screen naming what's paused and offering
-Resume in one tap. The bar is the persistent affordance; this dialog only ever needed to be the
-introduction to it.
-
-The memory resets whenever the question genuinely changes — pausing something new, resuming,
-discarding, or opening another project. Five tests cover those, four of which fail against your
-original code.
-
----
-
-## Earlier fixes, recapped
+## 1 · Bugs fixed
 
 **`NaN × NaN km`** — `haversineM` takes four scalars; `05a-plotbounds.js` passed it two objects at
-five sites. The label was cosmetic, but the same bug made `outsideProjectBounds()` return `NaN`, so
-`d > 1000` was always false and the confirm read *"NaN m outside the project area"*. **Your outlier
-check had never graded a distance correctly.**
+five call sites. The label was the visible symptom, but the same bug made `outsideProjectBounds()`
+return `NaN`, so `d > 1000` was always false and the confirm read *"NaN m outside the project area"*.
+**The outlier check had never once graded a distance correctly.**
 
-**PlotAir** — `renderDataHubScreen()` nulls `activeProjectId`, and PlotAir's guard read that exact
-field, so navigating to the button cleared what the button checked. Unreachable by construction.
-Behind it: `savedFeatures` and `featureTypes` are both per-project and empty from the hub, and
-`plotairSources()` looked for `proj.boundary`, a key nothing ever writes (it's `proj.bounds`, a
-rectangle). And **imported flight photos were silently discarded** — pushed to a detached array
-that `persistStore()` doesn't write, while the toast claimed success.
+**PlotAir could never open.** `renderDataHubScreen()` sets `activeProjectId = null` — leaving the
+project is what "go to Data" means — and PlotAir's guard read that exact field. Navigating to the
+button cleared what the button checked. Behind it: `savedFeatures` and `featureTypes` are per-project
+and empty from the hub, `plotairSources()` looked for `proj.boundary` (a key nothing writes; it's
+`proj.bounds`, a rectangle), and **imported flight photos were silently discarded** into a detached
+array `persistStore()` never writes, while the toast claimed success.
 
-**Notifications** — the preference defaulted on, but permission was only ever requested from the
-Settings toggle, so a normal install could never deliver one. Also, the service-worker path tested
-`navigator.serviceWorker.ready`, a promise that is always truthy and never settles when no worker
-is registered — it reported success having delivered nothing.
+**Notifications never fired.** The preference defaults on, but permission was only requested from the
+Settings toggle — so a normal install could never deliver one. Also `navigator.serviceWorker.ready`
+is a promise, always truthy, and never settles when no worker is registered: the old code reported
+success having delivered nothing.
 
-**Auto-scan** — `readdir` ran without ever requesting `READ_EXTERNAL_STORAGE`, so every location
-threw and the per-folder `catch { continue }` ate it as a missing folder.
+**Auto-scan found nothing.** `readdir` ran without ever requesting `READ_EXTERNAL_STORAGE`, so every
+location threw and the per-folder `catch { continue }` ate it as a missing folder.
 
-**Restore button** — an empty scan closed the sheet, fired a toast and forced the OS file picker
-open, on the common path. Now offers the picker on a "nothing found" step instead. Note this
-inverted a deliberate, test-pinned decision; `restoreShowEmpty()` and that one assertion are the
-whole change if you want it back.
+**The capture resume prompt was a nag loop.** A blocking confirm after *every* save while anything
+sat on the stack, with no `onCancel` — so declining did nothing and it returned on the next save
+forever. Pause a fence line, collect thirty poles, get thirty identical dialogs. Self-defeating: a
+prompt you can't dismiss stops being read, which is how a paused capture gets forgotten — the exact
+failure the stack exists to prevent. Now asks once per paused capture.
 
-## Sheet audit
+**The Restore button ambushed.** An empty scan closed the sheet, fired a toast and forced the OS file
+picker open — on the *common* path. Now offers the picker on a "nothing found" step. This inverted a
+deliberate, test-pinned decision; `restoreShowEmpty()` and that one assertion are the whole change if
+you want it back.
 
-All 32 `.modal-overlay` sheets: opener found, called, verified. 31 open; the 32nd (`bufferModal`)
-correctly declines with "Select a sketch first". Every sheet is closable by Back through its own
-named close. PlotAir was the only genuinely unreachable one.
+## 2 · Desktop view (`css/13-desktop.css`, `js/23-desktop-keys.js`)
 
-## Still unverified
+Direction: **instrument, not app.** The phone is for capture; the desktop is for reviewing four
+hundred features. Signature is the rail as a levelling staff — a ruled edge with a graduation tick
+per screen, the active one taking the accent.
 
-The ambient-gradient change (form band 0.28 → 0.50, settings 0.40 → 0.62; map stays 0) is the one
-fix I could not run, since there's no browser in my environment. All 33 theme tests pass and the new
-values sit under the home band the 7:1 sunlight floor is measured against. If the mesh is still
-invisible, check `.mesh-bg { contain: strict }` against your WebView version.
+- **Review is master–detail.** Sticky map in a right column, list scrolling past it. CSS Grid, so the
+  DOM is untouched.
+- **Rail, width, density, tabular numerals, hover, focus rings, themed scrollbars.**
+- **Keyboard:** `1`–`5` tabs, `P` projects, `,` settings, `/` search, `?` help, `Esc` close.
+- **Ambient mesh calmed and stopped** — on a 27" display a drifting wash behind a table of
+  coordinates is the largest object in the room.
+- PlotAtlas and PlotWords no longer paint over the rail.
+
+**The APK cannot be affected.** CSS: four locks (`min-width:1024px`, `hover:hover`, `pointer:fine`,
+`html:not(.native-android)`), any one sufficient. JS: `install()` returns before binding *anything* —
+not a handler that ignores phones, a handler that doesn't exist on them. Delete both files and the
+APK renders identically.
+
+## 3 · Four bugs my own tests caught in my own work
+
+Worth listing, because they're the argument for the tests existing:
+
+1. **Dead selectors.** `.list-row`, `.feature-row`, `.stat-value`, `.mono`, `.modal-wide` — none
+   exist. The density pass I'd called "the substance" did nothing.
+2. **A malformed comment.** A stray `*/` split one comment into a closed comment plus raw prose
+   sitting in the stylesheet as live CSS.
+3. **A dead descendant selector.** `#panel-collect .field-row2` — both parts real, the combination
+   matches nothing.
+4. **A grid collision.** `#attrTableWrap { grid-column: 1 / -1 }` would have drawn the attribute
+   table *on top of* the sticky map, because `setReviewView()` leaves the map visible in table mode.
+   Grid allows overlap silently — no error, nothing in the console.
+
+Each now has a test, and I verified each fails on purpose before shipping.
+
+## 4 · What I did not do, and why
+
+- **Touch targets stay 44px.** Buttons, fields and card interiors remain phone-sized. This is the
+  largest remaining gap between this and software designed for a desk. It means editing every
+  component's own stylesheet rather than the shell, which is a fork risk I wasn't willing to take
+  without you seeing the current state first.
+- **Content caps at 1180px**, so a 1920px monitor has dead space either side. Deliberate for text.
+- **The capture form stays single-column.** Two columns break Tab order — Tab follows the DOM, so the
+  form would read left-right visually and top-bottom by keyboard. On the screen where someone types
+  survey data all day, that's worse than scrolling.
+- **The attribute table doesn't take full width** — see the collision above. Doing it properly means
+  hiding the map in table mode, which is a JS change, and the map is useful there.
+
+## 5 · The one thing I could never verify
+
+**There is no browser in my environment.** Every structural claim is proven by tests — gating,
+selectors, load order, precaching. But **nothing here has been seen rendered.** That applies to the
+ambient-gradient change, the rail graduations, and most of all the Review grid: a sticky item
+spanning 99 rows is correct per spec and is still the riskiest thing I've written blind.
+
+Open it on your monitor. If something looks wrong, trust your eyes over my account of it — and the
+places to look first are `--tick-w` / `.nav-btn::before` for the rail, and the `#panel-review` grid
+block for Review.

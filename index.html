@@ -111,6 +111,11 @@
 <!-- Loaded last: everything in it is a standardisation pass over components defined in the
      files above, so it has to win the cascade on load order rather than on !important. -->
 <link rel="stylesheet" href="css/12-polish.css">
+<!-- Desktop shell. Loaded last so it wins on equal specificity without !important. Every rule
+     inside is behind (min-width:1024px) and (hover:hover) and (pointer:fine) AND
+     html:not(.native-android) — four independent locks, any one of which is enough to keep the
+     Android build out. Delete this file and the APK renders identically. -->
+<link rel="stylesheet" href="css/13-desktop.css">
 </head>
 <body>
 
@@ -3249,5 +3254,9 @@ try {
 <script src="js/21b-plotalert.js"></script>
 <script src="js/21c-sheet-chrome.js"></script>
 <script src="js/22-boot.js"></script>
+<!-- Desktop keyboard shortcuts. Loads last and gates itself at runtime: on the APK (or any
+     Capacitor shell, or any touch-only device) install() returns before binding a single
+     listener, so the handler does not merely ignore phones — it does not exist on them. -->
+<script src="js/23-desktop-keys.js"></script>
 </body>
 </html>

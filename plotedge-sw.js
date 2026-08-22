@@ -15,33 +15,11 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v29';   // bumped: index.html, css/01-tokens.css, css/02-mesh.css, css/12-polish.css,
-                             // js/07-navigation.js, js/17b-plotpack.js — the restore flow moved out of
-                             // the Welcome page into #restoreModal, and the PlotIn indoor texture was
-                             // rebuilt as an accent-masked floor plan that also paints inside the
-                             // Collect cards. No new shipped files, so SHELL_ASSETS is unchanged; the
-                             // bump is purely so existing installs stop serving the old shell.
-                             // v22 adds the PlotIn mode pass: cooled mesh, demoted GPS row, the
-                             // two-line environment switch and the dock level chip.
-                             // v23 adds js/06-collect.js + js/11-features.js: reference IDs are
-                             // checked for collisions on save, and the autofill counter stops
-                             // reusing a number that a parked capture already holds.
-                             // v24 adds the 'feature_ref' field type: js/02-state.js, js/03-schema.js,
-                             // js/06-collect.js, js/16-geometry-math.js and the inspector styles.
-                             // v25: the environment toggle collapses while outdoors, and the indoor
-                             // address survives a save instead of being retyped per fixture.
-                             // v26: the Collect card SURFACE changes indoors, not just the pattern
-                             // on it — cooler tokens, flat drawing-sheet edge, stronger plan ink.
-                             // v27: the indoor texture no longer leaks onto Welcome, and restoring a
-                             // bundle already on the device offers to open it instead.
-                             // v28 adds a NEW SHIPPED FILE, js/17e-plotair.js (PlotAir) — so
-                             // SHELL_ASSETS changes here as well as the version, unlike every bump
-                             // above it. A file the app loads but the shell never cached is a file
-                             // that is missing the first time the device is offline.
-                             // v29: PlotAir gains the return leg — flight photos read for their
-                             // EXIF position and added as points, without copying the photographs.
-const SHELL_CACHE = `plotedge-shell-${SW_VERSION}`;
-const TILE_CACHE = `plotedge-tiles-${SW_VERSION}`;
+const SW_VERSION = 'v31';   // bumped: css/13-desktop.css added (desktop shell — nav rail, wider content
+                             // column, pointer affordances; entirely behind a min-width/hover/pointer
+                             // media query and html:not(.native-android), so the Android build is
+                             // unaffected), plus the PlotAir, capture-stack, restore, notification and
+                             // project-bounds fixes in js/.
 
 // Resolved against the SW's own scope (not '/') so this keeps working whether PlotEdge is served
 // from a domain root or a GitHub Pages subpath like /plotedge/ — an absolute '/index.html' would
@@ -67,6 +45,7 @@ const APP_ASSETS = [
   'css/10-quick-actions.css',
   'css/11-plotarchive.css',
   'css/12-polish.css',
+  'css/13-desktop.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
@@ -111,6 +90,7 @@ const APP_ASSETS = [
   'js/21b-plotalert.js',
   'js/21c-sheet-chrome.js',
   'js/22-boot.js',
+  'js/23-desktop-keys.js',
   // ══ IMAGES ══
   // These were base64 data URLs inline in index.html and the manifest until
   // scripts/extract-inline-images.py pulled them out (half a megabyte of image
