@@ -119,7 +119,7 @@ const stageIsNow = s => d.querySelector(`.restore-rail-step[data-stage="${s}"]`)
   w.eval(`restorePrepareJson(JSON.stringify({
     peBackup: PE_BACKUP_VERSION, kind:'project',
     project:{id:'probe1',name:'Hatfield Ext'},
-    data:{probe1:{savedFeatures:[{id:'f1',photos:[{id:'ph1'}],vertices:[]}],featureTypes:[]}}
+    data:{savedFeatures:[{id:'f1',photos:[{id:'ph1'}],vertices:[]}],featureTypes:[]}
   }),'hat.plotedge.json')`);
   ok('the confirm step names the project inside the file', /Hatfield Ext/.test(body()));
   ok('the confirm step counts what is coming back', /Features/.test(body()) && /Photos/.test(body()));
@@ -137,7 +137,7 @@ const stageIsNow = s => d.querySelector(`.restore-rail-step[data-stage="${s}"]`)
   w.eval(`restorePrepareJson(JSON.stringify({
     peBackup: PE_BACKUP_VERSION, kind:'project',
     project:{id:'probe2',name:'Hatfield Ext'},
-    data:{probe2:{savedFeatures:[{id:'f1',photos:[{id:'ph1'}],vertices:[]}],featureTypes:[]}}
+    data:{savedFeatures:[{id:'f1',photos:[{id:'ph1'}],vertices:[]}],featureTypes:[]}
   }),'hat.plotedge.json')`);
   const before = w.eval('projects.length');
   w.eval('restorePrimaryAction()');

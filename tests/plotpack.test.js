@@ -62,6 +62,7 @@ w.__media = new Map();
 // instanceof check, which fails across realms — a jsdom Uint8Array is not a node
 // one however identical the bytes.
 w.__U8 = Uint8Array;
+w.Blob = Blob;
 w.addEventListener('error', e => errors.push(e.message || String(e.error)));
 for (const f of jsOrder) {
   const el = w.document.createElement('script');
@@ -105,16 +106,16 @@ run(`
     const bin = atob(dataUrl.slice(comma + 1));
     const bytes = new globalThis.__U8(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
+    return new Blob([bytes]);
   };
   // JSZip's async('blob') gives a real Blob in a browser but not under node, and
   // FileReader cannot read what it returns here. Same substitution as above:
   // bytes in, data URL out, so the restore path itself is still exercised.
-  photoBlobToDataUrl = function(b){
+  photoBlobToDataUrl = async function(b){
     if (!b) return Promise.resolve('');
     if (typeof b === 'string') return Promise.resolve(b);
     let bin = '';
-    const bytes = new globalThis.__U8(b.buffer ? b.buffer : b);
+    const bytes = new globalThis.__U8(b.arrayBuffer ? await b.arrayBuffer() : (b.buffer ? b.buffer : b));
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     return Promise.resolve('data:image/jpeg;base64,' + btoa(bin));
   };
@@ -210,7 +211,7 @@ const main = (async () => {
     const zip = await JSZip.loadAsync(lastExport.bytes);
     const m = JSON.parse(await zip.file('manifest.json').async('string'));
     assert(m.format === 'plotpack', 'the manifest does not identify the format');
-    assert(m.formatVersion === 1, `unexpected format version ${m.formatVersion}`);
+    assert(m.formatVersion === 2, `unexpected format version ${m.formatVersion}`);
     assert(m.counts.features === 1 && m.counts.photos === 2,
       `counts wrong: ${JSON.stringify(m.counts)}`);
     assert(m.checksums && m.checksums['features.json'], 'no checksum for features.json');
@@ -268,9 +269,9 @@ const main = (async () => {
     const file = lastExport.bytes; file.name = 'again.plotpack';
     await w.preparePlotpackImport(file);
     await w.importPlotpackBundle();
-    assert(w.__media.get('ph_a'), 'the feature photo was not restored from the bundle');
-    assert(w.__media.get('ph_b'), 'the VERTEX photo was not restored from the bundle');
-    assert(String(w.__media.get('ph_a')).startsWith('data:image/jpeg'),
+    assert(w.__media.get(run("projectData[projects[projects.length-1].id].savedFeatures[0].photos[0].id")), 'the feature photo was not restored from the bundle');
+    assert(w.__media.get(run("projectData[projects[projects.length-1].id].savedFeatures[0].vertices[0].photos[0].id")), 'the VERTEX photo was not restored from the bundle');
+    assert(String(w.__media.get(run("projectData[projects[projects.length-1].id].savedFeatures[0].photos[0].id"))).startsWith('data:image/jpeg'),
       'the restored photo is not a JPEG data URL');
   });
 
@@ -331,7 +332,7 @@ const main = (async () => {
     // restoreCommit() was already invoked by the click above; wait for it rather than calling twice.
     for (let i = 0; i < 60 && run('_restoreBusy'); i++) await new Promise(r => setTimeout(r, 25));
     assert(run('_restoreBusy') === false, 'the restore never finished');
-    assert(w.__media.get('ph_a') && w.__media.get('ph_b'),
+    assert(w.__media.get(run("projectData[projects[projects.length-1].id].savedFeatures[0].photos[0].id")) && w.__media.get(run("projectData[projects[projects.length-1].id].savedFeatures[0].vertices[0].photos[0].id")),
       'the sheet path did not restore the photos the direct path does');
 
     // The bar has to have moved, and its total has to be the real photo count — a bundle carrying

@@ -217,7 +217,7 @@ check('Review is a two-column master-detail with the map parked beside the list'
   // The point of the desktop build: read a row, find it on the map, read the next — without a
   // scroll between every step.
   const body = deskBlocks[0][1];
-  assert(/#panel-review\s*\{[^}]*display:\s*grid/.test(body), 'Review is still a single column');
+  assert(/#panel-review\.active\s*\{[^}]*display:\s*grid/.test(body), 'Review is still a single column');
   assert(/\.review-map-wrap\s*\{[^}]*position:\s*sticky/.test(body), 'the map does not stay in view');
   // Full-screen is position:fixed in 05-components.css and this file loads after it, so the sticky
   // rule would silently break the full-screen toggle unless it is re-asserted.
@@ -262,11 +262,11 @@ check('the ambient mesh is calmed rather than left at phone intensity', () => {
   assert(/animation-play-state:\s*paused/.test(body), 'the blobs still drift at desk distance');
 });
 
-check('the stylesheet is loaded last, after every other sheet', () => {
+check('the desktop sheet precedes only the field workspace overrides', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const sheets = [...html.matchAll(/<link rel="stylesheet" href="css\/([^"]+)"/g)].map(m => m[1]);
   assert(sheets.includes('13-desktop.css'), 'the desktop sheet is never linked');
-  assert(sheets[sheets.length - 1] === '13-desktop.css',
+  assert(sheets.slice(sheets.indexOf('13-desktop.css') + 1).join(',') === '14-field-workspace.css',
     `desktop must load last to win on equal specificity without !important; loads before ${sheets.slice(sheets.indexOf('13-desktop.css') + 1).join(', ')}`);
   assert(!/!important/.test(css), 'the desktop layer resorts to !important instead of load order');
 });

@@ -1,3 +1,7 @@
+## October 2026 field update
+
+`npm test` includes transactional record-store migration/failure, PLY parsing and Android scanner-patch checks in field-integrity.test.js. `npm run test:browser` runs the separate Chromium offline and scanner workflow tests; install the browser with `npx playwright install chromium` first. See VALIDATION.md for the recorded results and hardware limits.
+
 # PlotEdge test suite
 
     node tests/run.js

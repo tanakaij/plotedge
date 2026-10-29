@@ -241,7 +241,7 @@ await settleMediaStore();
 
 check('photo bytes never reach localStorage', () => {
   w.eval('persistStore();');
-  const raw = w.localStorage.getItem(w.eval('STORAGE_KEY'));
+  const raw = w.eval('recordStore.active ? recordStore.raw : localStorage.getItem(STORAGE_KEY)');
   assert(raw, 'nothing was written at all');
   assert(!/"dataUrl"/.test(raw), 'dataUrl was serialised into the project store — this is the 5 MB ceiling');
   assert(!/"thumbUrl"/.test(raw), 'thumbUrl was serialised into the project store');
@@ -294,7 +294,7 @@ await checkAsync('a project of 100 photo-bearing features fits inside the localS
   // Same order the app uses: bytes to the media store first, then the write.
   await settleMediaStore();
   w.eval('persistStore();');
-  const raw = w.localStorage.getItem(w.eval('STORAGE_KEY'));
+  const raw = w.eval('recordStore.active ? recordStore.raw : localStorage.getItem(STORAGE_KEY)');
   const bytes = raw.length;
   const photos = 100 * 7 * 3;
   assert(!/"dataUrl"/.test(raw), 'binary leaked into the store on the large project');
