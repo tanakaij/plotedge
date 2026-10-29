@@ -66,139 +66,68 @@ const PLOTPACK_MIME = 'application/vnd.plotedge.plotpack+zip';
 // Bumped only for a change that an older importer could not read safely. The
 // importer refuses an unknown MAJOR rather than guessing — a format that ships
 // without a version can never change, and one that guesses corrupts surveys.
-const PLOTPACK_FORMAT_VERSION = 1;
+const PLOTPACK_FORMAT_VERSION = 2;
 
 let pendingPlotpackImport = null;
 
 
 // ══ WRITING ══
 async function exportPlotpack(){
-  if (!activeProjectId){ showToast('Open a project first'); return; }
-  if (typeof JSZip === 'undefined'){
-    showToast('Bundle library not loaded, reconnect once and try again');
-    return;
-  }
-  const project = projects.find(p => p.id === activeProjectId);
-  if (!project){ showToast('Open a project first'); return; }
-
-  const status = document.getElementById('exportStatus');
-  if (status) status.textContent = 'Building bundle…';
-
-  // Photo bytes are shed from the project store once written to disk, so they
-  // have to be read back before anything can be packed. Paired with the release
-  // in the finally block: on a photo-heavy project this is tens of megabytes of
-  // live base64 that must not outlive the export.
-  const hydrated = await hydrateExportPhotos(savedFeatures, currentVertices);
-  try {
-    const zip = new JSZip();
-    // STORED, and first. See the note on the mimetype entry above.
-    zip.file('mimetype', PLOTPACK_MIME, { compression: 'STORE' });
-
-    const stamp = new Date().toISOString();
-    const features = JSON.parse(JSON.stringify(savedFeatures));
-    const schema = JSON.parse(JSON.stringify(featureTypes));
-
-    // Photos go in as binary and are replaced by references. Carrying both the
-    // bytes and a base64 copy of the same bytes would double the file for no
-    // reason.
-    const photoFolder = zip.folder('photos');
-    let photoCount = 0;
-    const packPhotos = list => (list || []).map(p => {
-      const rec = { id: p.id, name: p.name || '', takenAt: p.takenAt || null };
-      // p.dataUrl only: hydrateExportPhotos() above has just refilled it from
-      // IndexedDB. photoCachedFull() would hand back a blob: object URL, which
-      // is a handle rather than bytes and cannot be packed.
-      const blob = p.dataUrl ? photoDataUrlToBlobSync(p.dataUrl) : null;
-      if (blob){
-        rec.file = 'photos/' + p.id + '.jpg';
-        photoFolder.file(p.id + '.jpg', blob, { binary: true });
-        photoCount++;
-      } else {
-        // Recorded rather than dropped: an importer that finds a reference with
-        // no file can say "3 photos could not be included" instead of silently
-        // producing a survey that looks complete and is not.
-        rec.missing = true;
-      }
-      return rec;
-    });
-
-    features.forEach(f => {
-      f.photos = packPhotos(f.photos);
-      (f.vertices || []).forEach(v => { v.photos = packPhotos(v.photos); });
-    });
-
-    const parts = {
-      'schema.json': JSON.stringify(schema, null, 2),
-      'features.json': JSON.stringify(features, null, 2),
-      'features.geojson': JSON.stringify(plotpackGeoJSON(), null, 2),
-      'notes.md': projectNotes || '',
-      'sketches.json': JSON.stringify(plotetchSketches || [], null, 2),
-      // Deletes travel with the bundle, or a handoff silently undoes them. If a crew deletes a
-      // duplicate septic and then sends the project on, the receiving device has no record that
-      // the deletion happened — and on the eventual merge back, the sender's own delete looks
-      // like missing data and the feature returns. Tombstones are tiny ({uid, rev}); the cost of
-      // carrying them is nothing against the cost of resurrected records in a deliverable.
-      'tombstones.json': JSON.stringify(plotmateTombstones(activeProjectId) || [], null, 2)
+  if(plotpackExportBusy)return;
+  const project=projects.find(p=>p.id===activeProjectId);
+  if(!project){showToast('Open a project first');return;}
+  if(typeof JSZip==='undefined'){showToast('Bundle library unavailable. Reopen the app.');return;}
+  plotpackExportBusy=true;plotpackExportCancelled=false;
+  const status=document.getElementById('exportStatus'),cancel=document.getElementById('plotpackCancelExport');
+  if(cancel)cancel.hidden=false;
+  const checkpoint=()=>{if(plotpackExportCancelled)throw new Error('Bundle export cancelled.');};
+  let hydrated=[];
+  try{
+    if(status)status.textContent='Preparing project and original files…';
+    const data=snapshotProjectForBackup(project.id);
+    hydrated=await hydrateExportPhotos(data);checkpoint();
+    const zip=new JSZip();zip.file('mimetype',PLOTPACK_MIME,{compression:'STORE'});
+    const features=data.savedFeatures,schema=data.featureTypes;
+    const capture={currentVertices:data.currentVertices,currentScans:data.currentScans,suspended:data.suspended};
+    const extraScans=[...capture.currentScans,...capture.suspended.flatMap(s=>s.scans||[])];
+    const scanCount=await packScanFiles(zip,features,extraScans);checkpoint();
+    const addedPhotos=new Set();let missingPhotos=0;
+    for(const photo of collectPhotoRecords(features,capture)){
+      const blob=photo.dataUrl?photoDataUrlToBlobSync(photo.dataUrl):null;
+      if(blob){
+        if(!/^[A-Za-z0-9_-]+$/.test(String(photo.id)))throw new Error('Invalid photo identifier');
+        photo.file='photos/'+photo.id+'.jpg';
+        if(!addedPhotos.has(photo.id)){zip.file(photo.file,await blob.arrayBuffer(),{binary:true});addedPhotos.add(photo.id);}
+      }else{photo.missing=true;missingPhotos++;}
+      delete photo.dataUrl;delete photo.thumbUrl;
+    }
+    const parts={
+      'schema.json':JSON.stringify(schema), 'features.json':JSON.stringify(features),
+      'features.geojson':JSON.stringify(plotpackGeoJSON()), 'capture.json':JSON.stringify(capture),
+      'notes.md':data.notes, 'sketches.json':JSON.stringify(data.sketches), 'tombstones.json': JSON.stringify(data.tombstones)
     };
-    for (const name in parts) zip.file(name, parts[name]);
-
-    // Checksums are not ceremony. Bluetooth transfers and several chat apps
-    // truncate large attachments, and a half-written bundle that imports
-    // "successfully" is precisely the corruption persistStore()'s write guard
-    // exists to prevent. A mismatch here refuses the import outright.
-    const checksums = {};
-    for (const name in parts) checksums[name] = await plotpackSha256(parts[name]);
-
-    zip.file('manifest.json', JSON.stringify({
-      format: 'plotpack',
-      formatVersion: PLOTPACK_FORMAT_VERSION,
-      app: 'PlotEdge',
-      appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : null,
-      exportedAt: stamp,
-      // ══ THE WHOLE RECORD, NOT JUST THE NAME ══
-      // A project carries client, manager, site, description and site
-      // coordinates as well as its name, and those are precisely what the Plan
-      // Sheet title block and the Survey Register masthead print. Carrying only
-      // {id, name, createdAt} meant a restored survey was complete as DATA and
-      // unissuable as a DOCUMENT until someone retyped the header — a loss that
-      // would not show up until the drawing was produced.
-      //
-      // id is kept for provenance only; the importer always mints a fresh one so
-      // a bundle can never collide with a project already on the device.
-      // lastExportedAt is dropped on purpose: it describes THIS device's export
-      // history, and inheriting it would make a freshly restored project claim
-      // it had already been delivered.
-      project: (() => {
-        const { lastExportedAt, ...rest } = project;
-        return rest;
-      })(),
-      counts: {
-        features: features.length,
-        featureTypes: schema.length,
-        photos: photoCount,
-        sketches: (plotetchSketches || []).length
-      },
-      checksums
-    }, null, 2));
-
-    zip.file('README.txt', plotpackReadme(project, features.length, photoCount));
-
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    const safe = (project.name || 'project').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60);
-    const name = `${safe}_${ts()}.${PLOTPACK_EXT}`;
-    const res = await saveExportFile(blob, name, PLOTPACK_MIME);
-    noteExportSaved(res, name);
-    if (status) status.textContent = res.ok
-      ? `✓ ${name}, ${features.length} features, ${photoCount} photos`
-      : 'Bundle could not be written';
-  } catch (e){
-    console.warn('PlotEdge: .plotpack export failed', e);
-    showToast('Could not build the bundle');
-    if (status) status.textContent = '';
-  } finally {
-    releaseExportPhotos(hydrated);
-  }
+    const checksums={};
+    for(const name in parts){zip.file(name,parts[name]);checksums[name]=await plotpackSha256(parts[name]);}
+    zip.file('manifest.json',JSON.stringify({format:'plotpack',formatVersion:PLOTPACK_FORMAT_VERSION,app:'PlotEdge',
+      appVersion:typeof APP_VERSION!=='undefined'?APP_VERSION:null,exportedAt:new Date().toISOString(),project:peBackupProjectMeta(project),
+      counts:{features:features.length,featureTypes:schema.length,photos:addedPhotos.size,scans:scanCount,pausedCaptures:capture.suspended.length,sketches:data.sketches.length},checksums}));
+    zip.file('README.txt',plotpackReadme(project,features.length,addedPhotos.size)+'\n\nscans/ contains unchanged scan originals. capture.json restores unfinished work as paused captures.\nScan coordinates are local unless registered externally.');
+    checkpoint();
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:3}},m=>{
+      if(status)status.textContent=plotpackExportCancelled?'Cancelling after archive preparation…':'Preparing bundle · '+Math.round(m.percent)+'%';
+    });
+    checkpoint();
+    const name=sanitizeFileSegment(project.name||'Project')+'_'+ts()+'.'+PLOTPACK_EXT;
+    const result=await saveExportFile(blob,name,PLOTPACK_MIME);
+    if(!result.ok)throw new Error('Bundle could not be written');
+    project.lastBundleExportedAt=new Date().toISOString();persistStore();fieldSaveStatus();noteExportSaved(result,name);
+    if(status)status.textContent='✓ '+features.length+' records · '+addedPhotos.size+' photos · '+scanCount+' scans'+(missingPhotos?' · '+missingPhotos+' missing photos':'');
+  }catch(e){showToast(e.message||'Bundle export failed');if(status)status.textContent=e.message||'Bundle export failed';}
+  finally{releaseExportPhotos(hydrated);plotpackExportBusy=false;if(cancel)cancel.hidden=true;}
 }
+
+let plotpackExportBusy=false,plotpackExportCancelled=false;
+function cancelPlotpackExport(){plotpackExportCancelled=true;const e=document.getElementById('exportStatus');if(e)e.textContent='Cancelling after archive preparation…';}
 
 
 // The same GeoJSON js/17-export.js writes, but as one collection across every
@@ -281,7 +210,7 @@ const PLOTPACK_KIND_SETTINGS = 'plotpack-settings';
 // start exporting whatever key a future feature adds — including the next
 // credential somebody stores.
 const DEVICE_SETTING_KEYS = [
-  'plotedge_theme', 'plotedge_domain', 'plotedge_density', 'plotedge_units',
+  'plotedge-quick-entry', 'plotedge_theme', 'plotedge_domain', 'plotedge_density', 'plotedge_units',
   'plotedge_basemap', 'plotedge_maplayout_basemap', 'plotedge_snap',
   'plotedge_watermark', 'plotedge_quickactions', 'plotedge_export_format_default',
   'plotedge_plotlens_enabled', 'plotedge_plotwords_seen', 'plotedge_widget_dynamic', 'plotedge_value_bank', 'plotedge_plotmate_clock', 'plotedge_plotmate_device',
@@ -427,6 +356,7 @@ function handlePlotpackFileChosen(event){
 
 
 async function preparePlotpackImport(file, hostId){
+  pendingPlotpackImport=null;
   if (typeof JSZip === 'undefined'){
     showToast('Bundle library not loaded, reconnect once and try again');
     return;
@@ -475,6 +405,8 @@ async function preparePlotpackImport(file, hostId){
     const parts = {
       'schema.json': await readPart('schema.json'),
       'features.json': await readPart('features.json'),
+      'features.geojson': await readPart('features.geojson'),
+      'capture.json': await readPart('capture.json'),
       'notes.md': await readPart('notes.md'),
       'sketches.json': await readPart('sketches.json'),
       // Absent in bundles written before this existed — read as an empty list rather than an
@@ -491,7 +423,7 @@ async function preparePlotpackImport(file, hostId){
     // imports rather than failing on a checksum that was never there.
     const bad = [];
     for (const name in (manifest.checksums || {})){
-      if (parts[name] == null) continue;
+      if (parts[name] == null){bad.push(name);continue;}
       const got = await plotpackSha256(parts[name]);
       if (got !== manifest.checksums[name]) bad.push(name);
     }
@@ -505,6 +437,7 @@ async function preparePlotpackImport(file, hostId){
       manifest,
       schema: JSON.parse(parts['schema.json']),
       features: JSON.parse(parts['features.json']),
+      capture: parts['capture.json'] ? JSON.parse(parts['capture.json']) : {},
       notes: parts['notes.md'] || '',
       sketches: parts['sketches.json'] ? JSON.parse(parts['sketches.json']) : [],
       tombstones: parts['tombstones.json'] ? JSON.parse(parts['tombstones.json']) : [],
@@ -562,110 +495,50 @@ function cancelPlotpackImport(){
 
 
 async function importPlotpackBundle(){
-  if (!pendingPlotpackImport) return;
-  const p = pendingPlotpackImport;
-  const status = document.getElementById('importStatus');
-  if (status) status.textContent = 'Restoring…';
-
-  try {
-    // Photos first: a feature written before its photo bytes exist would render
-    // a broken thumbnail for as long as it took the rest to finish, and would
-    // stay broken if the restore failed halfway.
-    let restored = 0, missing = 0;
-    // ══ PROGRESS IS COUNTED, NOT MIMED ══
-    // The photo count is knowable before the loop starts, so the restore sheet shows a real
-    // determinate bar instead of an indeterminate sweep that says only "something is happening".
-    // This is the slow part of a restore by a wide margin — a bundle can carry hundreds of photos,
-    // each one a zip entry inflated to a blob and then to a data URL — and it is the part someone
-    // is most afraid of being interrupted, so it is the part that has to report honestly.
-    // plotpackProgressHook is null on every path except the sheet (see restoreShowWorking()), so
-    // the Import screen's behaviour is completely unchanged.
-    const photoTotal = p.features.reduce((n, f) =>
-      n + (f.photos || []).length +
-      (f.vertices || []).reduce((m, v) => m + (v.photos || []).length, 0), 0);
-    let photoDone = 0;
-    const reportPhoto = () => {
-      if (typeof plotpackProgressHook === 'function' && plotpackProgressHook) {
-        try { plotpackProgressHook(photoDone, photoTotal); } catch(e) {}
-      }
-    };
-    reportPhoto();
-    for (const f of p.features){
-      const all = [].concat(f.photos || [], ...(f.vertices || []).map(v => v.photos || []));
-      for (const ph of all){
-        // Every exit from this iteration steps the counter, including the three that skip a photo.
-        // A bar that stalls on a bundle with missing photos is a bar that reports a failure that
-        // did not happen.
-        if (!ph.file){ missing++; photoDone++; reportPhoto(); continue; }
-        const entry = p.zip.file(ph.file);
-        if (!entry){ missing++; photoDone++; reportPhoto(); continue; }
-        const blob = await entry.async('blob');
-        const dataUrl = await photoBlobToDataUrl(blob);
-        if (!dataUrl){ missing++; photoDone++; reportPhoto(); continue; }
-        await photoStoreSave({ id: ph.id, dataUrl, thumbUrl: dataUrl });
-        restored++;
-        photoDone++; reportPhoto();
-        delete ph.file; delete ph.missing;
-      }
+  if(!pendingPlotpackImport)return;
+  const original=pendingPlotpackImport;
+  const p={...original,features:JSON.parse(JSON.stringify(original.features)),capture:JSON.parse(JSON.stringify(original.capture||{}))};
+  const status=document.getElementById('importStatus');if(status)status.textContent='Restoring original files…';
+  let id=null;
+  try{
+    if(!Array.isArray(p.features)||!Array.isArray(p.schema))throw new Error('Invalid features or schema');
+    const capture=p.capture;
+    const extra=[...(capture.currentScans||[]),...(capture.suspended||[]).flatMap(s=>s.scans||[])];
+    const scanCount=await restoreScanFiles(p.zip,p.features,extra);
+    const photos=collectPhotoRecords(p.features,capture),photoIds=new Map();let restored=0,missing=0,bytes=0;
+    if(typeof plotpackProgressHook==='function')plotpackProgressHook(0,photos.length);
+    for(let n=0;n<photos.length;n++){
+      const ph=photos[n],old=ph.id;
+      if(photoIds.has(old)){ph.id=photoIds.get(old);delete ph.file;continue;}
+      if(!ph.file){missing++;continue;}
+      if(!/^photos\/[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(ph.file))throw new Error('Invalid photo path');
+      const entry=p.zip.file(ph.file);
+      if(!entry){missing++;continue;}
+      if(entry._data&&entry._data.uncompressedSize>32*1024*1024)throw new Error('Photo is too large to restore');
+      const buffer=await entry.async('arraybuffer');bytes+=buffer.byteLength;
+      if(bytes>256*1024*1024)throw new Error('Photo bundle exceeds device import limits');
+      const dataUrl=await photoBlobToDataUrl(new Blob([buffer],{type:'image/jpeg'}));
+      ph.id='ph_'+Date.now()+'_'+Math.random().toString(36).slice(2,12);
+      if(!await photoStoreSave({id:ph.id,dataUrl,thumbUrl:dataUrl}))throw new Error('Photo save failed. Check storage.');
+      photoIds.set(old,ph.id);restored++;delete ph.file;delete ph.missing;
+      if(typeof plotpackProgressHook==='function')plotpackProgressHook(n+1,photos.length);
     }
-
-    const src = p.manifest.project || {};
-    const name = src.name || 'Imported project';
-    const id = 'proj_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-    // Spread the bundled record first so client/manager/site/description and the
-    // site coordinates come across, then overwrite the four fields that must
-    // belong to THIS device: a fresh id, a name that cannot collide, and stamps
-    // that describe the restore rather than the original export.
-    projects.push({
-      ...src,
-      id,
-      name: plotpackUniqueName(name),
-      createdAt: src.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastExportedAt: null,
-      // ══ WHERE THIS CAME FROM ══
-      // The four fields above deliberately overwrite the bundled record so the restored project
-      // belongs to THIS device — a fresh id, a non-colliding name, stamps describing the restore.
-      // That is correct, and it is also why a second restore of the same file used to be
-      // undetectable: everything that identified the original had just been replaced.
-      // This keeps the original identity alongside the new one. `projectId` + `exportedAt` together
-      // name one specific export of one specific project, which is the only signal precise enough
-      // to say "you already have exactly this" rather than "you have something with a similar
-      // name" — and two visits to one site legitimately produce two projects called Ward 7.
-      restoredFrom: { projectId: src.id || null, exportedAt: p.manifest.exportedAt || null,
-                      restoredAt: new Date().toISOString() }
-    });
-    projectData[id] = {
-      savedFeatures: p.features,
-      currentVertices: [],
-      featureTypes: p.schema,
-      notes: p.notes,
-      notesUpdatedAt: new Date().toISOString(),
-      sketches: p.sketches,
-      suspended: [],
-      tombstones: Array.isArray(p.tombstones) ? p.tombstones : []
-    };
-    // persistStore(), not persist(): persist() writes only the ACTIVE project and
-    // returns early when none is open — which is exactly the state someone is in
-    // when they restore a bundle from the Projects screen.
-    persistStore({ destructive: false });
-
-    cancelPlotpackImport();
-    if (status){
-      status.textContent = `✓ Restored ${p.features.length} features and ${restored} photos`
-        + (missing ? ` · ${missing} photo${missing === 1 ? '' : 's'} were not in the bundle` : '');
-    }
-    renderProjectsList();
-    showToast(`"${name}" restored. Open it from Projects`);
-    // Returned so the restore sheet can render a real "what just happened" step from the same
-    // numbers this function already has. Every pre-existing caller ignores the return value, so
-    // nothing else changes.
-    return { ok: true, kind: 'project', projectId: id, name, features: p.features.length, photos: restored, missing };
-  } catch (e){
-    console.warn('PlotEdge: .plotpack restore failed', e);
-    if (status) status.textContent = '';
-    showToast('Restore failed, nothing was changed');
-    return { ok: false, kind: 'project' };
+    const src=p.manifest.project||{},name=src.name||'Imported project';
+    id='proj_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);
+    projects.push({...src,id,name:plotpackUniqueName(name),createdAt:src.createdAt||new Date().toISOString(),
+      updatedAt:new Date().toISOString(),lastExportedAt:null,lastBundleExportedAt:null,
+      restoredFrom:{projectId:src.id||null,exportedAt:p.manifest.exportedAt||null,restoredAt:new Date().toISOString()}});
+    projectData[id]={savedFeatures:p.features,currentVertices:capture.currentVertices||[],currentScans:capture.currentScans||[],
+      featureTypes:p.schema,notes:p.notes,notesUpdatedAt:new Date().toISOString(),sketches:p.sketches,
+      suspended:capture.suspended||[],tombstones: Array.isArray(p.tombstones)?p.tombstones:[]};
+    if(persistStore({destructive:false})===false||(recordStore.active&&!await recordStore.flush()))throw new Error('Project could not be saved. Check device storage.');
+    cancelPlotpackImport();renderProjectsList();
+    if(status)status.textContent='✓ Restored '+p.features.length+' records, '+restored+' photos and '+scanCount+' scans'+(missing?' · '+missing+' missing photos':'');
+    showToast('"'+name+'" restored. Open it from Projects');
+    return {ok:true,kind:'project',projectId:id,name,features:p.features.length,photos:restored,scans:scanCount,missing};
+  }catch(e){
+    if(id){projects=projects.filter(p=>p.id!==id);delete projectData[id];if(recordStore.active)recordStore.stage(JSON.stringify({projects,data:projectData},photoStripFields));lastWritten=null;}
+    if(status)status.textContent=e.message||'Restore failed';showToast(e.message||'Restore failed');return {ok:false,kind:'project'};
   }
 }
 
@@ -880,7 +753,7 @@ async function peekBackupContents(entry){
     const res = await Filesystem.readFile({ path: entry.path, directory: entry.dir });
     if (!res || !res.data) return entry;
     const payload = JSON.parse(decodeURIComponent(escape(atob(res.data))));
-    if (!payload || payload.peBackup !== PE_BACKUP_VERSION) return entry;
+    if (!payload || ![1,PE_BACKUP_VERSION].includes(payload.peBackup)) return entry;
     const metas = payload.kind === 'all' ? (payload.projects || [])
                 : payload.kind === 'project' ? [payload.project] : [];
     entry.projectNames = metas.filter(Boolean).map(m => m.name).filter(Boolean);
@@ -1631,7 +1504,7 @@ function restorePrepareJson(text, label){
   let payload;
   try { payload = JSON.parse(text); }
   catch(e){ restoreShowError('That backup file is not valid JSON.'); return; }
-  if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
+  if (!payload || ![1,PE_BACKUP_VERSION].includes(payload.peBackup) || !payload.kind){
     restoreShowError('That is not a PlotEdge backup file.'); return;
   }
   const metas = payload.kind === 'project' ? [payload.project]
@@ -1640,9 +1513,10 @@ function restorePrepareJson(text, label){
   const list = metas.filter(Boolean);
   if (!list.length){ restoreShowError('That backup contained no projects.'); return; }
 
-  const features = list.reduce((n, m) => n + (((payload.data || {})[m.id] || {}).savedFeatures || []).length, 0);
+  const projectDataFor = m => payload.kind === 'project' ? (payload.data || {}) : ((payload.data || {})[m.id] || {});
+  const features = list.reduce((n, m) => n + (projectDataFor(m).savedFeatures || []).length, 0);
   const photos = list.reduce((n, m) => {
-    const saved = ((payload.data || {})[m.id] || {}).savedFeatures || [];
+    const saved = projectDataFor(m).savedFeatures || [];
     return n + saved.reduce((k, f) =>
       k + (f.photos || []).length + (f.vertices || []).reduce((j, v) => j + (v.photos || []).length, 0), 0);
   }, 0);
@@ -1810,7 +1684,7 @@ async function restoreCommit(){
       // from Check to Restored and the progress step is never seen.
       await new Promise(r => setTimeout(r, 30));
       const { payload, metas } = _restorePendingJson;
-      const ids = metas.map(meta => importOneBackupProject(meta, (payload.data || {})[meta.id])).filter(Boolean);
+      const ids = await importJsonBackupPayload(payload);
       restoreSetProgress(1, 1);
       if (!ids.length){ restoreShowError('That backup contained no projects.'); return; }
       persistStore();
@@ -1826,7 +1700,7 @@ async function restoreCommit(){
       plotpackProgressHook = restoreSetProgress;
       await new Promise(r => setTimeout(r, 30));
       const res = await runPendingPlotpackImport();
-      if (res && res.ok === false){ restoreShowError('Restore failed. Nothing was changed.'); return; }
+      if (res && res.ok === false){ restoreShowError('Restore did not complete. Existing projects were kept.'); return; }
       if (isSettings){
         // importDeviceSettings() raises its own restart prompt, which is a second sheet on top of
         // this one — so this one gets out of the way rather than sitting behind it.

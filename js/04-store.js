@@ -114,7 +114,7 @@ function countDraftVertices(data) {
 
 
 function loadStore() {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = (typeof recordStore !== 'undefined' && recordStore.active) ? recordStore.raw : localStorage.getItem(STORAGE_KEY);
   // 1. the primary copy
   try {
     const d = parseStore(raw);
@@ -124,7 +124,7 @@ function loadStore() {
   } catch(e) {
     // 2. the rolling backup, written before the previous save
     try {
-      const d = parseStore(localStorage.getItem(STORAGE_BAK_KEY));
+      const d = parseStore((typeof recordStore !== 'undefined' && recordStore.active) ? recordStore.backup : localStorage.getItem(STORAGE_BAK_KEY));
       if (d) {
         quarantineRaw(raw, 'primary unreadable, restored from backup');
         projects = d.projects;
@@ -186,6 +186,8 @@ function noteStoreBytes(n) { _storeBytes = n; }
 function noteBackupBytes(n) { _backupBytes = n; }
 
 function getStorageUsageInfo(){
+  if(typeof recordStore!=='undefined' && recordStore.active){const bytes=recordStore.status().bytes;const media=typeof getMediaUsageInfo==='function'?getMediaUsageInfo():null;return {bytes,primaryBytes:bytes,backupBytes:0,percent:media&&media.known?media.percent:0,backend:'IndexedDB'};}
+
   let bytes = _storeBytes;
   if (bytes == null) {
     try { const raw = localStorage.getItem(STORAGE_KEY); bytes = raw ? raw.length : 0; }
@@ -225,7 +227,7 @@ function updateStorageWarning(){
   if (label) {
     const media = combined.media;
     const photoLine = (media && media.known && media.bytes)
-      ? ` · photos ${typeof formatBytes === 'function' ? formatBytes(media.bytes) : Math.round(media.bytes/1048576) + ' MB'}`
+      ? ` · device data ${typeof formatBytes === 'function' ? formatBytes(media.bytes) : Math.round(media.bytes/1048576) + ' MB'}`
       : '';
     label.textContent = (info.percent>=80
       ? `Storage ${info.percent}% full. Export soon to free up space`
@@ -277,7 +279,7 @@ function storeWriteVerdict(next, opts) {
     // Only on the very first save of a session, or after a failed write reset
     // the cache. One parse at startup is affordable; one per save is not.
     try {
-      const d = parseStore(localStorage.getItem(STORAGE_KEY));
+      const d = parseStore((typeof recordStore !== 'undefined' && recordStore.active) ? recordStore.raw : localStorage.getItem(STORAGE_KEY));
       prev = d ? storeShape(d) : null;
     } catch(e) { prev = null; }
   }
@@ -386,6 +388,10 @@ function persistStore(opts) {
   try { next = JSON.stringify(payload, photoStripFields); }
   catch(e) { showToast('Could not prepare data for saving.'); return false; }
 
+  if (typeof recordStore !== 'undefined' && recordStore.active) {
+    if(!recordStore.write(next)){showToast('Device save needs attention. Use Retry save.');return false;}
+    lastWritten=storeShape(payload);noteStoreBytes(next.length);updateStorageWarning();publishWidgetSummary();return true;
+  }
   const prevRaw = localStorage.getItem(STORAGE_KEY);
   maybeWriteBackup(prevRaw);
 
@@ -448,6 +454,7 @@ function writeDraft(draft) {
   try {
     if (!draft || !draft.projectId) return false;
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, at: Date.now() }));
+    if(typeof fieldSaveStatus==='function')fieldSaveStatus();
     return true;
   } catch(e) { return false; }   // full storage must never break the capture flow
 }
@@ -460,7 +467,7 @@ function readDraft(projectId) {
   } catch(e) { return null; }
 }
 
-function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch(e) {} }
+function clearDraft() { if(typeof _draftTimer!=='undefined')clearTimeout(_draftTimer);try { localStorage.removeItem(DRAFT_KEY); } catch(e) {} }
 
 // ══ STORE:END ══
 
@@ -530,7 +537,7 @@ function persist(opts) {
   // deleted features on the first merge.
   const prior = projectData[activeProjectId];
   const tombstones = (prior && Array.isArray(prior.tombstones)) ? prior.tombstones : [];
-  projectData[activeProjectId] = { savedFeatures, currentVertices, featureTypes, notes: projectNotes, notesUpdatedAt: projectNotesUpdatedAt, sketches: plotetchSketches, suspended: captureStackForStore(), tombstones };
+  projectData[activeProjectId] = { savedFeatures, currentVertices, currentScans:typeof currentScans!=='undefined'?currentScans:[], featureTypes, notes: projectNotes, notesUpdatedAt: projectNotesUpdatedAt, sketches: plotetchSketches, suspended: captureStackForStore(), tombstones };
   // Stamp the project record too, so the Project Manager's "Modified" figure reflects every
   // capture, edit and schema change — not just the ones that happen to touch a saved feature.
   const p = projects.find(x=>x.id === activeProjectId);

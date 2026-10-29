@@ -274,7 +274,7 @@ function geoJSONFeaturesFor(f, label){
   // header context immediately, and a projected coordinate with no CRS statement is a guess with
   // decimals. Geometry itself stays WGS84 per the GeoJSON spec — this records the project's
   // WORKING grid and, importantly, whether its datum was actually applied.
-  const baseProps={feature_name:f.name,reference_id:f.ref||'',feature_type:label,assigned_to:f.assignedTo||'',...flattenAttrs(f.attrs),feature_saved_at:f.savedAt,notes:f.notes||'',
+  const baseProps={review_status:f.reviewStatus||'collected',scan_count:(f.scans||[]).length,scan_attachments:JSON.stringify(f.scans||[]),feature_name:f.name,reference_id:f.ref||'',feature_type:label,assigned_to:f.assignedTo||'',...flattenAttrs(f.attrs),feature_saved_at:f.savedAt,notes:f.notes||'',
     working_crs:(typeof crsStatement==='function'?crsStatement():null)};
   const coordsOf=v=>(v.alt!==null&&v.alt!==undefined)?[+v.lon.toFixed(7),+v.lat.toFixed(7),+v.alt.toFixed(2)]:[+v.lon.toFixed(7),+v.lat.toFixed(7)];
 
@@ -403,7 +403,7 @@ function buildCSVString(){
   // exactly as captured — this is also what PlotEdge's own CSV re-import now groups by (see
   // importCSVData below), so a round trip through this export never risks merging two features
   // that happen to share a name.
-  const heads=['feature_id','reference_id','feature_name','feature_type','geometry_type','assigned_to',...featAttrKeys,...vtxAttrKeys.map(k=>'vtx_'+k),'vertex_index','total_vertices','latitude','longitude','altitude_m','accuracy_m','captured_at','feature_saved_at','notes','photo_count','photo_names','photo_cloud_urls','photo_data_uris'];
+  const heads=['feature_id','reference_id','feature_name','feature_type','geometry_type','assigned_to','review_status','scan_count','scan_attachments',...featAttrKeys,...vtxAttrKeys.map(k=>'vtx_'+k),'vertex_index','total_vertices','latitude','longitude','altitude_m','accuracy_m','captured_at','feature_saved_at','notes','photo_count','photo_names','photo_cloud_urls','photo_data_uris'];
   const rows=savedFeatures.flatMap(f=>{
     const info=resolveFeatureType(f);
     const flat=flattenAttrs(f.attrs);
@@ -417,9 +417,9 @@ function buildCSVString(){
       // photos_data_uris — makes this CSV self-contained but considerably larger per row with photos.
       const photoDataUris=(v.photos||[]).map(p=>p.dataUrl).filter(Boolean).join(';');
       return [
-        q(f.id),q(f.ref||''),q(f.name),q(info.label),q(f.geometryType||'point'),q(f.assignedTo||''),
-        ...featAttrKeys.map(k=>q(flat[k]||'')),
-        ...vtxAttrKeys.map(k=>q(vflat[k]||'')),
+        q(f.id),q(f.ref||''),q(f.name),q(info.label),q(f.geometryType||'point'),q(f.assignedTo||''),q(f.reviewStatus||'collected'),(f.scans||[]).length,q(JSON.stringify(f.scans||[])),
+        ...featAttrKeys.map(k=>q(flat[k]??'')),
+        ...vtxAttrKeys.map(k=>q(vflat[k]??'')),
         i+1,verts.length,v.lat.toFixed(7),v.lon.toFixed(7),
         (v.alt!==null&&v.alt!==undefined)?v.alt.toFixed(2):'',(v.acc!=null?v.acc.toFixed(2):''),
         q(v.time),q(f.savedAt),q(f.notes||''),(v.photos||[]).length,q(photoNames),q(photoCloudUrls),q(photoDataUris)
@@ -491,108 +491,58 @@ function q(v){const s=String(v??'');return(s.includes(',')||s.includes('"')||s.i
 // shared globals at each project's stored data in turn, since those helpers were written to read
 // off the "currently open project" globals rather than taking a project id as a parameter.
 async function exportAllProjects(){
-  if (!projects.length){ showToast('No projects to export'); return; }
-  // Not routed through runSelectedExport() — this is launched from the Project Manager, not the
-  // Export tab — so it starts its own clock. Bundling every project is the slowest export there
-  // is, which makes it the likeliest to finish after the phone has gone in a pocket.
-  _exportStartedAt = Date.now();
-  if (typeof JSZip === 'undefined'){
-    showToast('Zip export needs a connection to load once. Try again online, or export projects individually from inside each one.');
-    return;
-  }
-  // "Export all" now lives only in Data → Backup & Restore (#exportAllBtnPm); the Welcome screen
-  // no longer carries one, since with zero projects it could only ever export an empty file. The
-  // legacy id stays in this lookup and .filter(Boolean) drops whichever ids aren't in the DOM, so
-  // the busy state still binds to whichever button actually exists.
-  const btns = ['exportAllBtn','exportAllBtnPm'].map(i=>document.getElementById(i)).filter(Boolean);
-  const setBusy = on => btns.forEach(b=>{ b.disabled = on; });
-  setBusy(true);
-  showToast('Zipping all projects…');
+  if(!projects.length){showToast('No projects to export');return;}
+  const buttons=['exportAllBtn','exportAllBtnPm'].map(id=>document.getElementById(id)).filter(Boolean);
+  buttons.forEach(b=>b.disabled=true);
+  try{await writeGisProjectZip(projects,'PlotEdge_AllProjects_'+ts()+'.zip',true);}
+  finally{buttons.forEach(b=>b.disabled=false);}
+}
 
-  // Every project's photos at once: this zip embeds the JPEGs themselves, and
-  // they are read from the media store rather than the project record.
-  const _photos = await hydrateExportPhotos(Object.values(projectData));
-
-  const zip = new JSZip();
-  const stamp = ts();
-  const saved = { featureTypes, savedFeatures, currentVertices, activeProjectId };
-  let projectsWithData = 0;
-  const exportedProjectIds = [];
-
-  projects.forEach(p=>{
-    const d = projectData[p.id] || { savedFeatures:[], currentVertices:[], featureTypes:[] };
-    if (!(d.savedFeatures||[]).length) return;
-    projectsWithData++;
-    exportedProjectIds.push(p.id);
-    featureTypes = d.featureTypes || [];
-    savedFeatures = d.savedFeatures || [];
-    const folderName = sanitizeFileSegment(p.name || 'Project');
-    const folder = zip.folder(folderName);
-
-    collectFeatureCollectionsByType().forEach(({label, fc})=>{
-      folder.file(`${label.replace(/\s+/g,'_')}.geojson`, JSON.stringify(fc, null, 2));
-    });
-    folder.file(`${folderName}_all_features.csv`, buildCSVString());
-
-    const photosFolder = folder.folder('photos');
-    savedFeatures.forEach(f=>{
-      const info = resolveFeatureType(f);
-      const base = (f.featureTypeId ? info.label : f.layer) || 'feature';
-      (f.vertices||[]).forEach((v,vi)=>{
-        (v.photos||[]).forEach((ph,pi)=>{
-          // A photo whose blob could not be read back (media store unavailable,
-          // or bytes genuinely lost) is skipped rather than throwing and taking
-          // the whole zip down with it.
-          if (!ph.dataUrl) return;
-          const commaIdx = ph.dataUrl.indexOf(',');
-          const b64 = commaIdx>=0 ? ph.dataUrl.slice(commaIdx+1) : ph.dataUrl;
-          const name = `${base.replace(/\s+/g,'_')}_${f.name.replace(/\s+/g,'_')}_v${vi+1}_photo${pi+1}${ph.angleLabel?('_'+ph.angleLabel.replace(/\s+/g,'_')):''}.jpg`;
-          photosFolder.file(name, b64, {base64:true});
-        });
+async function writeGisProjectZip(selected,name,folders){
+  if(typeof JSZip==='undefined'){showToast('ZIP library unavailable. Reopen PlotEdge.');return false;}
+  if(activeProjectId)persist();
+  const zip=new JSZip(),roots=selected.map(p=>JSON.parse(JSON.stringify(projectData[p.id]||{})));
+  const hydrated=await hydrateExportPhotos(roots),live={featureTypes,savedFeatures};
+  const batches=[];
+  try{
+    // Geometry exporters read globals. Restore them before the first asynchronous file read.
+    try{
+      selected.forEach((p,i)=>{
+        const data=roots[i];featureTypes=data.featureTypes||[];savedFeatures=data.savedFeatures||[];
+        const folder=folders?zip.folder(sanitizeFileSegment(p.name||'Project')+'_'+sanitizeFileSegment(p.id)):zip;
+        collectFeatureCollectionsByType().forEach(({label,fc})=>folder.file(sanitizeFileSegment(label)+'.geojson',JSON.stringify(fc)));
+        folder.file('all_features.csv',buildCSVString());batches.push({folder,features:savedFeatures});
       });
-    });
-  });
-
-  featureTypes = saved.featureTypes;
-  savedFeatures = saved.savedFeatures;
-  currentVertices = saved.currentVertices;
-  activeProjectId = saved.activeProjectId;
-  releaseExportPhotos(_photos);
-
-  if (!projectsWithData){
-    setBusy(false);
-    showToast('No captured features in any project yet');
-    return;
-  }
-
-  zip.generateAsync({type:'blob'}).then(async blob=>{
-    const name=`PlotEdge_AllProjects_${stamp}.zip`;
-    const res=await saveExportFile(blob,name,'application/zip');
-    if(!noteExportSaved(res,name)){ setBusy(false); return; }
-    showToast(`✓ ${projectsWithData} project${projectsWithData>1?'s':''} zipped`);
-    const stamp2 = new Date().toISOString();
-    exportedProjectIds.forEach(id=>{ const p2=projects.find(x=>x.id===id); if (p2) p2.lastExportedAt = stamp2; });
-    persistStore(); refreshExportMeta();
-    setBusy(false);
-  }).catch(err=>{
-    console.warn('Zip generation failed', err);
-    showToast('Zip export failed. Try again, or export projects individually.');
-    setBusy(false);
-  });
+    }finally{featureTypes=live.featureTypes;savedFeatures=live.savedFeatures;}
+    for(const batch of batches){
+      await packScanFiles(batch.folder,batch.features);
+      batch.folder.file('scan_attachments.json',JSON.stringify(batch.features.filter(f=>(f.scans||[]).length).map(f=>({featureId:f.id,referenceId:f.ref,scans:f.scans})),null,2));
+      const used=new Set();
+      for(const photo of collectPhotoRecords(batch.features)){
+        if(!photo.dataUrl||used.has(photo.id))continue;
+        batch.folder.file('photos/'+sanitizeFileSegment(photo.id)+'.jpg',photo.dataUrl.slice(photo.dataUrl.indexOf(',')+1),{base64:true});used.add(photo.id);
+      }
+    }
+    zip.file('README.txt','GIS delivery export. Scan originals are unchanged in scans/. scan_attachments.json links originals to records. Scan coordinates are local unless externally registered. For full restore including forms and paused captures, export a Project Bundle (.plotpack).');
+    const blob=await zip.generateAsync({type:'blob'}),result=await saveExportFile(blob,name,'application/zip');
+    if(!result.ok)throw new Error('Export could not be saved');
+    selected.forEach(p=>p.lastExportedAt=new Date().toISOString());persistStore();noteExportSaved(result,name);return true;
+  }catch(e){showToast(e.message||'ZIP export failed');return false;}
+  finally{releaseExportPhotos(hydrated);}
 }
 
 
 // ══ GEOPACKAGE + FLATGEOBUF (lazy-loaded from CDN — kept out of the base bundle since a WASM
 // SQLite build and a binary-format serializer both add real weight to what is otherwise a
 // single-file, fully offline app) ══
+const localScriptLoads=new Map();
 function loadScript(src){
-  return new Promise((resolve,reject)=>{
-    if(document.querySelector(`script[data-src="${src}"]`)){ resolve(); return; }
-    const s=document.createElement('script');
-    s.src=src; s.dataset.src=src;
-    s.onload=()=>resolve(); s.onerror=()=>reject(new Error('Failed to load '+src));
-    document.head.appendChild(s);
-  });
+  if(localScriptLoads.has(src))return localScriptLoads.get(src);
+  const promise=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src=src;script.dataset.src=src;
+    script.onload=()=>resolve();script.onerror=()=>{script.remove();localScriptLoads.delete(src);reject(new Error('Could not load '+src+'. Reopen PlotEdge and retry.'));};
+    document.head.appendChild(script);
+  });localScriptLoads.set(src,promise);return promise;
 }
 
 // ══ RASTER REFERENCE LAYER (GeoTIFF, lazy-loaded from CDN — same reasoning as GeoPackage/FlatGeobuf
@@ -611,9 +561,9 @@ function ensureGeoraster(){
   // if it isn't present yet when the layer starts drawing tiles, a UTM GeoTIFF renders in the
   // wrong place with no error. Cheap enough (~40KB) to just always bring along with georaster.
   _georasterPromise=Promise.all([
-    loadScript('https://cdn.jsdelivr.net/npm/georaster@1.6.0/dist/georaster.browser.bundle.min.js'),
+    loadScript('vendor/georaster.browser.bundle.min.js'),
     ensureProj4()
-  ]).then(()=>loadScript('https://cdn.jsdelivr.net/npm/georaster-layer-for-leaflet@3.10.0/dist/georaster-layer-for-leaflet.min.js'));
+  ]).then(()=>loadScript('vendor/georaster-layer-for-leaflet.min.js'));
   return _georasterPromise;
 }
 
@@ -854,8 +804,8 @@ let _sqlJsPromise=null;
 
 function ensureSqlJs(){
   if(_sqlJsPromise) return _sqlJsPromise;
-  _sqlJsPromise=loadScript('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js')
-    .then(()=>initSqlJs({locateFile:file=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`}));
+  _sqlJsPromise=loadScript('vendor/sql-wasm.js')
+    .then(()=>initSqlJs({locateFile:file=>new URL('vendor/'+file,document.baseURI).href}));
   return _sqlJsPromise;
 }
 
@@ -863,7 +813,7 @@ let _fgbPromise=null;
 
 function ensureFlatgeobuf(){
   if(_fgbPromise) return _fgbPromise;
-  _fgbPromise=loadScript('https://cdn.jsdelivr.net/npm/flatgeobuf@3.35.0/dist/flatgeobuf-geojson.min.js');
+  _fgbPromise=loadScript('vendor/flatgeobuf-geojson.min.js');
   return _fgbPromise;
 }
 
@@ -876,7 +826,7 @@ let _hyparquetPromise=null;
 
 function ensureHyparquetWriter(){
   if(_hyparquetPromise) return _hyparquetPromise;
-  _hyparquetPromise=import('https://cdn.jsdelivr.net/npm/hyparquet-writer@0.15/+esm');
+  _hyparquetPromise=import(new URL('vendor/hyparquet-writer.js', document.baseURI).href);
   return _hyparquetPromise;
 }
 
@@ -1131,7 +1081,7 @@ let _xlsxPromise=null;
 
 function ensureXlsx(){
   if(_xlsxPromise) return _xlsxPromise;
-  _xlsxPromise=loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+  _xlsxPromise=loadScript('vendor/xlsx.full.min.js');
   return _xlsxPromise;
 }
 
@@ -1205,8 +1155,8 @@ let _jspdfPromise=null;
 
 function ensureJsPdf(){
   if(_jspdfPromise) return _jspdfPromise;
-  _jspdfPromise=loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js')
-    .then(()=>loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js'));
+  _jspdfPromise=loadScript('vendor/jspdf.umd.min.js')
+    .then(()=>loadScript('vendor/jspdf.plugin.autotable.min.js'));
   return _jspdfPromise;
 }
 
@@ -1231,7 +1181,7 @@ function activeProjectDisplayName(){
 // wants to eyeball it. The trade-off is size (base64 is ~33% bigger than raw bytes, and JSON isn't
 // compressed), which is why "Backup all projects" and per-project backups are offered as separate,
 // deliberate actions rather than something that fires automatically.
-const PE_BACKUP_VERSION = 1;
+const PE_BACKUP_VERSION = 2;
 
 function peBackupEnvelope(kind){
   return { peBackup: PE_BACKUP_VERSION, app:'PlotEdge', kind, exportedAt: new Date().toISOString() };
@@ -1240,83 +1190,101 @@ function peBackupEnvelope(kind){
 // Strips runtime-only fields a re-import shouldn't carry over (sync/publish state is device- and
 // session-specific, and re-importing a stale copy shouldn't claim to already be backed up).
 function peBackupProjectMeta(p){
-  const { id, lastExportedAt, ...meta } = p;
-  return meta;
+  const { lastExportedAt, lastBundleExportedAt, ...meta } = p;
+  return meta; // Keep the source id: all-project backups use it to index data.
 }
 
 function peBackupProjectData(d){
-  d = d || {};
-  return {
-    savedFeatures: d.savedFeatures || [],
-    currentVertices: d.currentVertices || [],
-    featureTypes: d.featureTypes || [],
-    notes: d.notes || '',
-    notesUpdatedAt: d.notesUpdatedAt || null,
-    sketches: d.sketches || []
-  };
+  d=d||{};
+  return {savedFeatures:d.savedFeatures||[],currentVertices:d.currentVertices||[],currentScans:d.currentScans||[],
+    featureTypes:d.featureTypes||[],notes:d.notes||'',notesUpdatedAt:d.notesUpdatedAt||null,
+    sketches:d.sketches||[],suspended:d.suspended||[],tombstones:d.tombstones||[]};
+}
+
+// An unfinished capture restores as a paused capture, including its form answers.
+function snapshotProjectForBackup(id){
+  if(id===activeProjectId)persist();
+  const data=JSON.parse(JSON.stringify(peBackupProjectData(projectData[id])));
+  if(id===activeProjectId&&hasCaptureInProgress()){
+    const snapshot=captureSnapshot();
+    if(snapshot)data.suspended.push(snapshot);
+    data.currentVertices=[];data.currentScans=[];
+  }else if(id!==activeProjectId){
+    const draft=readDraft(id);
+    if(draft){data.suspended.push({...draft,id:'restored_draft_'+Date.now(),at:Date.now(),vertices:data.currentVertices,scans:data.currentScans});data.currentVertices=[];data.currentScans=[];}
+  }
+  return data;
+}
+
+async function writeJsonProjectBackup(payload,name,affected){
+  const hydrated=await hydrateExportPhotos(payload.kind==='all'?Object.values(payload.data):payload.data);
+  try{
+    if(hydrated.some(photo=>!photo.dataUrl))throw new Error('A photo original is missing. Use Project Bundle for a backup with a missing-file report.');
+    payload=await prepareScanBackup(payload);
+    const result=await saveExportFile(new Blob([JSON.stringify(payload)],{type:'application/json'}),name,'application/json');
+    if(!result.ok)throw new Error('Backup could not be written.');
+    const stamp=new Date().toISOString();affected.forEach(p=>{p.lastExportedAt=stamp;p.lastBundleExportedAt=stamp;});
+    persistStore();fieldSaveStatus();noteExportSaved(result,name);return true;
+  }catch(e){showToast(e.message||'Backup could not be written');return false;}
+  finally{releaseExportPhotos(hydrated);}
+}
+
+async function importJsonBackupPayload(payload){
+  if(!payload||![1,PE_BACKUP_VERSION].includes(payload.peBackup))throw new Error('Not a PlotEdge backup file');
+  const metas=payload.kind==='project'?[payload.project]:payload.kind==='all'?payload.projects:null;
+  if(!Array.isArray(metas)||!metas.length)throw new Error('No projects in this backup');
+  payload=JSON.parse(JSON.stringify(payload));
+  await restoreScanBackup(payload);
+  const sourceMetas=payload.kind==='project'?[payload.project]:payload.projects;
+  const roots=sourceMetas.map(meta=>payload.kind==='project'?payload.data:(payload.data||{})[meta.id]);
+  if(roots.some(d=>!d||!Array.isArray(d.savedFeatures)||!Array.isArray(d.featureTypes)))throw new Error('Backup project data is incomplete');
+  // Complete media writes before committing references. Remap ids to avoid collisions.
+  const photoIds=new Map();
+  for(const photo of collectPhotoRecords(roots)){
+    const old=photo.id;
+    if(photoIds.has(old)){photo.id=photoIds.get(old);continue;}
+    if(!photo.dataUrl)continue;
+    photo.id='ph_'+Date.now()+'_'+Math.random().toString(36).slice(2,12);
+    if(!await photoStoreSave(photo))throw new Error('Photo could not be saved. Check device storage.');
+    photoIds.set(old,photo.id);
+  }
+  const ids=[];
+  try{
+    sourceMetas.forEach((meta,i)=>ids.push(importOneBackupProject(meta,roots[i])));
+    if(persistStore()===false||(recordStore.active&&!await recordStore.flush()))throw new Error('Project save failed. Check storage and retry.');
+    return ids;
+  }catch(e){
+    projects=projects.filter(p=>!ids.includes(p.id));ids.forEach(id=>delete projectData[id]);
+    if(recordStore.active)recordStore.stage(JSON.stringify({projects,data:projectData},photoStripFields));
+    lastWritten=null;throw e;
+  }
 }
 
 // ── Export: current open project (used by the Export tab's format dropdown, like every other
 // export*() in this file — reads the live in-memory globals, which are more current than
 // projectData[activeProjectId] in the middle of an unsaved edit). ──
 async function exportProjectBackup(){
-  if (!activeProjectId){ showToast('Open a project first'); return; }
-  const p = projects.find(x=>x.id===activeProjectId);
-  if (!p){ showToast('Project not found'); return; }
-  // A backup that cannot restore its photos is not a backup. This is the one
-  // format PlotEdge reads back in, so the bytes have to be inside the file.
-  const _photos = await hydrateExportPhotos(savedFeatures, currentVertices);
-  const payload = {
-    ...peBackupEnvelope('project'),
-    project: peBackupProjectMeta(p),
-    data: peBackupProjectData({ savedFeatures, currentVertices, featureTypes, notes:projectNotes, notesUpdatedAt:projectNotesUpdatedAt, sketches:plotetchSketches })
-  };
-  dl(JSON.stringify(payload), sanitizeFileSegment(p.name||'Project') + '_backup_' + ts() + '.plotedge.json', 'application/json');
-  releaseExportPhotos(_photos);
-  markProjectExported();
+  const p=projects.find(p=>p.id===activeProjectId);if(!p){showToast('Open a project first');return;}
+  await writeJsonProjectBackup({...peBackupEnvelope('project'),project:peBackupProjectMeta(p),data:snapshotProjectForBackup(p.id)},
+    sanitizeFileSegment(p.name||'Project')+'_backup_'+ts()+'.plotedge.json',[p]);
 }
 
 // ── Export: a specific project from the Project Manager menu, whether or not it's the one
 // currently open. Reads from the store (projectData[id]) rather than live globals, same as
 // exportProjectZip() does for the same reason. ──
 async function exportProjectBackupById(id){
-  const p = projects.find(x=>x.id===id);
-  if (!p){ showToast('Project not found'); return; }
-  const d = projectData[id];
-  if (!d || !((d.savedFeatures||[]).length || (d.currentVertices||[]).length)){
-    showToast('No captured features in this project yet'); return;
-  }
-  const _photos = await hydrateExportPhotos(d);
-  const payload = { ...peBackupEnvelope('project'), project: peBackupProjectMeta(p), data: peBackupProjectData(d) };
-  dl(JSON.stringify(payload), sanitizeFileSegment(p.name||'Project') + '_backup_' + ts() + '.plotedge.json', 'application/json');
-  releaseExportPhotos(_photos);
-  p.lastExportedAt = new Date().toISOString();
-  persistStore();
-  refreshProjectsScreen();
-  if (activeProjectId === p.id) refreshExportMeta();
-  showToast('✓ "' + p.name + '" backed up');
+  const p=projects.find(p=>p.id===id);if(!p){showToast('Project not found');return;}
+  if(await writeJsonProjectBackup({...peBackupEnvelope('project'),project:peBackupProjectMeta(p),data:snapshotProjectForBackup(id)},
+    sanitizeFileSegment(p.name||'Project')+'_backup_'+ts()+'.plotedge.json',[p]))refreshProjectsScreen();
 }
 
 // ── Export: every project in one file — the "Backup all projects" button on the Welcome and
 // Project Manager screens. Flushes the currently open project first so its latest edits (which
 // only live in the in-memory globals until persist() runs) aren't missed. ──
 async function exportAllProjectsBackup(){
-  if (!projects.length){ showToast('No projects to back up'); return; }
-  _exportStartedAt = Date.now();
-  if (activeProjectId) persist();
-  const _photos = await hydrateExportPhotos(Object.values(projectData), savedFeatures, currentVertices);
-  const payload = {
-    ...peBackupEnvelope('all'),
-    projects: projects.map(peBackupProjectMeta),
-    data: Object.fromEntries(projects.map(p => [p.id, peBackupProjectData(projectData[p.id])]))
-  };
-  dl(JSON.stringify(payload), 'PlotEdge_backup_' + ts() + '.plotedge.json', 'application/json');
-  releaseExportPhotos(_photos);
-  const now = new Date().toISOString();
-  projects.forEach(p => p.lastExportedAt = now);
-  persistStore();
-  refreshProjectsScreen();
-  showToast('✓ Backed up ' + projects.length + ' project' + (projects.length===1?'':'s'));
+  if(!projects.length){showToast('No projects to back up');return;}
+  const payload={...peBackupEnvelope('all'),projects:projects.map(peBackupProjectMeta),data:Object.fromEntries(projects.map(p=>[p.id,snapshotProjectForBackup(p.id)]))};
+  if(await writeJsonProjectBackup(payload,'PlotEdge_backup_'+ts()+'.plotedge.json',projects))refreshProjectsScreen();
 }
 
 
@@ -1335,26 +1303,19 @@ function handleProjectBackupImport(event){
   out.innerHTML = '<div class="import-status">Reading ' + escapeHtml(file.name) + '…</div>';
   const reader = new FileReader();
   reader.onerror = () => fail('Could not read that file.');
-  reader.onload = () => {
+  reader.onload = async () => {
     let payload;
     try { payload = JSON.parse(reader.result); }
     catch(e){ return fail('That file isn’t valid JSON. Pick a .plotedge.json backup.'); }
-    if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
+    if (!payload || ![1,PE_BACKUP_VERSION].includes(payload.peBackup) || !payload.kind){
       return fail('That isn’t a PlotEdge backup file. Use a .plotedge.json exported from PlotEdge.');
     }
     let ids = [];
     try {
-      if (payload.kind === 'project'){
-        ids.push(importOneBackupProject(payload.project, payload.data));
-      } else if (payload.kind === 'all'){
-        (payload.projects || []).forEach(meta => ids.push(importOneBackupProject(meta, (payload.data||{})[meta.id])));
-      } else {
-        return fail('Unrecognised backup type.');
-      }
-      persistStore();
+      ids = await importJsonBackupPayload(payload);
     } catch(e){
       console.error(e);
-      return fail('The file is a PlotEdge backup but its contents look corrupted.');
+      return fail(e.message || 'The backup could not be restored.');
     }
     if (!ids.length) return fail('That backup contained no projects.');
     const rows = ids.map(id => {
@@ -1424,37 +1385,10 @@ function importOneBackupProject(meta, data){
 }
 
 function handleBackupImportFile(event){
-  const file = event.target.files && event.target.files[0];
-  event.target.value = '';
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    let payload;
-    try { payload = JSON.parse(reader.result); }
-    catch(e){ showToast('Not a valid backup file (bad JSON)'); return; }
-    if (!payload || payload.peBackup !== PE_BACKUP_VERSION || !payload.kind){
-      showToast('Not a PlotEdge backup file'); return;
-    }
-    try {
-      if (payload.kind === 'project'){
-        importOneBackupProject(payload.project, payload.data);
-        showToast('✓ Imported "' + peUniqueName((payload.project||{}).name).replace(/ \(imported.*\)$/,'') + '"');
-      } else if (payload.kind === 'all'){
-        const list = payload.projects || [];
-        list.forEach(meta => importOneBackupProject(meta, (payload.data||{})[meta.id]));
-        showToast('✓ Imported ' + list.length + ' project' + (list.length===1?'':'s'));
-      } else {
-        showToast('Unrecognized backup file'); return;
-      }
-      persistStore();
-      refreshProjectsScreen();
-    } catch(e){
-      console.error(e);
-      showToast('Import failed, file may be corrupted');
-    }
-  };
-  reader.onerror = () => showToast('Could not read that file');
-  reader.readAsText(file);
+  const file=event.target.files&&event.target.files[0];event.target.value='';if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{try{const ids=await importJsonBackupPayload(JSON.parse(reader.result));refreshProjectsScreen();showToast('Imported '+ids.length+' project(s)');}catch(e){showToast(e.message||'Backup import failed');}};
+  reader.onerror=()=>showToast('Could not read that file');reader.readAsText(file);
 }
 
 

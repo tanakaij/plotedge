@@ -85,6 +85,7 @@ function captureSnapshot(){
     customAttrs: { ...customFeatureAttrs },
     repeatState: JSON.parse(JSON.stringify(repeatGroupState || {})),
     vertices: JSON.parse(JSON.stringify(currentVertices || [])),
+    scans:typeof currentScans!=='undefined'?JSON.parse(JSON.stringify(currentScans)):[],
     openVertexIndex: openVertexIndex,
     // An edit can be interrupted too. Carrying the id and the original snapshot
     // means resuming lands back in edit mode against the same feature rather
@@ -99,9 +100,19 @@ function captureSnapshot(){
 // least one vertex. Anything less is an empty form, and parking an empty form
 // would put a row in the bar that means nothing.
 function hasCaptureInProgress(){
-  if (currentVertices && currentVertices.length) return true;
-  const nameEl = document.getElementById('featureName');
-  return !!(nameEl && nameEl.value.trim());
+  if(typeof currentScans!=='undefined'&&currentScans.length)return true;
+  if(currentVertices&&currentVertices.length)return true;
+  const value=id=>(document.getElementById(id)||{}).value||'';
+  if(['featureName','featureAssignedTo','featureNotes'].some(id=>value(id).trim()))return true;
+  if(value('featureRef').trim()&&value('featureRef')!==refIdAutoFilled)return true;
+  const ft=getFeatureType(value('featureTypeSelect'));
+  if(!ft)return false;
+  const attrs=collectAttrs(ft);
+  return Object.entries(attrs).some(([id,v])=>{
+    const input=document.getElementById('attr_'+id),pane=input&&input.closest('.attr-pane');
+    if(pane&&pane.classList.contains('is-seeded'))return false;
+    return Array.isArray(v)?v.length>0:v!==''&&v!=null&&v!==false;
+  });
 }
 
 
@@ -233,6 +244,7 @@ function restoreCaptureSnapshot(snap){
   editingFeatureSnapshot = snap.editingFeatureSnapshot || null;
 
   currentVertices = JSON.parse(JSON.stringify(snap.vertices || []));
+  currentScans=JSON.parse(JSON.stringify(snap.scans||[]));renderScanAttachments();
   openVertexIndex = (snap.openVertexIndex != null && snap.openVertexIndex < currentVertices.length)
     ? snap.openVertexIndex
     : (currentVertices.length ? 0 : null);
@@ -328,6 +340,7 @@ function applyAttrValues(ft, attrs){
 // that left one field behind would leak the road's name onto the traffic sign,
 // which is exactly the class of bug this feature exists to remove.
 function blankCollectForm(){
+  currentScans=[];renderScanAttachments();
   resetCaptureEndPreference();
   currentVertices = [];
   openVertexIndex = null;

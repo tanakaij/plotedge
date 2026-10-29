@@ -27,6 +27,7 @@ function populateReviewTypeFilter(){
 }
 
 function onReviewFilterChange(){
+  if(typeof fieldReviewPage!=='undefined'){fieldReviewPage=fieldTablePage=0;}
   const input = document.getElementById('reviewSearchInput');
   const sel = document.getElementById('reviewTypeFilter');
   reviewSearchQuery = input ? input.value.trim().toLowerCase() : '';
@@ -42,6 +43,7 @@ function onReviewFilterChange(){
 function getFilteredFeatures(){
   const validationIds = reviewValidationMode ? new Set(computeValidationIssues()[reviewValidationMode]) : null;
   return savedFeatures.filter(f=>{
+    if(typeof fieldReviewPass==='function'&&!fieldReviewPass(f))return false;
     if (validationIds && !validationIds.has(f.id)) return false;
     // Set by tapping a day in the Analytics time series. Declared in
     // js/13a-analytics.js — a later file, which is fine because this is a call
@@ -191,7 +193,7 @@ function renderAttributeTable(){
       title="Tap to sort by ${escapeHtml(c.label)}, long-press for statistics">${escapeHtml(c.label)}<span class="attr-sort">${arrow}</span></th>`;
   }).join('');
   const selHead = `<th class="attr-sel-col" title="Select rows"></th>`;
-  const body = rows.map(f=>{
+  const body = (typeof fieldPageRows==='function'?fieldPageRows(rows,true):rows).map(f=>{
     const cells = cols.map((c,i)=>{
       const txt = attrCellText(c, f);
       const cls = [c.num ? 'attr-cell-num' : '', txt === null ? 'attr-cell-empty' : ''].filter(Boolean).join(' ');
@@ -205,14 +207,14 @@ function renderAttributeTable(){
     // The checkbox is its own cell and stops propagation, so selecting a row for a bulk action is
     // a separate gesture from tapping the row to drive the map — the same separation QGIS keeps
     // between a selection and the current feature.
-    const selCell = `<td class="attr-sel-col" onclick="toggleAttrSelect(${JSON.stringify(f.id)}, event)">
+    const selCell = `<td class="attr-sel-col" onclick="toggleAttrSelect(${escapeHtml(JSON.stringify(f.id))}, event)">
       <span class="attr-sel-box${picked?' on':''}" role="checkbox" aria-checked="${picked?'true':'false'}">${picked?'✓':''}</span></td>`;
     // Single tap keeps its existing job (select + drive the map); double-tap opens the full
     // record. Adding an extra column of buttons would have cost horizontal room the table can't
     // spare on a phone.
-    return `<tr class="${attrSelectedId === f.id ? 'selected':''}${picked?' picked':''}" onclick="selectAttrRow(${JSON.stringify(f.id)})" ondblclick="openInspect(${JSON.stringify(f.id)})" title="Double-tap for full details">${selCell}${cells}</tr>`;
+    return `<tr class="${attrSelectedId === f.id ? 'selected':''}${picked?' picked':''}" onclick="selectAttrRow(${escapeHtml(JSON.stringify(f.id))})" ondblclick="openInspect(${escapeHtml(JSON.stringify(f.id))})" title="Double-tap for full details">${selCell}${cells}</tr>`;
   }).join('');
-  scroll.innerHTML = `<table class="attr-table"><thead><tr>${selHead}${head}</tr></thead><tbody>${body}</tbody></table>`;
+  scroll.innerHTML = `<table class="attr-table"><thead><tr>${selHead}${head}</tr></thead><tbody>${body}</tbody></table>`+(typeof fieldPager==='function'?fieldPager(rows.length,true):'');
 }
 
 // Row selection drives the map, the way clicking a row in QGIS's attribute table does: the map
@@ -274,6 +276,7 @@ function fallbackCopy(text, done){
 
 
 function renderFeatures(){
+  if(typeof renderFieldReviewBar==='function')renderFieldReviewBar();
   const el=document.getElementById('featuresList');
   const filterRow=document.getElementById('reviewFilterRow');
   const tableWrap=document.getElementById('attrTableWrap');
@@ -299,7 +302,7 @@ function renderFeatures(){
     el.innerHTML='<div class="empty-box"><strong>No matches</strong>Try a different search or feature type</div>';
     return;
   }
-  el.innerHTML=filtered.map(f=>{
+  el.innerHTML=(typeof fieldPageRows==='function'?fieldPageRows(filtered,false):filtered).map(f=>{
     const info=resolveFeatureType(f);
     const verts=f.vertices||[];
     const geo=f.geometryType || 'point';
@@ -308,13 +311,13 @@ function renderFeatures(){
     const refHtml=f.ref?`<span class="feat-ref">#${escapeHtml(f.ref)}</span>`:'';
     const assignedHtml=f.assignedTo?`<span class="feat-ref">· ${escapeHtml(f.assignedTo)}</span>`:'';
     // Per-vertex breakdown: coordinate chip + this vertex's own attrs/photos (if any)
-    const vertsHtml=verts.map((v,i)=>{
+    const vertsHtml=verts.slice(0,8).map((v,i)=>{
       const vAttrChips=attrChipsHtml(v.attrs, info.fields);
       const vPhotos=v.photos||[];
-      const vPhotosHtml=vPhotos.length?`<div class="feat-photos" style="margin-top:4px;">${vPhotos.map((p,pi)=>`<div class="feat-photo-thumb" onclick="openFeatureVertexPhoto(${f.id},${i},${pi})"><img src="${photoThumbSrc(p)}" alt="Photo ${pi+1}" loading="lazy" decoding="async" title="${escapeHtml(p.angleLabel||'')}">${photoStatusBadge(p)}${photoAiLabelHtml(p)}</div>`).join('')}</div>`:'';
+      const vPhotosHtml=vPhotos.length?`<div class="feat-photos" style="margin-top:4px;">${vPhotos.map((p,pi)=>`<div class="feat-photo-thumb" onclick="openFeatureVertexPhoto(${escapeHtml(JSON.stringify(f.id))},${i},${pi})"><img src="${photoThumbSrc(p)}" alt="Photo ${pi+1}" loading="lazy" decoding="async" title="${escapeHtml(p.angleLabel||'')}">${photoStatusBadge(p)}${photoAiLabelHtml(p)}</div>`).join('')}</div>`:'';
       const extra = vAttrChips || vPhotosHtml;
       return `<div style="${extra?'margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--card-border);':'margin-bottom:4px;'}">
-        <div class="feat-pts-row" style="margin-bottom:${extra?'4px':'0'};"><span class="feat-pt-chip">${i+1}: ${v.lat.toFixed(5)}, ${v.lon.toFixed(5)}</span></div>
+        <div class="feat-pts-row" style="margin-bottom:${extra?'4px':'0'};"><span class="feat-pt-chip">${i+1}: ${Number.isFinite(v.lat)?v.lat.toFixed(5):'—'}, ${Number.isFinite(v.lon)?v.lon.toFixed(5):'—'}</span></div>
         ${vAttrChips?`<div class="feat-attrs">${vAttrChips}</div>`:''}
         ${vPhotosHtml}
       </div>`;
@@ -334,22 +337,23 @@ function renderFeatures(){
         <div class="layer-badge" style="background:${typeColor};color:${contrastText(typeColor)};"><span class="layer-badge-glyph">${legendGlyphSvg(geo, contrastText(typeColor), featureTypeShape(info.key), featureTypeLineStyle(info.key), featureTypeFilled(info.key))}</span>${escapeHtml(info.label)}</div>
         ${qualityBadgeHtml(f)}
         <div class="feat-name">${escapeHtml(f.name)} ${refHtml}${assignedHtml}${editedHtml}</div>
-        <button class="feat-edit" title="Full details" aria-label="Full details" onclick="openInspect(${JSON.stringify(f.id)})">
+        <button class="feat-edit" title="Full details" aria-label="Full details" onclick="openInspect(${escapeHtml(JSON.stringify(f.id))})">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.8" x2="12.01" y2="7.8"/></svg>
         </button>
-        <button class="feat-edit" title="Edit feature" aria-label="Edit feature" onclick="editFeature(${f.id})">
+        <button class="feat-edit" title="Edit feature" aria-label="Edit feature" onclick="editFeature(${escapeHtml(JSON.stringify(f.id))})">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="feat-del" onclick="deleteFeature(${f.id})">×</button>
+        <button class="feat-del" onclick="deleteFeature(${escapeHtml(JSON.stringify(f.id))})">×</button>
       </div>
       <div class="feature-card-body">
+        ${typeof fieldReviewCardHtml==='function'?fieldReviewCardHtml(f):''}
         ${attrChips?`<div class="feat-attrs">${attrChips}</div>`:''}
         <div style="font-size:10px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-tertiary);margin:6px 0 6px;">${verts.length} vertex${verts.length===1?'':'es'}${totalPhotos?` · ${totalPhotos} photo${totalPhotos===1?'':'s'}`:''}</div>
-        ${vertsHtml}
+        ${vertsHtml}${verts.length>8?`<button class="field-text-button" onclick="openInspect(${escapeHtml(JSON.stringify(f.id))})">View all ${verts.length} vertices</button>`:''}
         ${notesHtml}
       </div>
     </div>`;
-  }).join('');
+  }).join('')+(typeof fieldPager==='function'?fieldPager(filtered.length,false):'');
 }
 
 
@@ -396,7 +400,7 @@ function computeValidationIssues(){
     const info = resolveFeatureType(f);
     const reqFeature = (info.fields||[]).filter(a=>featureFieldScope(a,f)!=='vertex' && a.required);
     const reqVertex = (info.fields||[]).filter(a=>featureFieldScope(a,f)==='vertex' && a.required);
-    const missingF = reqFeature.some(a=>{ const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
+    const missingF = reqFeature.some(a=>{if(!fieldConditionMet(a,f.attrs||{}))return false;const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
     const missingV = reqVertex.length && verts.some(v=>reqVertex.some(a=>{ const val=(v.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); }));
     if (missingF || missingV) missingreq.push(f.id);
   });
@@ -417,7 +421,7 @@ function featureQualityScore(f){
   if (!photosOk) issues.push('no photos');
   const reqFeature = (info.fields||[]).filter(a=>featureFieldScope(a,f)!=='vertex' && a.required);
   const reqVertex = (info.fields||[]).filter(a=>featureFieldScope(a,f)==='vertex' && a.required);
-  const missingF = reqFeature.some(a=>{ const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
+  const missingF = reqFeature.some(a=>{if(!fieldConditionMet(a,f.attrs||{}))return false;const val=(f.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); });
   const missingV = reqVertex.length && verts.some(v=>reqVertex.some(a=>{ const val=(v.attrs||{})[a.id]; return val===''||val==null||(Array.isArray(val)&&!val.length); }));
   const fieldsOk = !missingF && !missingV;
   if (!fieldsOk) issues.push('missing required fields');

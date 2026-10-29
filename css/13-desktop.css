@@ -295,7 +295,7 @@
      Everything that is not the map is pinned to column 1 explicitly rather than left to
      auto-placement: the panel's children are populated at runtime and a new one appearing would
      otherwise land in whichever cell the algorithm chose, most likely on top of the map. */
-  html:not(.native-android) #panel-review {
+  html:not(.native-android) #panel-review.active {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
     grid-auto-rows: min-content;

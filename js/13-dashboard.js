@@ -470,7 +470,7 @@ function dashShadeRows(){
     key:'Connection', icon: online ? 'connection' : 'offline',
     // Offline is not a fault in this app — it is the design point — so it reads as neutral, not
     // as an error. It is here because it changes what PlotVault and the web map can do.
-    val: online ? 'Online · cloud sync available' : 'Offline · captures stay on device',
+    val: online ? (getCloudEndpoint() ? 'Online · photo backup configured' : 'Online · records stored on device') : 'Offline · captures stay on device',
     tone: online ? 'ok' : 'info',
     run:'openPlotVault()'
   });

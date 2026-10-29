@@ -296,6 +296,7 @@ function collectPhotoRecords(...sources) {
     if (node.vertices) node.vertices.forEach(eat);
     if (node.savedFeatures) eat(node.savedFeatures);
     if (node.currentVertices) eat(node.currentVertices);
+    if (node.suspended) eat(node.suspended);
     // A bare photo record (has an id and no geometry of its own).
     if (node.id && (node.dataUrl !== undefined || node.takenAt !== undefined) && !node.vertices && !node.photos) out.push(node);
   };

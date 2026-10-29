@@ -17,7 +17,7 @@ let _proj4Promise=null;
 
 function ensureProj4(){
   if(_proj4Promise) return _proj4Promise;
-  _proj4Promise=loadScript('https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js');
+  _proj4Promise=loadScript('vendor/proj4.js');
   return _proj4Promise;
 }
 

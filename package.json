@@ -4,8 +4,10 @@
   "private": true,
   "description": "Android wrapper for the PlotEdge PWA, built via Capacitor + GitHub Actions. Shares the same repo as the GitHub Pages site.",
   "scripts": {
-    "build": "echo \"no build step - root files are the finished app\"",
-    "test": "node tests/run.js"
+    "build": "npm run vendor",
+    "test": "node tests/run.js",
+    "vendor": "node scripts/build-vendor.cjs",
+    "test:browser": "node tests/browser-field.test.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
@@ -15,15 +17,29 @@
     "@capacitor/filesystem": "^6.0.1",
     "@capacitor/geolocation": "^6.0.1",
     "@capacitor/preferences": "^6.0.2",
-    "@capacitor/share": "^6.0.2"
+    "@capacitor/share": "^6.0.2",
+    "flatgeobuf": "3.35.0",
+    "georaster": "1.6.0",
+    "georaster-layer-for-leaflet": "3.10.0",
+    "hyparquet-writer": "0.15.0",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
+    "leaflet": "1.9.4",
+    "leaflet-rotate": "0.2.8",
+    "proj4": "2.9.2",
+    "sql.js": "1.10.3",
+    "three": "0.170.0",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^6.1.2",
     "acorn": "^8.11.0",
     "acorn-walk": "^8.3.0",
+    "esbuild": "0.25.12",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^24.0.0",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "playwright": "1.56.1"
   }
 }

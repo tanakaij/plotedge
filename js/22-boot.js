@@ -8,9 +8,7 @@
 
 
 // ══ INIT ══
-projectData = loadStore();
 
-persistStore();
 
 // ══ SHEET CHROME ══
 // Retrofits the standard header bar and right-hand close button onto every .modal-overlay in the
@@ -24,9 +22,7 @@ normalizeSheetChrome();
 // the four catalogued conditions is true AND the user has left the alerts preference on.
 plotalertInit();
 
-renderProjectsList();
 
-populateAssignedToSuggestions();
 
 // Drives the --grad-tint offline shift on <html> (see CSS) so the ambient background tint
 // reflects connectivity everywhere in the app, not just on the Review map screen.
@@ -44,42 +40,7 @@ window.addEventListener('offline', updateNetworkGradientState);
 // fully kills and relaunches the page (e.g. backgrounding the installed app for a while). While
 // the page just stays open in memory (the normal "switch away and come back" case) the SPA never
 // unmounts, so this only actually matters when the JS context itself restarts.
-(function restoreLastSession(){
-  try {
-    let last = null;
-    try { last = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || 'null'); } catch(e) {}
-    if (last && last.projectId && projects.some(p => p.id === last.projectId)) {
-      openProject(last.projectId);
-      if (last.tab && last.tab !== 'dashboard') switchTab(last.tab);
-    } else if (projects.length) {
-      // No session to resume, but projects exist — so this is a returning user, not a first run.
-      // Land on the Project Manager rather than the Welcome/onboarding screen. Done inline
-      // instead of via renderProjectsScreen() because that also writes an empty last-session
-      // record, and there is nothing to clear at boot.
-      activateView('view-projectmgr');
-      renderProjectManager();
-    } else {
-      // Genuine first run: Welcome is the correct landing screen. It carries no app chrome.
-      activateView('view-projects');
-      renderProjectsList();
-      // Device has zero projects — the one case checkForDetectedBackup() (js/17b-plotpack.js)
-      // is allowed to offer a restore banner. Fire-and-forget: it's an async Filesystem scan
-      // that only ever shows a dismissible banner, never blocks or changes what's on screen.
-      if (typeof checkForDetectedBackup === 'function') checkForDetectedBackup();
-    }
-  } catch(e) {
-    // If resuming threw for any reason (e.g. a map-library hiccup), fall back to the normal
-    // Projects screen rather than leaving the app on a blank hidden view — see the
-    // #preRestoreHide removal below, which runs regardless of how this try block exits.
-  } finally {
-    // Undo the early inline hide from the top of <body> now that we know how this resolved —
-    // if openProject() succeeded it already switched .active off #view-projects, and if it
-    // didn't (deleted project, error, or no last session) this makes sure Projects is visible
-    // instead of staying hidden forever.
-    const hideStyle = document.getElementById('preRestoreHide');
-    if (hideStyle) hideStyle.remove();
-  }
-})();
+
 
 // ══ MEDIA STORE START-UP ══
 // Runs after the project store is loaded and the last session restored, so it
@@ -99,40 +60,7 @@ window.addEventListener('offline', updateNetworkGradientState);
 //
 // All of it is best-effort: a device with no IndexedDB gets a resolved null at
 // every step and simply keeps its photos in memory for the session.
-(function initMediaStore(){
-  if (typeof photoStorePreloadThumbs !== 'function') return;
-  requestPersistentStorage();
-  refreshMediaUsage();
-  photoStorePreloadThumbs()
-    .then(()=>{
-      const all = collectPhotoRecords(Object.values(projectData || {}), savedFeatures, currentVertices);
-      const legacy = all.filter(p => p && p.dataUrl);
-      if (!legacy.length) return 0;
-      return photoStoreMigrate(legacy).then(moved => {
-        if (moved){
-          // The write itself is what drops the inline copies: persistStore()
-          // strips dataUrl/thumbUrl, so this is the moment the space comes back.
-          persistStore();
-          photoStoreShed(legacy);
-          console.info('PlotEdge: moved ' + moved + ' photo(s) out of localStorage into the media store');
-        }
-        return moved;
-      });
-    })
-    .then(()=> photoStoreSweep(allReferencedPhotoIds()))
-    .then(()=> refreshMediaUsage())
-    .then(()=>{
-      updateStorageWarning();
-      // Thumbnails resolved after the first paint, so redraw whatever is on
-      // screen that shows them.
-      if (activeProjectId){
-        try { renderFeatures(); } catch(e) {}
-        try { renderReviewMap(); } catch(e) {}
-        try { updateStats(); } catch(e) {}
-      }
-    })
-    .catch(err => console.warn('PlotEdge: media store start-up did not complete', err));
-})();
+
 
 // PlotAtlas and PlotMind are new, so a device that had already customised its
 // Quick Actions would never see them — a new entry in QA_DEFAULT only reaches
@@ -299,7 +227,7 @@ function updateCollectDockStatus(){
     dockSave.classList.toggle('ready', n > 0 && !realSave.disabled);
     const lbl = document.getElementById('collectDockSaveLabel');
     const realLbl = document.getElementById('saveFeatureBtnLabel')?.textContent || 'Save Feature';
-    if (lbl) lbl.textContent = /update/i.test(realLbl) ? 'Update' : 'Save';
+    if (lbl) lbl.textContent = /update|changes/i.test(realLbl) ? 'Update' : 'Save & Next';
   }
 }
 
@@ -432,13 +360,12 @@ if ('serviceWorker' in navigator) {
   let _swReady = false; // guards against reloading on the very first install for a brand-new visitor
   navigator.serviceWorker.register('plotedge-sw.js', { updateViaCache: 'none' })
     .then(()=>{ setTimeout(()=>{ _swReady = true; }, 1500); })
-    .catch(()=>{});
+    .catch(e=>{console.warn('Offline setup failed',e);window.plotedgeOfflineError=true;});
   let _swRefreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!_swReady || _swRefreshing) return;
     _swRefreshing = true;
-    showToast('Updating to the latest version…');
-    setTimeout(()=>location.reload(), 900);
+    showToast('App update ready. Reopen PlotEdge after saving your work.');
   });
 }
 
@@ -824,3 +751,95 @@ function dismissOnboarding(){
 // reaches into PlotLens (js/15) and Quick Actions (js/16). The palette itself
 // was already applied before first paint by the inline script in index.html.
 applyTheme(currentTheme());
+
+function initializeProjectSession(){
+projectData = loadStore();
+
+persistStore();
+renderProjectsList();
+
+populateAssignedToSuggestions();
+(function restoreLastSession(){
+  try {
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || 'null'); } catch(e) {}
+    if (last && last.projectId && projects.some(p => p.id === last.projectId)) {
+      openProject(last.projectId);
+      if (last.tab && last.tab !== 'dashboard') switchTab(last.tab);
+    } else if (projects.length) {
+      // No session to resume, but projects exist — so this is a returning user, not a first run.
+      // Land on the Project Manager rather than the Welcome/onboarding screen. Done inline
+      // instead of via renderProjectsScreen() because that also writes an empty last-session
+      // record, and there is nothing to clear at boot.
+      activateView('view-projectmgr');
+      renderProjectManager();
+    } else {
+      // Genuine first run: Welcome is the correct landing screen. It carries no app chrome.
+      activateView('view-projects');
+      renderProjectsList();
+      // Device has zero projects — the one case checkForDetectedBackup() (js/17b-plotpack.js)
+      // is allowed to offer a restore banner. Fire-and-forget: it's an async Filesystem scan
+      // that only ever shows a dismissible banner, never blocks or changes what's on screen.
+      if (typeof checkForDetectedBackup === 'function') checkForDetectedBackup();
+    }
+  } catch(e) {
+    // If resuming threw for any reason (e.g. a map-library hiccup), fall back to the normal
+    // Projects screen rather than leaving the app on a blank hidden view — see the
+    // #preRestoreHide removal below, which runs regardless of how this try block exits.
+  } finally {
+    // Undo the early inline hide from the top of <body> now that we know how this resolved —
+    // if openProject() succeeded it already switched .active off #view-projects, and if it
+    // didn't (deleted project, error, or no last session) this makes sure Projects is visible
+    // instead of staying hidden forever.
+    const hideStyle = document.getElementById('preRestoreHide');
+    if (hideStyle) hideStyle.remove();
+  }
+})();
+(function initMediaStore(){
+  if (typeof photoStorePreloadThumbs !== 'function') return;
+  requestPersistentStorage();
+  refreshMediaUsage();
+  photoStorePreloadThumbs()
+    .then(()=>{
+      const all = collectPhotoRecords(Object.values(projectData || {}), savedFeatures, currentVertices);
+      const legacy = all.filter(p => p && p.dataUrl);
+      if (!legacy.length) return 0;
+      return photoStoreMigrate(legacy).then(moved => {
+        if (moved){
+          // The write itself is what drops the inline copies: persistStore()
+          // strips dataUrl/thumbUrl, so this is the moment the space comes back.
+          persistStore();
+          photoStoreShed(legacy);
+          console.info('PlotEdge: moved ' + moved + ' photo(s) out of localStorage into the media store');
+        }
+        return moved;
+      });
+    })
+    .then(()=> photoStoreSweep(allReferencedPhotoIds()))
+    .then(()=> refreshMediaUsage())
+    .then(()=>{
+      updateStorageWarning();
+      // Thumbnails resolved after the first paint, so redraw whatever is on
+      // screen that shows them.
+      if (activeProjectId){
+        try { renderFeatures(); } catch(e) {}
+        try { renderReviewMap(); } catch(e) {}
+        try { updateStats(); } catch(e) {}
+      }
+    })
+    .catch(err => console.warn('PlotEdge: media store start-up did not complete', err));
+})();
+  if(typeof recordStore!=='undefined')recordStore.migrate();
+  if(typeof initFieldWorkspace==='function')initFieldWorkspace();
+}
+
+function showStoreBootFailure(){
+ const box=document.createElement('div');box.className='store-boot-blocker';
+ const title=document.createElement('h2');title.textContent='Your records need attention';box.appendChild(title);
+ const note=document.createElement('p');note.textContent=recordStore.status().error||'The database could not be opened. Existing data has not been replaced.';box.appendChild(note);
+ const retry=document.createElement('button');retry.textContent='Retry opening PlotEdge';retry.onclick=()=>location.reload();box.appendChild(retry);document.body.appendChild(box);
+}
+if(typeof recordStore!=='undefined'&&recordStore.requiresLoad){
+ document.documentElement.classList.add('records-loading');
+ window.plotedgeReady=recordStore.ready.then(ok=>{if(!ok){showStoreBootFailure();return false;}initializeProjectSession();document.documentElement.classList.remove('records-loading');return true;});
+}else{initializeProjectSession();window.plotedgeReady=Promise.resolve(true);}

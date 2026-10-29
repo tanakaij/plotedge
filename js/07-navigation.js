@@ -431,6 +431,7 @@ function isReallyOpen(el){
 }
 
 function closeTopOverlay(){
+  const scan=document.getElementById('scanViewerOverlay');if(scan&&scan.classList.contains('open')){closeScanViewer();return true;}
   // The pointerdown guard above covers taps on Cancel/Done/backdrop, but a hardware Back press
   // (and the Android system gesture) never produces a pointerdown inside the sheet — so without
   // this the exact same close-while-keyboard-is-collapsing race comes back on the Back path only.

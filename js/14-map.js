@@ -278,6 +278,7 @@ function renderReviewMap(){
     legendSeen.set(info.key, {label:info.label, color, geo,
       shape:featureTypeShape(info.key), lineStyle:featureTypeLineStyle(info.key), filled:featureTypeFilled(info.key)});
     const verts = f.vertices || [];
+    if(verts.some(v=>!Number.isFinite(v.lat)||!Number.isFinite(v.lon)||Math.abs(v.lat)>90||Math.abs(v.lon)>180))return;
     const popupHtml = featurePopupHtml(f, info, color);
 
     if (geo === 'point'){

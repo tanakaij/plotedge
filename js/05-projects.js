@@ -1108,70 +1108,8 @@ function duplicateProject(id){
 // The restore sits in a finally block: if any of those helpers throws on malformed data, leaving
 // the globals pointing at another project would silently corrupt the open session.
 async function exportProjectZip(id){
-  const p = projects.find(x=>x.id === id);
-  if (!p) return;
-  if (typeof JSZip === 'undefined'){
-    showToast('Zip export needs a connection to load once. Try again online, or export from inside the project.');
-    return;
-  }
-  const d = projectData[id] || { savedFeatures:[], featureTypes:[] };
-  if (!(d.savedFeatures || []).length){ showToast('No captured features in this project yet'); return; }
-
-  showToast('Zipping "' + p.name + '"…');
-  // The zip embeds the JPEGs themselves, and photo bytes live in the media
-  // store (IndexedDB) rather than in the project record — read them back first.
-  const _photos = await hydrateExportPhotos(d);
-  const saved = { featureTypes, savedFeatures, currentVertices, activeProjectId };
-  const zip = new JSZip();
-  const folderName = sanitizeFileSegment(p.name || 'Project');
-  try {
-    featureTypes  = d.featureTypes || [];
-    savedFeatures = (d.savedFeatures || []).map(migrateFeatureToVertices);
-    collectFeatureCollectionsByType().forEach(({label, fc})=>{
-      zip.file(label.replace(/\s+/g,'_') + '.geojson', JSON.stringify(fc, null, 2));
-    });
-    zip.file(folderName + '_all_features.csv', buildCSVString());
-    const photos = zip.folder('photos');
-    savedFeatures.forEach(f=>{
-      const info = resolveFeatureType(f);
-      const base = (f.featureTypeId ? info.label : f.layer) || 'feature';
-      (f.vertices || []).forEach((v, vi)=>{
-        (v.photos || []).forEach((ph, pi)=>{
-          // Skip rather than throw if a photo's bytes could not be read back:
-          // one unreadable image must not take the whole zip down.
-          if (!ph.dataUrl) return;
-          const comma = ph.dataUrl.indexOf(',');
-          const b64 = comma >= 0 ? ph.dataUrl.slice(comma + 1) : ph.dataUrl;
-          const nm = base.replace(/\s+/g,'_') + '_' + String(f.name).replace(/\s+/g,'_') +
-                     '_v' + (vi+1) + '_photo' + (pi+1) +
-                     (ph.angleLabel ? '_' + ph.angleLabel.replace(/\s+/g,'_') : '') + '.jpg';
-          photos.file(nm, b64, { base64:true });
-        });
-      });
-    });
-  } catch(err){
-    showToast('Export failed. Try exporting from inside the project.');
-    return;
-  } finally {
-    featureTypes    = saved.featureTypes;
-    savedFeatures   = saved.savedFeatures;
-    currentVertices = saved.currentVertices;
-    activeProjectId = saved.activeProjectId;
-    releaseExportPhotos(_photos);
-  }
-
-  zip.generateAsync({ type:'blob' }).then(async blob=>{
-    // saveExportFile() lives in js/17-export.js, which loads after this file — that is fine, it is
-    // only reached when the user taps Export, long after every script has run.
-    const name = folderName + '_' + ts() + '.zip';
-    const res = await saveExportFile(blob, name, 'application/zip');
-    if (!res.ok){ showToast('Could not write "' + name + '" to this device. Check storage permission and free space.'); return; }
-    p.lastExportedAt = new Date().toISOString();
-    persistStore();
-    refreshProjectsScreen();
-    if (activeProjectId === p.id) refreshExportMeta();
-    showToast('✓ "' + p.name + '" saved to ' + res.where);
-  }).catch(()=>{ showToast('Could not build the zip. Try again.'); });
+  const p=projects.find(p=>p.id===id);if(!p)return;
+  if(await writeGisProjectZip([p],sanitizeFileSegment(p.name||'Project')+'_'+ts()+'.zip',false))refreshProjectsScreen();
 }
 
 // ══ LAST-EXPORTED TRACKING ══
@@ -1322,6 +1260,8 @@ function openProject(id, opts) {
   const d = projectData[id] || { savedFeatures:[], currentVertices:[], featureTypes:[] };
   savedFeatures = (d.savedFeatures || []).map(migrateFeatureToVertices);
   currentVertices = migrateCurrentVertices(d);
+  currentScans=JSON.parse(JSON.stringify(d.currentScans||[]));renderScanAttachments();
+  if(typeof fieldSaveStatus==='function')fieldSaveStatus();
   openVertexIndex = null;
   featureTypes = d.featureTypes || [];
   projectNotes = d.notes || '';

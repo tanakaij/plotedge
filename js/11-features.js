@@ -73,6 +73,11 @@ function currentDraftSnapshot(){
   const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
   return {
     projectId: activeProjectId,
+    geometryType:activeGeometryType,
+    vertices:JSON.parse(JSON.stringify(currentVertices||[])),
+    scans:JSON.parse(JSON.stringify(currentScans||[])),
+    repeatState:JSON.parse(JSON.stringify(repeatGroupState||{})),
+    customAttrs:{...customFeatureAttrs},
     ftId: ft ? ft.id : (sel ? sel.value : ''),
     name: val('featureName'),
     ref: val('featureRef'),
@@ -82,6 +87,7 @@ function currentDraftSnapshot(){
     // would have read off the same form.
     attrs: ft ? collectAttrs(ft) : {},
     editingFeatureId: editingFeatureId || null,
+    editingFeatureSnapshot:editingFeatureSnapshot?JSON.parse(JSON.stringify(editingFeatureSnapshot)):null,
     environment: currentEnvironment === 'PlotIn' ? 'PlotIn' : 'PlotOut',
     buildingId: val('collectBuildingId'),
     floorLevel: val('collectFloorLevel')
@@ -93,11 +99,7 @@ function saveCollectDraft(){
   if (!snap) return;
   // Nothing typed and nothing captured — don't leave an empty draft behind that
   // would prompt a pointless "restore?" on the next launch.
-  const hasContent = snap.name || snap.ref || snap.notes || snap.assignedTo || snap.buildingId || snap.floorLevel
-    || Object.keys(snap.attrs || {}).some(k => {
-      const v = snap.attrs[k];
-      return Array.isArray(v) ? v.length : (v !== '' && v != null && v !== false);
-    });
+  const hasContent = hasCaptureInProgress();
   if (!hasContent) { clearDraft(); return; }
   writeDraft(snap);
 }
@@ -142,24 +144,7 @@ function maybeOfferDraftRecovery(projectId){
 }
 
 
-function restoreCollectDraft(){
-  const d = readDraft(activeProjectId);
-  if (!d) return false;
-  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-  // Rebuild the attribute fields for the drafted type FIRST — the inputs the
-  // loop below writes into do not exist until onFeatureTypeChange() has run.
-  const sel = document.getElementById('featureTypeSelect');
-  if (sel && d.ftId && getFeatureType(d.ftId)) { sel.value = d.ftId; onFeatureTypeChange(); }
-  set('featureName', d.name); set('featureRef', d.ref);
-  set('featureAssignedTo', d.assignedTo); set('featureNotes', d.notes);
-  setCollectEnvironment(d.environment === 'PlotIn' ? 'PlotIn' : 'PlotOut');
-  set('collectBuildingId', d.buildingId); set('collectFloorLevel', d.floorLevel);
-  Object.keys(d.attrs || {}).forEach(k => {
-    const el = document.getElementById('attr_' + k);
-    if (el && 'value' in el && !Array.isArray(d.attrs[k])) el.value = d.attrs[k];
-  });
-  return true;
-}
+function restoreCollectDraft(){const d=readDraft(activeProjectId);if(!d)return false;restoreCaptureSnapshot({...d,vertices:d.vertices||currentVertices,scans:d.scans||currentScans});return true;}
 
 
 function saveFeature(){
@@ -317,7 +302,10 @@ function newFeatureId(){
 // handed down rather than re-derived here: the two must agree, and re-reading activeGeometryType
 // at this point would let a geometry switch made while the duplicate-name confirm was open change
 // what gets saved out from under the validation that already ran against it.
-function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo){
+async function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environment,buildingId,floorLevel,saveGeo){
+  if(window.featureSaveInFlight)return;window.featureSaveInFlight=true;
+  const blocker=document.getElementById('featureSaveBlocker');if(blocker)blocker.hidden=false;
+  try{
   saveGeo = saveGeo || ftDefaultGeometry(ft);
   const wasEditing = !!editingFeatureId;
   environment = environment === 'PlotIn' ? 'PlotIn' : 'PlotOut';
@@ -328,6 +316,8 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
   floorLevel = environment === 'PlotIn' ? (floorLevel || '') : null;
 
   // Rollback snapshot, taken before anything is mutated.
+  currentScans.forEach(s=>{s.featureGeotag=vertices.length?{lat:vertices[0].lat,lon:vertices[0].lon,accuracy:vertices[0].acc||null}:null;});
+  const prevScans=currentScans;
   const prevSaved = savedFeatures.slice();
   const prevVertices = currentVertices;
   const prevOpenVertexIndex = openVertexIndex;
@@ -340,7 +330,7 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
     if (idx === -1) {
       // Original entry vanished (e.g. deleted or "Clear all" elsewhere) while this edit was open —
       // save as a new feature instead of silently losing the edit.
-      savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
+      savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, scans:JSON.parse(JSON.stringify(currentScans)), reviewStatus:'collected', environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
       successMsg = 'Original feature no longer exists. Saved as a new feature.';
     } else {
       const original = savedFeatures[idx];
@@ -349,19 +339,20 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
       // plotmateTouch AFTER the spread, so the edit gets a fresh revision while keeping the
       // original's uid — the uid is the record's identity across devices and must never change,
       // or an edit becomes an unrelated second feature on merge.
-      savedFeatures[idx] = plotmateTouch({ ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() }, 'ft');
+      savedFeatures[idx] = plotmateTouch({ ...original, name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, scans:JSON.parse(JSON.stringify(currentScans)), reviewStatus:'collected', environment, building_id:buildingId, floor_level:floorLevel, savedAt:original.savedAt, editedAt:new Date().toISOString() }, 'ft');
       successMsg = `"${name}" updated ✓`;
     }
   } else {
-    savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
+    savedFeatures.push(plotmateTouch({ id:newFeatureId(), name, ref, featureTypeId:ft.id, featureTypeName:ft.name, assignedTo, attrs, notes, geometryType:saveGeo, vertices, scans:JSON.parse(JSON.stringify(currentScans)), reviewStatus:'collected', environment, building_id:buildingId, floor_level:floorLevel, savedAt:new Date().toISOString() }, 'ft'));
     successMsg = `"${name}" saved ✓`;
   }
 
   // Cleared before the write so what reaches disk is exactly what the screen will show
   // afterwards — restored below if the write does not land.
-  currentVertices=[]; openVertexIndex=null;
+  currentVertices=[];currentScans=[];openVertexIndex=null;
 
-  if (persist() === false) {
+  if(persist()===false||(typeof recordStore!=='undefined'&&recordStore.active&&!await recordStore.flush())) {
+    currentScans=prevScans;renderScanAttachments();
     savedFeatures = prevSaved;
     currentVertices = prevVertices;
     openVertexIndex = prevOpenVertexIndex;
@@ -370,6 +361,9 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
     renderPoints(); renderVertexEditor(); renderFeatures(); updateStats(); updateGeometryUI(ft);
     // The form still holds everything the user typed; make sure a copy is on disk too, so even
     // killing the app now does not lose it.
+    projectData[activeProjectId]={...projectData[activeProjectId],savedFeatures,currentVertices,currentScans};
+    if(typeof recordStore!=='undefined'&&recordStore.active)recordStore.stage(JSON.stringify({projects,data:projectData},photoStripFields));
+    lastWritten=null;
     saveCollectDraft();
     showToast('Could not save to this device. Your capture is still here. Export a backup now.');
     return;
@@ -401,7 +395,8 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
   refIdAutoFilled = null;   // the next capture of this type should autofill afresh
   // The draft has served its purpose the moment the feature is on disk —
   // leaving it behind would offer to "recover" work that is already saved.
-  clearDraft();
+  clearDraft();renderScanAttachments();
+  onFeatureTypeChange();
   renderPoints(); renderVertexEditor(); renderFeatures(); updateStats(); updateGeometryUI(ft);
   if (reviewMap) renderReviewMap();
   maybeAutoExportToDevice();
@@ -419,6 +414,8 @@ function finalizeSaveFeature(ft,name,ref,assignedTo,notes,attrs,vertices,environ
   // itself unasked is a form that gets saved with the wrong thing in it. See
   // js/06a-capture-stack.js.
   offerResumeAfterSave();
+
+  }finally{window.featureSaveInFlight=false;if(blocker)blocker.hidden=true;}
 }
 
 
@@ -496,6 +493,7 @@ function editFeature(id){
     // A new edit is a new question. Without this, answering "add to start" on one
     // road would silently keep prepending on the next feature edited.
     resetCaptureEndPreference();
+    currentScans=JSON.parse(JSON.stringify(f.scans||[]));renderScanAttachments();
     currentVertices = (f.vertices||[]).map(v=>({
       lat:v.lat, lon:v.lon, alt:v.alt, acc:v.acc, time:v.time,
       attrs:{...(v.attrs||{})}, photos:(v.photos||[]).map(p=>({...p})), capture_method:v.capture_method||'gps_fix', fix:v.fix||null
@@ -530,7 +528,7 @@ function editFeature(id){
     document.getElementById('scrollRoot').scrollTo({top:0, behavior:'smooth'});
   };
 
-  const draftInProgress = !editingFeatureId && (currentVertices.length || document.getElementById('featureName').value.trim());
+  const draftInProgress = !editingFeatureId && (currentScans.length || currentVertices.length || document.getElementById('featureName').value.trim());
   if (draftInProgress){
     // Used to be "Discard & Edit", which made correcting one feature cost you
     // another. Now the in-progress capture is parked on the stack instead and
@@ -567,7 +565,7 @@ function cancelEditFeature(){
 
   const finish = () => {
     editingFeatureId = null; editingFeatureSnapshot = null;
-    currentVertices=[]; openVertexIndex=null;
+    currentScans=[];renderScanAttachments();currentVertices=[]; openVertexIndex=null;
     document.getElementById('featureName').value='';
     document.getElementById('featureRef').value='';
     document.getElementById('featureAssignedTo').value='';
@@ -589,11 +587,11 @@ function cancelEditFeature(){
 }
 
 function clearCurrent(){
-  if(!currentVertices.length && !document.getElementById('featureName').value){
+  if(!currentScans.length && !currentVertices.length && !document.getElementById('featureName').value){
     showToast('Nothing to clear'); return;
   }
   showConfirm('Are you sure you want to clear current feature data? This clears the form, vertices and photos. This action cannot be undone.', () => {
-    currentVertices=[]; openVertexIndex=null;
+    currentScans=[];renderScanAttachments();currentVertices=[]; openVertexIndex=null;
     document.getElementById('featureName').value='';
     document.getElementById('featureRef').value='';
     document.getElementById('featureAssignedTo').value='';

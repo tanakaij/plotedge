@@ -15,7 +15,9 @@
 //   - relative paths throughout, so this keeps working when deployed to a GitHub Pages subpath
 //     rather than a domain root (DEPLOY.md, "subpath vs. root")
 
-const SW_VERSION = 'v31';   // bumped: css/13-desktop.css added (desktop shell — nav rail, wider content
+const SW_VERSION = 'v32';
+const SHELL_CACHE='plotedge-shell-'+SW_VERSION;
+const TILE_CACHE='plotedge-tiles-v1';   // bumped: css/13-desktop.css added (desktop shell — nav rail, wider content
                              // column, pointer affordances; entirely behind a min-width/hover/pointer
                              // media query and html:not(.native-android), so the Android build is
                              // unaffected), plus the PlotAir, capture-stack, restore, notification and
@@ -33,6 +35,38 @@ const SW_VERSION = 'v31';   // bumped: css/13-desktop.css added (desktop shell �
 // Keep this in step with the <link> and <script> tags: tests/split.test.js fails the build if they
 // ever disagree.
 const APP_ASSETS = [
+  // VENDOR_ASSETS_BEGIN
+  "scanner/ply-parser.mjs",
+  "scanner/ply-worker.js",
+  "vendor/0.4d6948c6e2af3f6e56a0.worker.worker.js",
+  "vendor/0.bce5ef15ddaa1e171e9d.worker.worker.js",
+  "vendor/0.georaster.browser.bundle.min.worker.js",
+  "vendor/0.georaster.browser.bundle.worker.js",
+  "vendor/0.georaster.bundle.min.worker.js",
+  "vendor/0.georaster.bundle.worker.js",
+  "vendor/1.3bb0ddbdbbd82cf1fb97.worker.worker.js",
+  "vendor/1.c472f21380205fe8cf24.worker.worker.js",
+  "vendor/flatgeobuf-geojson.min.js",
+  "vendor/georaster-layer-for-leaflet.min.js",
+  "vendor/georaster.browser.bundle.min.js",
+  "vendor/hyparquet-writer.js",
+  "vendor/images/layers-2x.png",
+  "vendor/images/layers.png",
+  "vendor/images/marker-icon-2x.png",
+  "vendor/images/marker-icon.png",
+  "vendor/images/marker-shadow.png",
+  "vendor/jspdf.plugin.autotable.min.js",
+  "vendor/jspdf.umd.min.js",
+  "vendor/jszip.min.js",
+  "vendor/leaflet-rotate.js",
+  "vendor/leaflet.css",
+  "vendor/leaflet.js",
+  "vendor/proj4.js",
+  "vendor/scan-viewer.js",
+  "vendor/sql-wasm.js",
+  "vendor/sql-wasm.wasm",
+  "vendor/xlsx.full.min.js",
+  // VENDOR_ASSETS_END
   'css/01-tokens.css',
   'css/02-mesh.css',
   'css/03-base.css',
@@ -46,6 +80,7 @@ const APP_ASSETS = [
   'css/11-plotarchive.css',
   'css/12-polish.css',
   'css/13-desktop.css',
+  'css/14-field-workspace.css',
   'js/01-theme-and-settings.js',
   'js/02-state.js',
   'js/03-schema.js',
@@ -53,6 +88,7 @@ const APP_ASSETS = [
   'js/03b-plotarchive.js',
   'js/04-store.js',
   'js/04a-photostore.js',
+  'js/04b-recordstore.js',
   'js/05-projects.js',
   'js/05a-plotbounds.js',
   'js/06-collect.js',
@@ -62,6 +98,7 @@ const APP_ASSETS = [
   'js/08-gps.js',
   'js/09-geometry.js',
   'js/10-photos.js',
+  'js/10a-scans.js',
   'js/11-features.js',
   'js/11a-attr-query.js',
   'js/12-review.js',
@@ -89,6 +126,7 @@ const APP_ASSETS = [
   'js/21a-plotwords.js',
   'js/21b-plotalert.js',
   'js/21c-sheet-chrome.js',
+  'js/21d-field-workspace.js',
   'js/22-boot.js',
   'js/23-desktop-keys.js',
   // ══ IMAGES ══
@@ -142,7 +180,7 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((names) => Promise.all(
         names
-          .filter((name) => name !== SHELL_CACHE && name !== TILE_CACHE)
+          .filter((name) => name.startsWith('plotedge-shell-') && name !== SHELL_CACHE)
           .map((name) => caches.delete(name))
       ))
       .then(() => self.clients.claim())

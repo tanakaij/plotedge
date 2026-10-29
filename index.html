@@ -20,14 +20,10 @@
      numbers (fixed-width digits stop lat/long/accuracy readouts from jittering as they update).
      Loaded from a CDN like Leaflet/JSZip above: offline on first load just falls back to the
      existing system-font stack (see --font/--mono below) rather than failing anything. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Fonts loaded non-render-blocking: preload as a low-priority fetch, then swap to stylesheet
      once it arrives. On slow/flaky mobile-data connections this means the app shell paints and
      becomes interactive immediately with the system-font fallback, instead of the whole page
      hanging behind a stalled Google Fonts request. noscript covers the (rare) no-JS case. -->
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"></noscript>
 <!-- Leaflet — lightweight mapping library for the Review tab's coverage map. Loaded from a CDN
      since this app has no backend; if the device is offline on first-ever load the map simply
      won't initialize (handled gracefully, see ensureReviewMap()) — everything else keeps working.
@@ -35,21 +31,21 @@
      connection to unpkg no longer blocks the app shell from painting and becoming interactive —
      L. is only ever referenced inside functions that run later (opening the Review/Dashboard map),
      never at top-level parse time, so deferring it is safe. -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" media="print" onload="this.media='all'">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
+<link rel="stylesheet" href="vendor/leaflet.css" crossorigin="" media="print" onload="this.media='all'">
+<script src="vendor/leaflet.js" crossorigin="" defer></script>
 <!-- Leaflet-Rotate — adds the actual rotate/bearing machinery Leaflet core has never shipped
      (touch-twist to rotate, plus map.setBearing()/getBearing()). Both files below are deferred, so
      they still run in document order once parsing finishes — this one is guaranteed to execute
      after leaflet.js above has defined L, even though both loaded off the CDN in parallel. Every
      map that turns on `rotate:true` (see js/14-map.js, js/14a-plotatlas.js, js/15-plotetch.js)
      depends on this file having loaded first. -->
-<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js" crossorigin="" defer></script>
+<script src="vendor/leaflet-rotate.js" crossorigin="" defer></script>
 <!-- JSZip — only needed for the Projects screen's "Export all projects" backup, which zips every
      project's GeoJSON+CSV together. `defer` for the same reason as Leaflet above: it's only
      invoked on demand (never at parse time), so it shouldn't block initial page load on a slow
      connection. If there's no network on first load, exportAllProjects() detects it's missing and
      tells the user rather than failing silently. -->
-<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="" defer></script>
+<script src="vendor/jszip.min.js" crossorigin="" defer></script>
 <script>
 // Runs synchronously before first paint so the correct theme is set before any CSS renders —
 // otherwise there'd be a flash of the wrong theme on load. Stored value is now a *mode*
@@ -116,6 +112,7 @@
      html:not(.native-android) — four independent locks, any one of which is enough to keep the
      Android build out. Delete this file and the APK renders identically. -->
 <link rel="stylesheet" href="css/13-desktop.css">
+<link rel="stylesheet" href="css/14-field-workspace.css">
 </head>
 <body>
 
@@ -1213,6 +1210,8 @@ try {
 
   <!-- ══ COLLECT ══ -->
   <div class="panel" id="panel-collect">
+    <div class="field-workbar"><div><span class="field-eyebrow">FIELD COLLECTION</span><strong id="fieldProjectName">Current project</strong></div><button type="button" class="field-text-button" onclick="toggleQuickEntry()" id="quickEntryToggle">One field at a time</button></div>
+    <div class="field-save-status" id="fieldSaveStatus" role="status" aria-live="polite">Ready to collect</div>
 
     <!-- Blocking warning, not just the empty-box further down: shown/hidden together with
          noFeatureTypesCard from populateFeatureTypeSelect() so it can never drift out of sync with
@@ -1240,7 +1239,7 @@ try {
     <div class="cap-stack-bar" id="captureStackBar" style="display:none;"></div>
     <div class="persist-banner">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      Saved to device · fully offline · survives screen timeout
+      Your work stays on this device. Check save status before closing.
     </div>
 
     <!-- The horizontal pill stepper that used to sit here has been removed: it overlapped the
@@ -1476,7 +1475,7 @@ try {
       <div class="card-body">
       <!-- Compact summary. The real inputs live in #attrFields inside the attribute sheet below;
            these rows are a read-only reflection of them plus the tap target that opens the sheet. -->
-      <div id="attrSummary"></div>
+      <div id="quickAttributeFields" class="quick-attribute-fields"></div><div id="attrSummary"></div>
       <div id="noFeatureAttrsMsg" class="empty-box" style="display:none;">No feature-wide fields on this type. All its fields are captured per vertex below.</div>
       <!-- Ad hoc attributes — for anything not already in this feature type's schema, added
            on the fly during capture instead of having to stop and edit the schema first. -->
@@ -1533,6 +1532,18 @@ try {
       </div>
     </div>
 
+    <section class="card scan-capture-card" id="collectCardScans" aria-label="3D scan attachments">
+      <div class="scan-card-head"><div><span class="field-eyebrow">SCANNER ATTACHMENTS</span><h2>3D scans</h2></div><span class="field-chip" id="scanAttachmentCount">Optional</span></div>
+      <div id="scanAttachments"></div>
+      <input type="file" id="scanFileInput" accept=".glb,.ply,model/gltf-binary,application/octet-stream" hidden onchange="handleScanFile(event)">
+      <button type="button" class="btn btn-outline scan-import-button" data-scan-import onclick="chooseScannerFile()"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg>Import scan file</button>
+      <details class="scanner-options"><summary>Scanner setup &amp; file options</summary><div class="scan-setup-grid">
+      <div class="field"><label for="scanDeviceName">Scanner name / model</label><input id="scanDeviceName" maxlength="120" placeholder="Model or asset ID"></div>
+      <div class="field"><label for="scanImportUnits">PLY coordinate units</label><select id="scanImportUnits"><option value="unknown">Not set</option><option value="m">Metres</option><option value="cm">Centimetres</option><option value="mm">Millimetres</option></select></div></div>
+      <p class="field-help">Export GLB or PLY from your scanner app, then choose it from Android Files or a mounted USB drive. Up to 64 MB per scan. GLB uses metres.</p>
+      <button type="button" class="field-text-button" onclick="showScannerDevices()">Check attached USB devices</button><p id="scannerDeviceStatus" class="field-help">Live capture requires your scanner manufacturer's Android SDK. File import is available now.</p></details>
+      <div id="scanImportStatus" class="field-help" role="status" aria-live="polite"></div><button type="button" id="scanCancelImport" hidden onclick="cancelScanImport()">Cancel import</button>
+    </section>
     <!-- 5. SAVE / FINISH -->
     <div class="card" id="collectCardSave">
       <div class="card-title">5 · Save<span class="step-badge" id="stepBadge5" data-state="pending">Pending</span></div>
@@ -1546,7 +1557,7 @@ try {
       </div>
       <button class="btn btn-save" id="saveFeatureBtn" style="font-size:16px;padding:16px;margin-bottom:10px;" onclick="saveFeature()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        <span id="saveFeatureBtnLabel">Save Feature</span>
+        <span id="saveFeatureBtnLabel">Save &amp; Next</span>
       </button>
       <!-- Sits between Save and Clear because that is the decision it belongs to: at the point
            you would reach for one of those two, "neither yet" is the third real answer. Shown
@@ -1565,6 +1576,7 @@ try {
 
   <!-- ══ REVIEW ══ -->
   <div class="panel" id="panel-review">
+    <section class="review-workbar" id="fieldReviewBar" aria-label="Review status"></section>
     <div id="reviewMapAnchor"></div>
     <div class="review-map-wrap" id="reviewMapWrap">
       <div style="position:relative;">
@@ -1931,6 +1943,7 @@ try {
       </div>
     </div>
     <div class="export-status" id="exportStatus" role="status" aria-live="polite"></div>
+<button type="button" id="plotpackCancelExport" class="field-text-button" hidden onclick="cancelPlotpackExport()">Cancel bundle export</button>
     <button class="btn-clear-all" style="margin-top:4px;" onclick="clearAll()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
       Clear entire session
@@ -2559,7 +2572,7 @@ try {
       <button class="sheet-head-btn primary" onclick="closeAttrSheet()">Done</button>
     </div>
     <div class="attr-sheet-step" id="attrSheetStep"></div>
-    <div id="attrFields"></div>
+    <div id="attrFieldsHome"><div id="attrFields"></div></div>
     <div class="modal-actions attr-sheet-nav">
       <button class="btn btn-outline" id="attrSheetPrev" onclick="attrSheetNav(-1)">Previous</button>
       <button class="btn btn-primary" id="attrSheetNext" onclick="attrSheetNav(1)">Next</button>
@@ -3210,6 +3223,12 @@ try {
      Split out of index.html at top-level statement boundaries, in source order. These are
      classic scripts, not modules: each file can only use top-level names declared in itself or
      in a file above it. Do not reorder. -->
+<div class="scan-viewer-overlay" id="scanViewerOverlay" role="dialog" aria-modal="true" aria-labelledby="scanViewerTitle">
+ <div class="scan-viewer-shell"><header class="scan-viewer-header"><div><span class="field-eyebrow">3D SCAN</span><h2 id="scanViewerTitle">Scan preview</h2></div><button type="button" class="scan-close" aria-label="Close scan viewer" onclick="closeScanViewer()">×</button></header>
+ <div id="scanViewport" class="scan-viewport"></div><div class="scan-viewer-controls"><label>Units <select id="scanViewerUnits" onchange="changeScanUnits(this.value)"><option value="unknown">Not set</option><option value="m">Metres</option><option value="cm">Centimetres</option><option value="mm">Millimetres</option></select></label><button onclick="resetScanView()">Reset view</button><button onclick="measureScan()">Measure distance</button><button onclick="downloadScanOriginal()">Export original</button></div>
+ <p id="scanViewerStatus" role="status" class="field-help"></p><p id="scanMeasurement" class="scan-measurement"></p><p id="scanMeasurements" class="field-help"></p><p class="field-help">Drag to rotate · pinch or scroll to zoom · two fingers to pan. Measurements are approximate; a feature location is a geotag, not a registered scan.</p></div>
+</div>
+<div id="featureSaveBlocker" class="field-save-blocker" role="status" hidden><span>Saving record to device…</span></div>
 <script src="js/01-theme-and-settings.js"></script>
 <script src="js/02-state.js"></script>
 <script src="js/03-schema.js"></script>
@@ -3217,6 +3236,7 @@ try {
 <script src="js/03b-plotarchive.js"></script>
 <script src="js/04-store.js"></script>
 <script src="js/04a-photostore.js"></script>
+<script src="js/04b-recordstore.js"></script>
 <script src="js/05-projects.js"></script>
 <script src="js/05a-plotbounds.js"></script>
 <script src="js/06-collect.js"></script>
@@ -3226,6 +3246,7 @@ try {
 <script src="js/08-gps.js"></script>
 <script src="js/09-geometry.js"></script>
 <script src="js/10-photos.js"></script>
+<script src="js/10a-scans.js"></script>
 <script src="js/11-features.js"></script>
 <script src="js/11a-attr-query.js"></script>
 <script src="js/12-review.js"></script>
@@ -3253,6 +3274,7 @@ try {
 <script src="js/21a-plotwords.js"></script>
 <script src="js/21b-plotalert.js"></script>
 <script src="js/21c-sheet-chrome.js"></script>
+<script src="js/21d-field-workspace.js"></script>
 <script src="js/22-boot.js"></script>
 <!-- Desktop keyboard shortcuts. Loads last and gates itself at runtime: on the APK (or any
      Capacitor shell, or any touch-only device) install() returns before binding a single

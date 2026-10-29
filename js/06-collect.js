@@ -390,7 +390,7 @@ function updateGeometryUI(ft) {
     ? 'Capture Point' : `Capture Vertex ${currentVertices.length + 1}`;
   document.getElementById('saveFeatureBtnLabel').textContent = editingFeatureId
     ? 'Save Changes'
-    : (geo === 'point' ? 'Save Feature' : `Finish ${geoWord}`);
+    : (geo === 'point' ? 'Save & Next' : `Finish ${geoWord} & Next`);
   // Live length/area preview while capturing — same computeGeometryAttrs() used at save time, so
   // what's shown here always matches what actually gets written to the feature.
   let measureText = '';
@@ -485,7 +485,7 @@ function featureRefPickerHtml(a, val){
       const label = c.name ? `${c.ref} \u00b7 ${c.name}` : c.ref;
       return `<option value="${escapeHtml(c.ref)}"${c.ref.toLowerCase() === current.toLowerCase() ? ' selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
-  return `<div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div>`;
+  return `<div class="select-wrap"><select id="attr_${a.id}"><option value="" ${val==null||val===''?'selected':''}>Choose an option</option>${opts}</select></div>`;
 }
 
 
@@ -502,7 +502,7 @@ function renderAttrField(a, val) {
   const label = `<label>${escapeHtml(a.label)}${req}${_pin}</label>`;
   if (a.type === 'single_select') {
     const opts = (a.options||[]).map(o => `<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
-    return `<div class="field">${label}<div class="select-wrap"><select id="attr_${a.id}">${opts}</select></div></div>`;
+    return `<div class="field">${label}<div class="select-wrap"><select id="attr_${a.id}"><option value="" ${val==null||val===''?'selected':''}>Choose an option</option>${opts}</select></div></div>`;
   }
   // ══ LINK TO ANOTHER FEATURE ══
   // A <select>, so collectAttrs() reads it through the same el.value path every plain input uses
@@ -593,7 +593,7 @@ function renderRepeatSubfieldInput(a, idx, sub, val){
   const label = `<label>${escapeHtml(sub.label)}${sub.required?' <span class="hint">(required)</span>':''}</label>`;
   if (sub.type === 'single_select'){
     const opts = (sub.options||[]).map(o=>`<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
-    return `<div class="field">${label}<div class="select-wrap"><select id="${domId}" onchange="updateRepeatSubfieldValue('${a.id}',${idx},'${sub.id}',this.value)"><option value=""></option>${opts}</select></div></div>`;
+    return `<div class="field">${label}<div class="select-wrap"><select id="${domId}" onchange="updateRepeatSubfieldValue('${a.id}',${idx},'${sub.id}',this.value)"><option value=""></option><option value="" ${val==null||val===''?'selected':''}>Choose an option</option>${opts}</select></div></div>`;
   }
   if (sub.type === 'multi_select'){
     const sel = Array.isArray(val) ? val : [];
@@ -817,6 +817,8 @@ function refreshFieldConditionsAndCalcs(){
   // changed while it was on screen), step off it rather than leave an unreachable pane active.
   if (attrSheetFields[attrSheetIdx] && hiddenAttrIds.has(attrSheetFields[attrSheetIdx].id)) attrSheetNav(1);
   renderAttrSummary();
+
+ if(typeof syncInlineFieldVisibility==='function')syncInlineFieldVisibility();
 }
 
 function bindAttrFieldsListenerOnce(){
@@ -889,6 +891,8 @@ function renderAttrSummary(){
 
 
 function openAttrSheet(idx){
+ const host=document.getElementById('quickAttributeFields');
+ if(host&&host.contains(document.getElementById('attrFields'))){const pane=document.querySelectorAll('#attrFields .attr-pane')[idx];if(pane){pane.scrollIntoView({behavior:'smooth',block:'center'});const input=pane.querySelector('input,select,textarea');if(input)input.focus({preventScroll:true});}return;}
   if (!attrSheetFields.length) return;
   attrSheetIdx = Math.max(0, Math.min(idx, attrSheetFields.length - 1));
   showAttrPane();
@@ -1033,7 +1037,7 @@ function renderVertexAttrField(a, vIdx, val) {
   const id = `vattr_${vIdx}_${a.id}`;
   if (a.type === 'single_select') {
     const opts = (a.options||[]).map(o => `<option value="${escapeHtml(o)}" ${val===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
-    return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)">${opts}</select></div></div>`;
+    return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)"><option value="" ${val==null||val===''?'selected':''}>Choose an option</option>${opts}</select></div></div>`;
   }
   // Per-vertex link. Same candidate list, but the value is written through setVertexAttr() rather
   // than read off the DOM at save time, which is how every vertex-scoped field works.
@@ -1049,7 +1053,7 @@ function renderVertexAttrField(a, vIdx, val) {
       ? `<option value="${escapeHtml(cur)}" selected>${escapeHtml(cur)} \u2014 no longer in this project</option>` : '';
     const opts = `<option value=""${cur ? '' : ' selected'}>\u2014 none \u2014</option>` + orphan +
       list.map(c => `<option value="${escapeHtml(c.ref)}"${c.ref.toLowerCase() === cur.toLowerCase() ? ' selected' : ''}>${escapeHtml(c.name ? c.ref + ' \u00b7 ' + c.name : c.ref)}</option>`).join('');
-    return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)">${opts}</select></div></div>`;
+    return `<div class="field">${label}<div class="select-wrap"><select id="${id}" onchange="setVertexAttr(${vIdx},'${a.id}',this.value)"><option value="" ${val==null||val===''?'selected':''}>Choose an option</option>${opts}</select></div></div>`;
   }
   if (a.type === 'multi_select') {
     const sel = Array.isArray(val) ? val : [];
