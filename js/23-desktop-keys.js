@@ -56,7 +56,8 @@
     ]},
     { title: 'Do', keys: [
       ['/', 'Search features', focusReviewSearch],
-      ['?', 'This list',       function () { toggleHelp(); }]
+      ['?', 'This list',       function () { toggleHelp(); }],
+      ['Ctrl+K', 'Command palette', function () { openPalette(); }]
     ]},
     { title: 'Leave', keys: [
       ['Esc', 'Close the top sheet', null]   // handled by the existing listeners; listed for completeness
@@ -159,7 +160,168 @@
   function helpOpen() { return !!(helpEl && helpEl.classList.contains('show')); }
   function toggleHelp() { helpOpen() ? closeHelp() : openHelp(); }
 
+
+  // ══ COMMAND PALETTE (Ctrl/Cmd+K) ══
+  // Same gate as everything else in this file: built at runtime, so the APK DOM is untouched. It
+  // reuses the rows of GROUPS that have a handler, so a new shortcut shows up here without a
+  // second edit. Extra commands that have no single-key shortcut are listed in EXTRA.
+  var EXTRA = [
+    ['Import a file',        function () { switchTabNav('import'); }],
+    ['Export this project',  function () { switchTabNav('export'); }],
+    ['Open Projects list',   function () { showProjects(); }]
+  ];
+  var palEl = null, palList = null, palInput = null, palItems = [], palSel = 0, palFocus = null;
+
+  function paletteCommands() {
+    var out = [];
+    GROUPS.forEach(function (g) {
+      g.keys.forEach(function (r) { if (r[2]) out.push({ label: r[1], hint: r[0], run: r[2] }); });
+    });
+    EXTRA.forEach(function (r) { out.push({ label: r[0], hint: '', run: r[1] }); });
+    return out;
+  }
+
+  function paletteRender() {
+    var q = (palInput.value || '').trim().toLowerCase();
+    palItems = paletteCommands().filter(function (c) { return !q || c.label.toLowerCase().indexOf(q) !== -1; });
+    if (palSel >= palItems.length) palSel = Math.max(0, palItems.length - 1);
+    palList.innerHTML = '';
+    if (!palItems.length) {
+      var none = document.createElement('div');
+      none.style.cssText = 'padding:14px;font-size:var(--text-md);color:var(--text-tertiary);';
+      none.textContent = 'No matching command';
+      palList.appendChild(none);
+      return;
+    }
+    palItems.forEach(function (c, i) {
+      var row = document.createElement('div');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;'
+        + 'padding:10px 12px;cursor:pointer;font-size:var(--text-md);color:var(--text-primary);'
+        + (i === palSel ? 'background:var(--surface-sunken);' : '');
+      var l = document.createElement('span'); l.textContent = c.label; row.appendChild(l);
+      if (c.hint) {
+        var k = document.createElement('kbd');
+        k.textContent = c.hint;
+        k.style.cssText = 'font-family:var(--mono);font-size:var(--text-xs);padding:2px 7px;'
+          + 'border-radius:var(--radius-xs);border:1px solid var(--card-border);color:var(--text-secondary);';
+        row.appendChild(k);
+      }
+      row.addEventListener('mousemove', function () { if (palSel !== i) { palSel = i; paletteRender(); } });
+      row.addEventListener('click', function () { paletteRun(i); });
+      palList.appendChild(row);
+    });
+  }
+
+  function paletteRun(i) {
+    var c = palItems[i];
+    if (!c) return;
+    closePalette(true);
+    try { c.run(); } catch (err) { console.warn('PlotEdge: command failed', c.label, err); }
+  }
+
+  function buildPalette() {
+    var wrap = document.createElement('div');
+    wrap.className = 'modal-overlay';
+    wrap.id = 'commandPalette';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-label', 'Command palette');
+    wrap.innerHTML = '<div class="modal-content" style="max-width:520px;padding:0;overflow:hidden;">'
+      + '<input type="text" id="commandPaletteInput" autocomplete="off" spellcheck="false" '
+      + 'aria-label="Type a command" placeholder="Type a command…" '
+      + 'style="width:100%;box-sizing:border-box;padding:14px 16px;border:0;'
+      + 'border-bottom:1px solid var(--card-border);background:transparent;'
+      + 'color:var(--text-primary);font-size:var(--text-md);outline:none;">'
+      + '<div id="commandPaletteList" role="listbox" style="max-height:340px;overflow-y:auto;"></div></div>';
+    wrap.addEventListener('click', function (ev) { if (ev.target === wrap) closePalette(); });
+    document.body.appendChild(wrap);
+    palInput = wrap.querySelector('#commandPaletteInput');
+    palList = wrap.querySelector('#commandPaletteList');
+    palInput.addEventListener('input', function () { palSel = 0; paletteRender(); });
+    palInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'ArrowDown') { palSel = Math.min(palItems.length - 1, palSel + 1); paletteRender(); ev.preventDefault(); }
+      else if (ev.key === 'ArrowUp') { palSel = Math.max(0, palSel - 1); paletteRender(); ev.preventDefault(); }
+      else if (ev.key === 'Enter') { paletteRun(palSel); ev.preventDefault(); }
+    });
+    return wrap;
+  }
+
+  function paletteOpen() { return !!(palEl && palEl.classList.contains('show')); }
+  function openPalette() {
+    if (!palEl) palEl = buildPalette();
+    palFocus = document.activeElement;
+    palSel = 0; palInput.value = '';
+    palEl.classList.add('show');
+    paletteRender();
+    palInput.focus();
+  }
+  function closePalette(skipRestore) {
+    if (!palEl) return;
+    palEl.classList.remove('show');
+    if (!skipRestore && palFocus && palFocus.focus) { try { palFocus.focus(); } catch (e) {} }
+    palFocus = null;
+  }
+
+  // ══ DRAG A FILE ONTO THE WINDOW ══
+  // Routes by extension to the same handlers the Import tab's pickers use, so there is no second
+  // import path to keep in step. Unsupported files get a message instead of the browser navigating
+  // away to display them.
+  function hasFiles(e) {
+    var t = e.dataTransfer && e.dataTransfer.types;
+    return !!t && Array.prototype.indexOf.call(t, 'Files') !== -1;
+  }
+  function onDragOver(e) { if (hasFiles(e)) e.preventDefault(); }
+  function onDrop(e) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (overlayOpen()) return;
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    var ext = (f.name.toLowerCase().split('.').pop()) || '';
+    if (ext === 'plotpack' || ext === 'csv' || ext === 'gpkg') {
+      try {
+        switchTabNav('import');
+        handleImportFileChosen({ target: { files: [f], value: '' } });
+      } catch (err) { console.warn('PlotEdge: drop import failed', err); }
+    } else if (typeof showToast === 'function') {
+      showToast('Drop a .plotpack, .csv or .gpkg file to import it');
+    }
+  }
+
+  // ══ SKIP LINK ══
+  // Hidden until it takes keyboard focus; jumps past the navigation rail to the content.
+  function installSkipLink() {
+    var a = document.createElement('a');
+    a.href = '#scrollRoot';
+    a.textContent = 'Skip to content';
+    var off = 'position:fixed;left:8px;top:-48px;z-index:99999;padding:8px 14px;'
+      + 'border-radius:var(--radius-xs);background:var(--surface-sunken);color:var(--text-primary);'
+      + 'border:1px solid var(--card-border);font-size:var(--text-md);';
+    a.style.cssText = off;
+    a.addEventListener('focus', function () { a.style.top = '8px'; });
+    a.addEventListener('blur', function () { a.style.top = '-48px'; });
+    a.addEventListener('click', function (ev) {
+      var root = document.getElementById('scrollRoot');
+      if (!root) return;
+      ev.preventDefault();
+      root.setAttribute('tabindex', '-1');
+      root.focus();
+    });
+    document.body.insertBefore(a, document.body.firstChild);
+  }
+
   function handler(e) {
+    // Ctrl/Cmd+K is the one modifier combination claimed here: it opens the palette. Everything else
+    // with a modifier still belongs to the browser.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      if (paletteOpen()) closePalette();
+      else if (!overlayOpen()) openPalette();
+      e.preventDefault();
+      return;
+    }
+    if (paletteOpen() && e.key === 'Escape') { closePalette(); e.preventDefault(); e.stopPropagation(); return; }
     if (shouldIgnore(e)) return;
 
     // Escape, in capture phase, before anything else looks at it. The sheet is created at runtime so
@@ -204,6 +366,9 @@
     }
     // Capture phase so Escape reaches this before js/12-review.js's document-level handler.
     document.addEventListener('keydown', handler, true);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    try { installSkipLink(); } catch (e) {}
     return true;
   }
 
@@ -211,4 +376,5 @@
   window.desktopKeysInstalled = install();
   window.openShortcutsHelp = openHelp;
   window.closeShortcutsHelp = closeHelp;
+  window.openCommandPalette = openPalette;
 })();

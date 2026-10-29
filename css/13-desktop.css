@@ -474,3 +474,14 @@
 @media (min-width: 900px) and (hover: none) {
   .panel, .pm-body, .subpage-body { max-width: 780px; }
 }
+
+
+/* ═══ WIDE SCREENS ═══
+   1180px leaves a third of a 27" display empty. Above 1700px let the content and the Review map
+   column grow. Same gate as the rest of the desktop layer. */
+@media (min-width: 1700px) and (hover: hover) and (pointer: fine) {
+  html:not(.native-android) { --desk-max: 1560px; }
+  html:not(.native-android) #panel-review.active {
+    grid-template-columns: minmax(0, 1fr) minmax(420px, 600px);
+  }
+}
