@@ -33,7 +33,7 @@ git does not care that a filename starts with a dot. Nothing is skipped.
 ## Route B — web upload
 
 Drag the ordinary folders in (`js/`, `css/`, `tests/`, `scripts/`, `signing/`,
-`resources/`, and the root files). Then **Add file -> Create new file** three
+`resources/`, `vendor/`, `scanner/`, `native/`, and the root files). Then **Add file -> Create new file** three
 times and type the full path into the filename box:
 
 | Create at this exact path            | Content                                    |
