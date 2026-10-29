@@ -47,7 +47,7 @@ jobs:
         run: pip install pillow
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run the test suite
         # The gate. A build that ships a broken app is worse than no build,
@@ -59,6 +59,9 @@ jobs:
       # ORDERED asset folders — index.html alone produces an APK that launches to
       # a blank unstyled page, which in a field app is indistinguishable from
       # data loss. Nothing here is committed back; www/ is throwaway.
+      - name: Bundle offline libraries
+        run: npm run vendor
+
       - name: Stage the web app into www/ for Capacitor
         run: |
           set -e
@@ -69,6 +72,8 @@ jobs:
           cp plotedge.manifest.json www/plotedge.manifest.json
           cp -r css www/css
           cp -r js www/js
+          cp -r vendor www/vendor
+          cp -r scanner www/scanner
           # resources/ holds two very different kinds of file, and only one
           # belongs in the APK:
           #   * runtime images the app actually loads (favicon, splash logo,
@@ -138,6 +143,9 @@ jobs:
 
       - name: Patch Android widget (home screen provider, deep links)
         run: python3 scripts/patch-android-widget.py
+
+      - name: Add Android scanner file import and USB inventory
+        run: python3 scripts/patch-android-scanner.py
 
       # Without this every CI build signs with a fresh random debug key, Android
       # refuses the update as INSTALL_FAILED_UPDATE_INCOMPATIBLE, and the only way
